@@ -1,0 +1,11 @@
+[project]
+name = "mouse-tracker"
+version = "0.3.0"
+description = "Automated mouse locomotor activity tracking from video. Computes distance, speed profile, speed distribution, and occupancy heatmap for behavioral experiments."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "matplotlib>=3.7.5",
+  "opencv-python>=4.13.0.92",
+  "seaborn>=0.13.2",
+]
