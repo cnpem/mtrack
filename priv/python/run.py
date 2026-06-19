@@ -4,12 +4,6 @@ Responsible for: entry point / orchestrator.
 Parses arguments, manages video setup, calls analyzer / render / metrics modules, and displays/saves outputs.
 """
 
-import sys
-from pathlib import Path
-
-# Add the directory containing run.py to sys.path so local modules are resolved
-sys.path.append(str(Path(__file__).resolve().parent))
-
 import argparse
 import cv2
 import numpy as np
