@@ -1,0 +1,21 @@
+defmodule MouseTracker.Repo.Migrations.CreateVideos do
+  use Ecto.Migration
+
+  def change do
+    create table(:videos) do
+      add :filename, :string, null: false
+      add :filepath, :string, null: false
+      add :fps, :float
+      add :duration_seconds, :float
+      add :frame_count, :integer
+      add :status, :string, null: false, default: "pending"
+      add :experiment_id, references(:experiments, on_delete: :delete_all), null: false
+      add :calibration_id, references(:calibrations, on_delete: :nilify_all), null: true
+
+      timestamps(type: :utc_datetime)
+    end
+
+    create index(:videos, [:experiment_id])
+    create index(:videos, [:calibration_id])
+  end
+end
