@@ -15,6 +15,11 @@ defmodule MouseTracker.Repo.Migrations.CreateRois do
       timestamps(type: :utc_datetime)
     end
 
+    create constraint(:rois, :positive_w, check: "w IS NULL OR w > 0")
+    create constraint(:rois, :positive_h, check: "h IS NULL OR h > 0")
+    create constraint(:rois, :positive_radius, check: "radius IS NULL OR radius > 0")
+
     create index(:rois, [:video_id])
+    create unique_index(:rois, [:video_id, :name])
   end
 end

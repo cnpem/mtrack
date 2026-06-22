@@ -28,13 +28,24 @@ defmodule MouseTracker.Experiments.Roi do
     |> validate_inclusion(:shape, @valid_shapes)
     |> validate_shape_fields()
     |> foreign_key_constraint(:video_id)
+    |> unique_constraint([:video_id, :name])
   end
 
   defp validate_shape_fields(changeset) do
     case get_field(changeset, :shape) do
-      "rectangle" -> validate_required(changeset, [:w, :h])
-      "circle" -> validate_required(changeset, [:radius])
-      _ -> changeset
+      "rectangle" ->
+        changeset
+        |> validate_required([:w, :h])
+        |> validate_number(:w, greater_than: 0)
+        |> validate_number(:h, greater_than: 0)
+
+      "circle" ->
+        changeset
+        |> validate_required([:radius])
+        |> validate_number(:radius, greater_than: 0)
+
+      _ ->
+        changeset
     end
   end
 end

@@ -18,7 +18,11 @@ defmodule MouseTracker.Repo.Migrations.CreateVideos do
       timestamps(type: :utc_datetime)
     end
 
+    create constraint(:videos, :valid_status,
+      check: "status IN ('pending', 'processing', 'done', 'error')")
+
     create index(:videos, [:experiment_id])
     create index(:videos, [:calibration_id])
+    create unique_index(:videos, [:filepath])
   end
 end

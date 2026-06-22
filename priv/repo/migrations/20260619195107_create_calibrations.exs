@@ -8,8 +8,8 @@ defmodule MouseTracker.Repo.Migrations.CreateCalibrations do
       add :coordinate_y1, :integer
       add :coordinate_x2, :integer
       add :coordinate_y2, :integer
-      add :cage_side_cm, :float
-      add :px_per_10cm, :float
+      add :cage_side_cm, :float, null: false
+      add :px_per_10cm, :float, null: false
       add :threshold, :integer, null: false, default: 80
       add :min_area, :integer, null: false, default: 250
       add :valid_region_x, :integer

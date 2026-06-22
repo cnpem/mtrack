@@ -11,9 +11,11 @@ defmodule MouseTracker.Repo.Migrations.CreateRoiTimes do
       timestamps(type: :utc_datetime)
     end
 
+    create constraint(:roi_times, :non_negative_frame_count, check: "frame_count >= 0")
+    create constraint(:roi_times, :non_negative_seconds, check: "seconds >= 0")
+
     create index(:roi_times, [:roi_id])
     create index(:roi_times, [:tracking_result_id])
-    # Add a unique constraint to ensure a ROI has at most one time entry per tracking result
     create unique_index(:roi_times, [:roi_id, :tracking_result_id])
   end
 end

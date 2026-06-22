@@ -11,5 +11,6 @@ defmodule MouseTracker.Repo.Migrations.CreateExperiments do
     end
 
     create index(:experiments, [:user_id])
+    create unique_index(:experiments, [:user_id, :name])
   end
 end

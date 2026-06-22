@@ -16,7 +16,6 @@ defmodule MouseTracker.Repo.Migrations.CreateTrackingResults do
       timestamps(type: :utc_datetime)
     end
 
-    create index(:tracking_results, [:video_id])
     create unique_index(:tracking_results, [:video_id])
   end
 end

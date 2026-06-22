@@ -34,9 +34,35 @@ defmodule MouseTracker.Experiments.Calibration do
       :valid_region_x, :valid_region_y, :valid_region_w, :valid_region_h,
       :user_id
     ])
-    |> validate_required([:px_per_10cm, :threshold, :min_area, :user_id])
+    |> validate_required([:cage_side_cm, :px_per_10cm, :threshold, :min_area, :user_id])
+    |> validate_number(:cage_side_cm, greater_than: 0)
+    |> validate_number(:px_per_10cm, greater_than: 0)
     |> validate_number(:threshold, greater_than_or_equal_to: 0, less_than_or_equal_to: 255)
     |> validate_number(:min_area, greater_than: 0)
+    |> validate_coordinates_together()
+    |> validate_valid_region_together()
     |> foreign_key_constraint(:user_id)
+  end
+
+  defp validate_coordinates_together(changeset) do
+    fields = [:coordinate_x1, :coordinate_y1, :coordinate_x2, :coordinate_y2]
+    values = Enum.map(fields, &get_field(changeset, &1))
+
+    if Enum.any?(values, &(!is_nil(&1))) and Enum.any?(values, &is_nil(&1)) do
+      add_error(changeset, :coordinate_x1, "all cage corner coordinates must be provided together")
+    else
+      changeset
+    end
+  end
+
+  defp validate_valid_region_together(changeset) do
+    fields = [:valid_region_x, :valid_region_y, :valid_region_w, :valid_region_h]
+    values = Enum.map(fields, &get_field(changeset, &1))
+
+    if Enum.any?(values, &(!is_nil(&1))) and Enum.any?(values, &is_nil(&1)) do
+      add_error(changeset, :valid_region_x, "all valid region fields must be provided together")
+    else
+      changeset
+    end
   end
 end

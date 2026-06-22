@@ -23,5 +23,7 @@ defmodule MouseTracker.Experiments.RoiTime do
     |> foreign_key_constraint(:roi_id)
     |> foreign_key_constraint(:tracking_result_id)
     |> unique_constraint([:roi_id, :tracking_result_id])
+    |> check_constraint(:frame_count, name: :non_negative_frame_count)
+    |> check_constraint(:seconds, name: :non_negative_seconds)
   end
 end

@@ -27,7 +27,12 @@ defmodule MouseTracker.Experiments.TrackingResult do
       :speed_median_px, :speed_median_cm, :heatmap_path, :processed_at,
       :video_id
     ])
-    |> validate_required([:distance_px, :distance_cm, :speed_mean_px, :speed_mean_cm, :video_id])
+    |> validate_required([
+      :distance_px, :distance_cm,
+      :speed_mean_px, :speed_mean_cm,
+      :speed_median_px, :speed_median_cm,
+      :video_id
+    ])
     |> foreign_key_constraint(:video_id)
     |> unique_constraint(:video_id)
   end

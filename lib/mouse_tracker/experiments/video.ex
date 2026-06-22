@@ -35,5 +35,7 @@ defmodule MouseTracker.Experiments.Video do
     |> validate_inclusion(:status, @valid_statuses)
     |> foreign_key_constraint(:experiment_id)
     |> foreign_key_constraint(:calibration_id)
+    |> unique_constraint(:filepath)
+    |> check_constraint(:status, name: :valid_status)
   end
 end
