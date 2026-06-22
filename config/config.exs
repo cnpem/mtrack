@@ -7,6 +7,19 @@
 # General application configuration
 import Config
 
+config :mouse_tracker, :scopes,
+  user: [
+    default: true,
+    module: MouseTracker.Accounts.Scope,
+    assign_key: :current_scope,
+    access_path: [:user, :id],
+    schema_key: :user_id,
+    schema_type: :id,
+    schema_table: :users,
+    test_data_fixture: MouseTracker.AccountsFixtures,
+    test_setup_helper: :register_and_log_in_user
+  ]
+
 config :mouse_tracker,
   ecto_repos: [MouseTracker.Repo],
   generators: [timestamp_type: :utc_datetime]
