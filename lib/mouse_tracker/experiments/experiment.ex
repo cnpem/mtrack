@@ -17,8 +17,8 @@ defmodule MouseTracker.Experiments.Experiment do
 
   def changeset(experiment, attrs) do
     experiment
-    |> cast(attrs, [:name, :description, :user_id])
-    |> validate_required([:name, :user_id])
+    |> cast(attrs, [:name, :description])
+    |> validate_required([:name])
     |> validate_length(:name, max: 255)
     |> foreign_key_constraint(:user_id)
     |> unique_constraint([:user_id, :name])

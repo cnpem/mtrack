@@ -62,7 +62,11 @@ The app uses **magic-link login** (passwordless email link) as the primary flow,
 
 ### Frontend
 
-Phoenix LiveView with Tailwind CSS + DaisyUI. JS entry point is `assets/js/app.js`. Templates use `.heex` files. `core_components.ex` defines reusable UI components.
+Phoenix LiveView with Tailwind CSS (v4). JS entry point is `assets/js/app.js`. Templates use `.heex` files. `core_components.ex` defines reusable UI components. **Do not use DaisyUI** — write Tailwind components manually.
+
+### HTTP client
+
+Use the `:req` (`Req`) library for all HTTP requests. **Never** use `:httpoison`, `:tesla`, or `:httpc`. `Req` is already included as a dependency.
 
 ### Python ↔ Elixir boundary
 

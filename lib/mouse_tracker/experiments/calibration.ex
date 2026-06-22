@@ -31,10 +31,9 @@ defmodule MouseTracker.Experiments.Calibration do
     |> cast(attrs, [
       :name, :coordinate_x1, :coordinate_y1, :coordinate_x2, :coordinate_y2,
       :cage_side_cm, :px_per_10cm, :threshold, :min_area,
-      :valid_region_x, :valid_region_y, :valid_region_w, :valid_region_h,
-      :user_id
+      :valid_region_x, :valid_region_y, :valid_region_w, :valid_region_h
     ])
-    |> validate_required([:cage_side_cm, :px_per_10cm, :threshold, :min_area, :user_id])
+    |> validate_required([:cage_side_cm, :px_per_10cm, :threshold, :min_area])
     |> validate_number(:cage_side_cm, greater_than: 0)
     |> validate_number(:px_per_10cm, greater_than: 0)
     |> validate_number(:threshold, greater_than_or_equal_to: 0, less_than_or_equal_to: 255)
