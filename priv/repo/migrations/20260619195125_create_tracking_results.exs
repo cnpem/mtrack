@@ -17,5 +17,6 @@ defmodule MouseTracker.Repo.Migrations.CreateTrackingResults do
     end
 
     create index(:tracking_results, [:video_id])
+    create unique_index(:tracking_results, [:video_id])
   end
 end

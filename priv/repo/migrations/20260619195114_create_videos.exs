@@ -5,9 +5,12 @@ defmodule MouseTracker.Repo.Migrations.CreateVideos do
     create table(:videos) do
       add :filename, :string, null: false
       add :filepath, :string, null: false
-      add :fps, :float
+      add :format, :string
+      add :fps, :integer
       add :duration_seconds, :float
       add :frame_count, :integer
+      add :width, :integer
+      add :height, :integer
       add :status, :string, null: false, default: "pending"
       add :experiment_id, references(:experiments, on_delete: :delete_all), null: false
       add :calibration_id, references(:calibrations, on_delete: :nilify_all), null: true

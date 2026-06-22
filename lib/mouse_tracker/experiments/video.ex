@@ -1,0 +1,39 @@
+defmodule MouseTracker.Experiments.Video do
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  alias MouseTracker.Experiments.{Experiment, Calibration, Roi, TrackingResult}
+
+  @valid_statuses ~w[pending processing done error]
+
+  schema "videos" do
+    field :filename, :string
+    field :filepath, :string
+    field :format, :string
+    field :fps, :integer
+    field :duration_seconds, :float
+    field :frame_count, :integer
+    field :width, :integer
+    field :height, :integer
+    field :status, :string, default: "pending"
+
+    belongs_to :experiment, Experiment
+    belongs_to :calibration, Calibration
+    has_many :rois, Roi
+    has_one :tracking_result, TrackingResult
+
+    timestamps(type: :utc_datetime)
+  end
+
+  def changeset(video, attrs) do
+    video
+    |> cast(attrs, [
+      :filename, :filepath, :format, :fps, :duration_seconds,
+      :frame_count, :width, :height, :status, :experiment_id, :calibration_id
+    ])
+    |> validate_required([:filename, :filepath, :experiment_id])
+    |> validate_inclusion(:status, @valid_statuses)
+    |> foreign_key_constraint(:experiment_id)
+    |> foreign_key_constraint(:calibration_id)
+  end
+end
