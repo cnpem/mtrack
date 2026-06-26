@@ -8,6 +8,7 @@ defmodule MouseTracker.Experiments do
     Video,
     Calibration,
     Roi,
+    RoiTime,
     TrackingResult
   }
 
@@ -61,6 +62,8 @@ defmodule MouseTracker.Experiments do
     |> Repo.update()
   end
 
+  def delete_video(%Video{} = video), do: Repo.delete(video)
+
   def change_video(%Video{} = video, attrs \\ %{}) do
     Video.changeset(video, attrs)
   end
@@ -81,6 +84,14 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
+  def update_calibration(%Calibration{} = calibration, attrs) do
+    calibration
+    |> Calibration.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def delete_calibration(%Calibration{} = calibration), do: Repo.delete(calibration)
+
   def change_calibration(%Calibration{} = calibration, attrs \\ %{}) do
     Calibration.changeset(calibration, attrs)
   end
@@ -91,14 +102,44 @@ defmodule MouseTracker.Experiments do
     Repo.all(from r in Roi, where: r.video_id == ^video.id)
   end
 
+  def get_roi!(%Video{} = video, id) do
+    Repo.get_by!(Roi, id: id, video_id: video.id)
+  end
+
   def create_roi(%Video{} = video, attrs) do
     %Roi{video_id: video.id}
     |> Roi.changeset(attrs)
     |> Repo.insert()
   end
 
+  def update_roi(%Roi{} = roi, attrs) do
+    roi
+    |> Roi.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def delete_roi(%Roi{} = roi), do: Repo.delete(roi)
+
   def change_roi(%Roi{} = roi, attrs \\ %{}) do
     Roi.changeset(roi, attrs)
+  end
+
+  # --- RoiTimes ---
+
+  def list_roi_times(%Roi{} = roi) do
+    Repo.all(from rt in RoiTime, where: rt.roi_id == ^roi.id)
+  end
+
+  def get_roi_time!(id), do: Repo.get!(RoiTime, id)
+
+  def create_roi_time(%Roi{} = roi, %TrackingResult{} = result, attrs) do
+    %RoiTime{roi_id: roi.id, tracking_result_id: result.id}
+    |> RoiTime.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def change_roi_time(%RoiTime{} = roi_time, attrs \\ %{}) do
+    RoiTime.changeset(roi_time, attrs)
   end
 
   # --- Tracking Results ---

@@ -21,6 +21,6 @@ defmodule MouseTracker.Experiments.Experiment do
     |> validate_required([:name])
     |> validate_length(:name, max: 255)
     |> foreign_key_constraint(:user_id)
-    |> unique_constraint([:user_id, :name])
+    |> unique_constraint(:name, name: :experiments_user_id_name_index)
   end
 end
