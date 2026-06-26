@@ -4,6 +4,8 @@ Responsible for: entry point / orchestrator.
 Parses arguments, manages video setup, calls analyzer / render / metrics modules, and displays/saves outputs.
 """
 
+import json
+import sys
 import argparse
 import cv2
 import numpy as np
@@ -39,17 +41,80 @@ def main():
     )
     ap.add_argument("-sd", "--speed-distribution", help="speed distribution histogram")
     ap.add_argument("-hm", "--heatmap", help="occupancy heatmap")
+    ap.add_argument(
+        "--json", dest="json_params",
+        help="JSON string com parâmetros (modo headless, sem janelas OpenCV)",
+    )
 
     args = vars(ap.parse_args())
 
+    if args["json_params"]:
+        _run_headless(args["json_params"])
+    else:
+        _run_interactive(args)
+
+
+def _run_headless(json_str):
+    params = json.loads(json_str)
+
+    vs = cv2.VideoCapture(params["video"])
+    fps = analyzer.video_fps(vs)
+    ff = vs.read()[1]
+    bg = detector.get_background(ff)
+
+    valid_region = params["valid_region"]
+    px_per_10cm = params.get("px_per_10cm", 1.0)
+    rois = params.get("rois", [])
+    start_time = params.get("start_time", 0)
+    end_time = params.get("end_time", 0)
+    threshold = params.get("threshold", 80)
+    min_area = params.get("min_area", 250)
+    progress_every = params.get("progress_every", 50)
+
+    analyzer.skip_frames(vs, int(start_time * fps))
+    len_frames = (int(end_time) - int(start_time)) * fps
+
+    heatmap, dist_px, frames_into_roi, speeds_px = analyzer.process(
+        vs, bg, valid_region, threshold, min_area, rois, len_frames,
+        headless=True, progress_every=progress_every,
+    )
+
+    conv = 10.0 / px_per_10cm
+    distance_cm = dist_px * conv
+    speeds_cm = [s * conv for s in speeds_px]
+    speed_mean_cm, speed_median_cm = metrics.compute_speed_stats(speeds_cm)
+    speed_mean_px, speed_median_px = metrics.compute_speed_stats(speeds_px)
+
+    print(json.dumps({
+        "type":            "result",
+        "distance_px":     round(dist_px, 2),
+        "distance_cm":     round(distance_cm, 2),
+        "speed_mean_px":   round(speed_mean_px, 2),
+        "speed_mean_cm":   round(speed_mean_cm, 2),
+        "speed_median_px": round(speed_median_px, 2),
+        "speed_median_cm": round(speed_median_cm, 2),
+        "frames_into_roi": list(frames_into_roi),
+        "time_into_roi_s": [round(f / fps, 2) for f in frames_into_roi],
+    }), flush=True)
+
+    max_speed = 300 * conv if speeds_cm else 300
+    if params.get("speed_profile"):
+        render.plot_speed_profile(speeds_cm, speed_mean_cm, speed_median_cm, max_speed, params["speed_profile"])
+    if params.get("speed_distribution"):
+        render.plot_speed_distribution(speeds_cm, max_speed, params["speed_distribution"])
+    if params.get("heatmap"):
+        render.plot_heatmap(heatmap, fps, bg, 120 * fps, params["heatmap"])
+
+
+def _run_interactive(args):
     # 1. Initialize video reader
     vs = cv2.VideoCapture(args["video"])
     fps = analyzer.video_fps(vs)
-    
+
     # Read the very first frame to establish background model
     ff = vs.read()[1]
     bg = detector.get_background(ff)
-    
+
     # 2. Select valid tracking region
     valid_region = render.select_valid_region(ff)
 
@@ -77,7 +142,7 @@ def main():
     conv = 10.0 / px_per_10cm
     distance_cm = dist_px * conv
     speeds_cm = [s * conv for s in speeds_px]
-    
+
     speed_mean_cm, speed_median_cm = metrics.compute_speed_stats(speeds_cm)
     speed_mean_px, speed_median_px = metrics.compute_speed_stats(speeds_px)
 
@@ -85,7 +150,7 @@ def main():
     print("Distance: {:.2f} px ({:.2f} cm)".format(dist_px, distance_cm))
     print("Speed mean: {:.2f} px/s ({:.2f} cm/s)".format(speed_mean_px, speed_mean_cm))
     print("Speed median: {:.2f} px/s ({:.2f} cm/s)".format(speed_median_px, speed_median_cm))
-    
+
     print("# frames into ROI {}".format(frames_into_roi))
     for i in range(len(frames_into_roi)):
         print("Time into ROI {}: {} seconds".format(i + 1, frames_into_roi[i] / fps))

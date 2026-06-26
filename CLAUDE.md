@@ -71,3 +71,5 @@ Use the `:req` (`Req`) library for all HTTP requests. **Never** use `:httpoison`
 ### Python ↔ Elixir boundary
 
 The Python script is a standalone CLI today. The web app stores calibration parameters and results in Postgres. Future integration will invoke the Python script as a subprocess or port, passing stored calibration/ROI parameters and writing results back.
+
+priv/mouse_tracker.py is deprecated, instead look at priv/python/
