@@ -88,3 +88,16 @@ The module is split into:
 - `detector.py` — frame diffing and thresholding (pure functions)
 - `metrics.py` — distance, speed stats, px↔cm conversion (pure functions)
 - `render.py` — interactive OpenCV setup + matplotlib plot generation
+
+## Pending Features
+
+### Novas métricas de rastreamento (cálculo Python pendente)
+
+Os campos abaixo já existem na tabela `tracking_results` mas **ainda não são calculados** pelo engine Python (`priv/python/`). A implementação deve ser feita em `priv/python/metrics.py` e os valores expostos via o protocolo `--json` (adicionados à saída `{"type":"result",...}`).
+
+| Campo | Descrição | Onde calcular |
+|---|---|---|
+| `thigmotaxis_pct` | % do tempo próximo às paredes (0–100) | `metrics.py` + requer definição de zona periférica |
+| `immobility_seconds` | Segundos totais de imobilidade | `metrics.py` — frames com deslocamento < threshold |
+| `path_tortuosity` | Comprimento real / deslocamento em linha reta | `metrics.py` |
+| `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea | `metrics.py` |

@@ -11,6 +11,11 @@ defmodule MouseTracker.Experiments.TrackingResult do
     field :speed_mean_cm, :float
     field :speed_median_px, :float
     field :speed_median_cm, :float
+    field :thigmotaxis_pct,    :float
+    field :immobility_seconds, :float
+    field :path_tortuosity,    :float
+    field :speed_max_px,       :float
+    field :speed_max_cm,       :float
     field :heatmap_path, :string
     field :processed_at, :utc_datetime
 
@@ -23,9 +28,12 @@ defmodule MouseTracker.Experiments.TrackingResult do
   def changeset(tracking_result, attrs) do
     tracking_result
     |> cast(attrs, [
-      :distance_px, :distance_cm, :speed_mean_px, :speed_mean_cm,
-      :speed_median_px, :speed_median_cm, :heatmap_path, :processed_at,
-      :video_id
+      :distance_px, :distance_cm,
+      :speed_mean_px, :speed_mean_cm,
+      :speed_median_px, :speed_median_cm,
+      :speed_max_px, :speed_max_cm,
+      :thigmotaxis_pct, :immobility_seconds, :path_tortuosity,
+      :heatmap_path, :processed_at, :video_id
     ])
     |> validate_required([
       :distance_px, :distance_cm,
