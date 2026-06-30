@@ -74,7 +74,7 @@ def _run_headless(json_str):
     analyzer.skip_frames(vs, int(start_time * fps))
     len_frames = (int(end_time) - int(start_time)) * fps
 
-    heatmap, dist_px, frames_into_roi, speeds_px = analyzer.process(
+    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos = analyzer.process(
         vs, bg, valid_region, threshold, min_area, rois, len_frames,
         headless=True, progress_every=progress_every,
     )
@@ -85,16 +85,26 @@ def _run_headless(json_str):
     speed_mean_cm, speed_median_cm = metrics.compute_speed_stats(speeds_cm)
     speed_mean_px, speed_median_px = metrics.compute_speed_stats(speeds_px)
 
+    immobility_threshold = params.get("immobility_threshold_cm", 2.0)
+    speed_max_px = metrics.compute_speed_max(speeds_px)
+    speed_max_cm = metrics.compute_speed_max(speeds_cm)
+    immobility_sec = metrics.compute_immobility_seconds(speeds_cm, immobility_threshold)
+    tortuosity = metrics.compute_tortuosity(dist_px, initial_pos, final_pos) if initial_pos and final_pos else 0.0
+
     print(json.dumps({
-        "type":            "result",
-        "distance_px":     round(dist_px, 2),
-        "distance_cm":     round(distance_cm, 2),
-        "speed_mean_px":   round(speed_mean_px, 2),
-        "speed_mean_cm":   round(speed_mean_cm, 2),
-        "speed_median_px": round(speed_median_px, 2),
-        "speed_median_cm": round(speed_median_cm, 2),
-        "frames_into_roi": list(frames_into_roi),
-        "time_into_roi_s": [round(f / fps, 2) for f in frames_into_roi],
+        "type":               "result",
+        "distance_px":        round(dist_px, 2),
+        "distance_cm":        round(distance_cm, 2),
+        "speed_mean_px":      round(speed_mean_px, 2),
+        "speed_mean_cm":      round(speed_mean_cm, 2),
+        "speed_median_px":    round(speed_median_px, 2),
+        "speed_median_cm":    round(speed_median_cm, 2),
+        "speed_max_px":       round(speed_max_px, 2),
+        "speed_max_cm":       round(speed_max_cm, 2),
+        "immobility_seconds": round(immobility_sec, 2),
+        "path_tortuosity":    round(tortuosity, 4),
+        "frames_into_roi":    list(frames_into_roi),
+        "time_into_roi_s":    [round(f / fps, 2) for f in frames_into_roi],
     }), flush=True)
 
     max_speed = 300 * conv if speeds_cm else 300
@@ -134,7 +144,7 @@ def _run_interactive(args):
     len_frames = (int(args["end_time"]) - int(args["start_time"])) * fps
 
     # 6. Run the main processing loop
-    heatmap, dist_px, frames_into_roi, speeds_px = analyzer.process(
+    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos = analyzer.process(
         vs, bg, valid_region, args["threshold"], args["min_area"], rois, len_frames
     )
 
@@ -145,11 +155,18 @@ def _run_interactive(args):
 
     speed_mean_cm, speed_median_cm = metrics.compute_speed_stats(speeds_cm)
     speed_mean_px, speed_median_px = metrics.compute_speed_stats(speeds_px)
+    speed_max_px = metrics.compute_speed_max(speeds_px)
+    speed_max_cm = metrics.compute_speed_max(speeds_cm)
+    immobility_sec = metrics.compute_immobility_seconds(speeds_cm)
+    tortuosity = metrics.compute_tortuosity(dist_px, initial_pos, final_pos) if initial_pos and final_pos else 0.0
 
     # 8. Print report
     print("Distance: {:.2f} px ({:.2f} cm)".format(dist_px, distance_cm))
     print("Speed mean: {:.2f} px/s ({:.2f} cm/s)".format(speed_mean_px, speed_mean_cm))
     print("Speed median: {:.2f} px/s ({:.2f} cm/s)".format(speed_median_px, speed_median_cm))
+    print("Speed max: {:.2f} px/s ({:.2f} cm/s)".format(speed_max_px, speed_max_cm))
+    print("Immobility: {:.2f} s".format(immobility_sec))
+    print("Tortuosity: {:.4f}".format(tortuosity))
 
     print("# frames into ROI {}".format(frames_into_roi))
     for i in range(len(frames_into_roi)):

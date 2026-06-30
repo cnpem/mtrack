@@ -39,6 +39,8 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
     _pos_prev = None
     _t_pos = 0
     dist_total = 0.0
+    initial_pos = None
+    final_position = None
     speeds = []
     s0 = None
     t0 = 0
@@ -81,6 +83,9 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
 
             if len(cnts) == 1:
                 _pos_curr = (x + w / 2, y + h / 2)
+                if initial_pos is None:
+                    initial_pos = _pos_curr
+                final_position = _pos_curr
                 _t_pos += 1
 
                 # Position update interval
@@ -146,5 +151,5 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q"):
                 break
-
-    return heatmap, dist_total, nframe_into_roi, speeds
+                
+    return heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_position

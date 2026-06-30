@@ -38,3 +38,27 @@ def compute_speed_stats(speeds_cm):
     if not speeds_cm:
         return 0.0, 0.0
     return float(np.mean(speeds_cm)), float(np.median(speeds_cm))
+
+def compute_speed_max(speeds):
+    """Returns the maximum speed, or 0.0 if there is none."""
+    return float(max(speeds)) if speeds else 0.0
+
+def compute_immobility_seconds(speeds_cm, threshold_cm=2.0):
+    """Returns the total immobility time (speed < threshold per second)."""
+    return float(sum(1 for s in speeds_cm if s < threshold_cm))
+
+def compute_tortuosity(total_distance, initial_pos, final_pos):
+    """
+    Toruosity = total distance/straight line movement
+    0.0 if displacement == 0
+    """
+    displacement = distance(initial_pos, final_pos)
+
+    if displacement == 0:
+        return 0.0
+    return total_distance/displacement
+
+    
+
+
+
