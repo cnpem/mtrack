@@ -9,7 +9,8 @@ defmodule MouseTracker.Experiments do
     Calibration,
     Roi,
     RoiTime,
-    TrackingResult
+    TrackingResult,
+    Subject
   }
 
   # --- Experiments ---
@@ -140,6 +141,32 @@ defmodule MouseTracker.Experiments do
 
   def change_roi_time(%RoiTime{} = roi_time, attrs \\ %{}) do
     RoiTime.changeset(roi_time, attrs)
+  end
+
+  # --- Subjects ---
+
+  def list_subjects(%Experiment{} = experiment) do
+    Repo.all(from s in Subject, where: s.experiment_id == ^experiment.id, order_by: s.name)
+  end
+
+  def get_subject!(id), do: Repo.get!(Subject, id)
+
+  def create_subject(%Experiment{} = experiment, attrs) do
+    %Subject{experiment_id: experiment.id}
+    |> Subject.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def update_subject(%Subject{} = subject, attrs) do
+    subject
+    |> Subject.changeset(attrs)
+    |> Repo.update()
+  end
+
+  def delete_subject(%Subject{} = subject), do: Repo.delete(subject)
+
+  def change_subject(%Subject{} = subject, attrs \\ %{}) do
+    Subject.changeset(subject, attrs)
   end
 
   # --- Tracking Results ---
