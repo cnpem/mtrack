@@ -71,12 +71,19 @@ def _run_headless(json_str):
     min_area = params.get("min_area", 250)
     progress_every = params.get("progress_every", 50)
 
+    thigmotaxis_margin_pct = params.get("thigmotaxis_margin_pct", 0.20)
+    arena_shape = params.get("arena_shape", "rect")
+    if arena_shape == "circle":
+        central_zone = metrics.get_central_zone_circular(valid_region, thigmotaxis_margin_pct)
+    else:
+        central_zone = metrics.get_central_zone_rectangular(valid_region, thigmotaxis_margin_pct)
+
     analyzer.skip_frames(vs, int(start_time * fps))
     len_frames = (int(end_time) - int(start_time)) * fps
 
-    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos = analyzer.process(
+    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected = analyzer.process(
         vs, bg, valid_region, threshold, min_area, rois, len_frames,
-        headless=True, progress_every=progress_every,
+        headless=True, progress_every=progress_every, thigmotaxis_zone=central_zone,
     )
 
     conv = 10.0 / px_per_10cm
@@ -90,6 +97,7 @@ def _run_headless(json_str):
     speed_max_cm = metrics.compute_speed_max(speeds_cm)
     immobility_sec = metrics.compute_immobility_seconds(speeds_cm, immobility_threshold)
     tortuosity = metrics.compute_tortuosity(dist_px, initial_pos, final_pos) if initial_pos and final_pos else 0.0
+    thigmotaxis_pct = metrics.compute_thigmotaxis_pct(nframe_peripheral, nframe_detected)
 
     print(json.dumps({
         "type":               "result",
@@ -103,6 +111,7 @@ def _run_headless(json_str):
         "speed_max_cm":       round(speed_max_cm, 2),
         "immobility_seconds": round(immobility_sec, 2),
         "path_tortuosity":    round(tortuosity, 4),
+        "thigmotaxis_pct":    thigmotaxis_pct,
         "frames_into_roi":    list(frames_into_roi),
         "time_into_roi_s":    [round(f / fps, 2) for f in frames_into_roi],
     }), flush=True)
@@ -144,8 +153,10 @@ def _run_interactive(args):
     len_frames = (int(args["end_time"]) - int(args["start_time"])) * fps
 
     # 6. Run the main processing loop
-    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos = analyzer.process(
-        vs, bg, valid_region, args["threshold"], args["min_area"], rois, len_frames
+    central_zone = metrics.get_central_zone_rectangular(valid_region)
+    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected = analyzer.process(
+        vs, bg, valid_region, args["threshold"], args["min_area"], rois, len_frames,
+        thigmotaxis_zone=central_zone,
     )
 
     # 7. Convert pixels to metric scale (cm)
@@ -159,6 +170,7 @@ def _run_interactive(args):
     speed_max_cm = metrics.compute_speed_max(speeds_cm)
     immobility_sec = metrics.compute_immobility_seconds(speeds_cm)
     tortuosity = metrics.compute_tortuosity(dist_px, initial_pos, final_pos) if initial_pos and final_pos else 0.0
+    thigmotaxis_pct = metrics.compute_thigmotaxis_pct(nframe_peripheral, nframe_detected)
 
     # 8. Print report
     print("Distance: {:.2f} px ({:.2f} cm)".format(dist_px, distance_cm))
@@ -167,6 +179,7 @@ def _run_interactive(args):
     print("Speed max: {:.2f} px/s ({:.2f} cm/s)".format(speed_max_px, speed_max_cm))
     print("Immobility: {:.2f} s".format(immobility_sec))
     print("Tortuosity: {:.4f}".format(tortuosity))
+    print("Thigmotaxis: {:.2f}%".format(thigmotaxis_pct))
 
     print("# frames into ROI {}".format(frames_into_roi))
     for i in range(len(frames_into_roi)):

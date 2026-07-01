@@ -8,7 +8,7 @@ Processes frames and yields/returns raw coordinates, speeds, distances, and time
 import json
 import cv2
 import numpy as np
-from .metrics import distance, is_pt_into_roi
+from .metrics import distance, is_pt_into_roi, is_pt_into_circle
 from .detector import diff_btw_frames, exclude_invalid_region, apply_threshold
 
 
@@ -26,7 +26,7 @@ def skip_frames(vs, n_frames):
 
 
 def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
-            headless=False, progress_every=50):
+            headless=False, progress_every=50, thigmotaxis_zone=None):
     """
     Main tracking algorithm loop.
     Returns:
@@ -47,6 +47,8 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
     t1 = 0
     fps = video_fps(vs)
     nframe_into_roi = [0] * len(rois)
+    nframe_peripheral = 0
+    nframe_detected = 0
 
     use_length = len_frames > 0
     frames_processed = 0
@@ -127,8 +129,23 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
 
                 # ROI statistics
                 for i in range(len(rois)):
-                    if is_pt_into_roi(_pos_curr, rois[i]):
+                    roi = rois[i]
+                    if len(roi) == 3:
+                        inside = is_pt_into_circle(_pos_curr, roi)
+                    else:
+                        inside = is_pt_into_roi(_pos_curr, roi)
+                    if inside:
                         nframe_into_roi[i] += 1
+
+                # Thigmotaxis
+                nframe_detected += 1
+                if thigmotaxis_zone is not None:
+                    if len(thigmotaxis_zone) == 3:
+                        in_central = is_pt_into_circle(_pos_curr, thigmotaxis_zone)
+                    else:
+                        in_central = is_pt_into_roi(_pos_curr, thigmotaxis_zone)
+                    if not in_central:
+                        nframe_peripheral += 1
             else:
                 _t_pos += 1
 
@@ -152,4 +169,4 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
             if key == ord("q"):
                 break
                 
-    return heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_position
+    return heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_position, nframe_peripheral, nframe_detected
