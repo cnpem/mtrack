@@ -89,14 +89,33 @@ The module is split into:
 - `metrics.py` — distance, speed stats, px↔cm conversion (pure functions)
 - `render.py` — interactive OpenCV setup + matplotlib plot generation
 
+The ROI format passed via JSON is a flat list: `[x, y, w, h]` for rectangles or `[x, y, radius]` for circles (Python distinguishes by list length).
+
+### Background job processing (Oban)
+
+`MouseTracker.Workers.VideoProcessingWorker` handles async video processing:
+1. Receives `%{"video_id" => id}` as job args
+2. Preloads `calibration` and `rois` from the video record
+3. Sets `video.status = "processing"`, calls `PythonPort.run/1`
+4. On success: inserts `TrackingResult`, sets status `"done"`, broadcasts `{:processing_done, video_id}` on PubSub topic `"video:<id>"`
+5. On error: sets status `"error"`, returns `{:error, reason}` so Oban retries (max 3 attempts)
+
+Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
+
 ## Roadmap / Sprints
 
-### Sprint 2.4 — Integração Elixir ↔ Python via System.cmd
+### Sprint 2.4 — Integração Elixir ↔ Python via System.cmd ✅
 
-- [ ] Implementar `MouseTracker.Tracking.PythonPort` — módulo Elixir que encapsula a chamada ao script Python
-- [ ] Usar `System.cmd/3` para executar o script em modo `--json` e capturar o stdout linha a linha
+- [x] Implementar `MouseTracker.Tracking.PythonPort` — módulo Elixir que encapsula a chamada ao script Python
+- [x] Usar `System.cmd/3` para executar o script em modo `--json` e capturar o stdout linha a linha
 - [ ] Testar a integração chamando o script com um vídeo de exemplo e decodificando o resultado com `Jason.decode!/1`
-- **Estudo:** `System.cmd` HexDocs
+
+### Sprint 2.5 — Processamento de vídeo em background com Oban
+
+- [x] Adicionar dependência `{:oban, "~> 2.18"}` e configurar queue `video_processing`
+- [x] Criar `MouseTracker.Workers.VideoProcessingWorker` — chama `PythonPort`, grava `TrackingResult`, atualiza `Video.status`, broadcast PubSub
+- [x] Adicionar `MouseTracker.Experiments.enqueue_video_processing/1` no contexto
+- [ ] Rodar `mix oban.install` e `mix ecto.migrate` para criar as tabelas do Oban
 
 ### Sprint 3 — Interface Web com Phoenix LiveView
 
