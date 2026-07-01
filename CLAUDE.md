@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 This is a two-part project:
-1. **Python tracking engine** (`priv/mouse_tracker.py`) — OpenCV-based video analysis tool that tracks mouse locomotion, computing distance, speed, and occupancy heatmaps.
+1. **Python tracking engine** (`priv/python/`) — OpenCV-based video analysis tool that tracks mouse locomotion, computing distance, speed, and occupancy heatmaps. `priv/mouse_tracker.py` is deprecated; use the module in `priv/python/` instead.
 2. **Phoenix web application** — a web UI being built around the Python script, with user auth, experiment management, and storage of tracking results.
 
 ## Commands
@@ -25,12 +25,22 @@ mix ecto.migrate           # run pending migrations
 ### Python
 
 ```bash
-uv run python priv/mouse_tracker.py -v <video> -c <cage_side_cm> [options]
+# Modo interativo (com janelas OpenCV para calibração e seleção de ROI)
+uv run python -m priv.python.run -v <video> -c <cage_side_cm> [options]
 ```
 
 Key options: `-st`/`-et` (start/end seconds), `-th` (threshold, default 80), `-a` (min contour area, default 250), `-roi` (ROI selection), `-sp`/`-sd`/`-hm` (output plot paths).
 
-Python dependencies are managed with `uv` (see `pyproject.toml` and `.python-version`). Install with `uv sync`.
+```bash
+# Modo headless (sem janelas, para integração com o Phoenix)
+uv run python -m priv.python.run --json '<json>'
+```
+
+JSON obrigatório: `video`, `valid_region` (`[x, y, w, h]`). Opcionais: `start_time`, `end_time`, `threshold` (80), `min_area` (250), `px_per_10cm` (1.0), `rois` ([]), `progress_every` (50), `speed_profile`, `speed_distribution`, `heatmap`.
+
+Saída headless: linhas `{"type":"progress","value":42.5}` durante o processamento, seguido de `{"type":"result","distance_cm":...}` ao final.
+
+Python dependencies são gerenciadas com `uv` (veja `pyproject.toml` e `.python-version`). Instale com `uv sync`.
 
 ## Architecture
 
@@ -70,4 +80,24 @@ Use the `:req` (`Req`) library for all HTTP requests. **Never** use `:httpoison`
 
 ### Python ↔ Elixir boundary
 
-The Python script is a standalone CLI today. The web app stores calibration parameters and results in Postgres. Future integration will invoke the Python script as a subprocess or port, passing stored calibration/ROI parameters and writing results back.
+The Python module (`priv/python/`) exposes a headless CLI mode (`--json`) designed to be invoked as a subprocess by Phoenix. The Elixir side will pass calibration and ROI parameters (stored in Postgres) as a JSON string, and read progress/result lines from stdout. Each stdout line is a valid JSON object — either `{"type":"progress","value":N}` or `{"type":"result",...}`.
+
+The module is split into:
+- `run.py` — entry point; dispatches to interactive or headless mode
+- `analyzer.py` — core tracking loop (`process/9`)
+- `detector.py` — frame diffing and thresholding (pure functions)
+- `metrics.py` — distance, speed stats, px↔cm conversion (pure functions)
+- `render.py` — interactive OpenCV setup + matplotlib plot generation
+
+## Pending Features
+
+### Novas métricas de rastreamento (cálculo Python pendente)
+
+Os campos abaixo já existem na tabela `tracking_results` mas **ainda não são calculados** pelo engine Python (`priv/python/`). A implementação deve ser feita em `priv/python/metrics.py` e os valores expostos via o protocolo `--json` (adicionados à saída `{"type":"result",...}`).
+
+| Campo | Descrição | Onde calcular |
+|---|---|---|
+| `thigmotaxis_pct` | % do tempo próximo às paredes (0–100) | `metrics.py` + requer definição de zona periférica |
+| `immobility_seconds` | Segundos totais de imobilidade | `metrics.py` — frames com deslocamento < threshold |
+| `path_tortuosity` | Comprimento real / deslocamento em linha reta | `metrics.py` |
+| `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea | `metrics.py` |

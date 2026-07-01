@@ -125,7 +125,7 @@ def calibrate(frame, cage_side_cm):
     cv2.namedWindow(window_name)
     cv2.setMouseCallback(window_name, mouse_callback)
     cv2.imshow(window_name, frame)
-    print("Click the 4 corners of the cage in clockwise order, then press SPACE")
+    print("Click the 4 corners of the cage in clockwise order, then press SPACE") # Pensar se cage por ter mais de 4 pontos, ou ter um centro e um raio
 
     while True:
         key = cv2.waitKey(0) & 0xFF

@@ -3,7 +3,7 @@ defmodule MouseTracker.Experiments.Experiment do
   import Ecto.Changeset
 
   alias MouseTracker.Accounts.User
-  alias MouseTracker.Experiments.Video
+  alias MouseTracker.Experiments.{Video, Subject}
 
   schema "experiments" do
     field :name, :string
@@ -11,6 +11,7 @@ defmodule MouseTracker.Experiments.Experiment do
 
     belongs_to :user, User
     has_many :videos, Video
+    has_many :subjects, Subject
 
     timestamps(type: :utc_datetime)
   end
