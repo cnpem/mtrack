@@ -89,15 +89,60 @@ The module is split into:
 - `metrics.py` — distance, speed stats, px↔cm conversion (pure functions)
 - `render.py` — interactive OpenCV setup + matplotlib plot generation
 
-## Pending Features
+The ROI format passed via JSON is a flat list: `[x, y, w, h]` for rectangles or `[x, y, radius]` for circles (Python distinguishes by list length).
 
-### Novas métricas de rastreamento (cálculo Python pendente)
+### Background job processing (Oban)
 
-Os campos abaixo já existem na tabela `tracking_results` mas **ainda não são calculados** pelo engine Python (`priv/python/`). A implementação deve ser feita em `priv/python/metrics.py` e os valores expostos via o protocolo `--json` (adicionados à saída `{"type":"result",...}`).
+`MouseTracker.Workers.VideoProcessingWorker` handles async video processing:
+1. Receives `%{"video_id" => id}` as job args
+2. Preloads `calibration` and `rois` from the video record
+3. Sets `video.status = "processing"`, calls `PythonPort.run/1`
+4. On success: inserts `TrackingResult`, sets status `"done"`, broadcasts `{:processing_done, video_id}` on PubSub topic `"video:<id>"`
+5. On error: sets status `"error"`, returns `{:error, reason}` so Oban retries (max 3 attempts)
 
-| Campo | Descrição | Onde calcular |
-|---|---|---|
-| `thigmotaxis_pct` | % do tempo próximo às paredes (0–100) | `metrics.py` + requer definição de zona periférica |
-| `immobility_seconds` | Segundos totais de imobilidade | `metrics.py` — frames com deslocamento < threshold |
-| `path_tortuosity` | Comprimento real / deslocamento em linha reta | `metrics.py` |
-| `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea | `metrics.py` |
+Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
+
+## Roadmap / Sprints
+
+### Sprint 2.4 — Integração Elixir ↔ Python via System.cmd ✅
+
+- [x] Implementar `MouseTracker.Tracking.PythonPort` — módulo Elixir que encapsula a chamada ao script Python
+- [x] Usar `System.cmd/3` para executar o script em modo `--json` e capturar o stdout linha a linha
+- [ ] Testar a integração chamando o script com um vídeo de exemplo e decodificando o resultado com `Jason.decode!/1`
+
+### Sprint 2.5 — Processamento de vídeo em background com Oban
+
+- [x] Adicionar dependência `{:oban, "~> 2.18"}` e configurar queue `video_processing`
+- [x] Criar `MouseTracker.Workers.VideoProcessingWorker` — chama `PythonPort`, grava `TrackingResult`, atualiza `Video.status`, broadcast PubSub
+- [x] Adicionar `MouseTracker.Experiments.enqueue_video_processing/1` no contexto
+- [ ] Rodar `mix oban.install` e `mix ecto.migrate` para criar as tabelas do Oban
+
+### Sprint 3 — Interface Web com Phoenix LiveView
+
+**3.1 — Tela de upload de vídeos**
+- [ ] Implementar upload de arquivo único e em lote (batch)
+- [ ] Salvar arquivos em `priv/static/uploads/` e registrar na tabela `videos` do banco
+- **Estudo:** LiveView Uploads
+
+**3.2 — Tela de listagem de experimentos e vídeos**
+- [ ] Listar todos os experimentos com os vídeos e status de cada um (`pending`, `processing`, `done`, `failed`)
+- [ ] Atualizar a lista em tempo real quando o status de um vídeo mudar, via Phoenix PubSub
+- **Estudo:** Phoenix PubSub
+
+**3.4 — Tela de Dashboard de resultados**
+- [ ] Exibir cartões com as métricas finais (distância, velocidade, tortuosidade, tigmotaxia, etc.)
+- [ ] Renderizar o heatmap como imagem estática gerada pelo Python
+- [ ] Integrar gráficos de velocidade usando um JS Hook com Chart.js
+
+## Completed Features
+
+### Métricas de rastreamento (Python)
+
+Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e expostos na saída `--json`:
+
+| Campo | Descrição |
+|---|---|
+| `thigmotaxis_pct` | % do tempo na zona periférica (20% da borda), suporte a arenas retangulares e circulares |
+| `immobility_seconds` | Segundos totais com velocidade < 2 cm/s |
+| `path_tortuosity` | Distância total / deslocamento em linha reta |
+| `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea |

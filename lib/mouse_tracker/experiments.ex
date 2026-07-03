@@ -169,6 +169,14 @@ defmodule MouseTracker.Experiments do
     Subject.changeset(subject, attrs)
   end
 
+  # --- Video Processing ---
+
+  def enqueue_video_processing(video_id) do
+    %{video_id: video_id}
+    |> MouseTracker.Workers.VideoProcessingWorker.new()
+    |> Oban.insert()
+  end
+
   # --- Tracking Results ---
 
   def get_tracking_result_for_video(%Video{} = video) do

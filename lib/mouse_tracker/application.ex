@@ -12,8 +12,7 @@ defmodule MouseTracker.Application do
       MouseTracker.Repo,
       {DNSCluster, query: Application.get_env(:mouse_tracker, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: MouseTracker.PubSub},
-      # Start a worker by calling: MouseTracker.Worker.start_link(arg)
-      # {MouseTracker.Worker, arg},
+      {Oban, Application.fetch_env!(:mouse_tracker, Oban)},
       # Start to serve requests, typically the last entry
       MouseTrackerWeb.Endpoint
     ]
