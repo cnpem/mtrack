@@ -108,14 +108,14 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
 - [x] Implementar `MouseTracker.Tracking.PythonPort` — módulo Elixir que encapsula a chamada ao script Python
 - [x] Usar `System.cmd/3` para executar o script em modo `--json` e capturar o stdout linha a linha
-- [ ] Testar a integração chamando o script com um vídeo de exemplo e decodificando o resultado com `Jason.decode!/1`
+- [x] Testar a integração chamando o script com um vídeo de exemplo e decodificando o resultado com `Jason.decode!/1`
 
-### Sprint 2.5 — Processamento de vídeo em background com Oban
+### Sprint 2.5 — Processamento de vídeo em background com Oban ✅
 
 - [x] Adicionar dependência `{:oban, "~> 2.18"}` e configurar queue `video_processing`
 - [x] Criar `MouseTracker.Workers.VideoProcessingWorker` — chama `PythonPort`, grava `TrackingResult`, atualiza `Video.status`, broadcast PubSub
 - [x] Adicionar `MouseTracker.Experiments.enqueue_video_processing/1` no contexto
-- [ ] Rodar `mix oban.install` e `mix ecto.migrate` para criar as tabelas do Oban
+- [x] Rodar `mix oban.install` e `mix ecto.migrate` para criar as tabelas do Oban
 
 ### Sprint 3 — Interface Web com Phoenix LiveView
 

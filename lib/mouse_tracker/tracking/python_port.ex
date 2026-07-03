@@ -9,6 +9,8 @@ defmodule MouseTracker.Tracking.PythonPort do
   Returns {:ok, result_map} or {:error, reason}.
   """
 
+  @behaviour MouseTracker.Tracking.PythonPortBehaviour
+
   @doc """
   Runs the tracker for the given params map.
 
@@ -18,6 +20,7 @@ defmodule MouseTracker.Tracking.PythonPort do
                  "immobility_threshold_cm", "progress_every",
                  "speed_profile", "speed_distribution", "heatmap"
   """
+  @impl true
   def run(params) when is_map(params) do
     json = Jason.encode!(params)
     root = project_root()

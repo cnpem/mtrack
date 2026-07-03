@@ -44,3 +44,5 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 config :mouse_tracker, Oban, testing: :inline
+
+config :mouse_tracker, :python_port, MouseTracker.Tracking.PythonPortMock

@@ -3,7 +3,6 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
 
   alias MouseTracker.Repo
   alias MouseTracker.Experiments.{Video, TrackingResult}
-  alias MouseTracker.Tracking.PythonPort
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"video_id" => video_id}}) do
@@ -13,7 +12,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
     |> Video.changeset(%{status: "processing"})
     |> Repo.update!()
 
-    case PythonPort.run(build_params(video)) do
+    case python_port().run(build_params(video)) do
       {:ok, result} ->
         save_result(video, result)
         :ok
@@ -25,6 +24,10 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
 
         {:error, reason}
     end
+  end
+
+  defp python_port do
+    Application.get_env(:mouse_tracker, :python_port, MouseTracker.Tracking.PythonPort)
   end
 
   defp build_params(%Video{calibration: cal} = video) do
