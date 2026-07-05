@@ -36,10 +36,11 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
       Phoenix.PubSub.subscribe(MouseTracker.PubSub, "video:#{video.id}")
 
       PythonPortMock
-      |> expect(:run, fn params ->
+      |> expect(:run, fn params, on_progress ->
         assert params["video"] == video.filepath
         assert is_list(params["valid_region"])
         assert params["rois"] == [[10, 10, 100, 100]]
+        assert is_function(on_progress, 1)
 
         {:ok,
          %{
@@ -76,7 +77,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
 
     test "sets status to processing before calling PythonPort", %{video: video} do
       PythonPortMock
-      |> expect(:run, fn _params ->
+      |> expect(:run, fn _params, _on_progress ->
         assert Repo.get!(Video, video.id).status == "processing"
 
         {:ok,
@@ -95,9 +96,13 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
   end
 
   describe "perform/1 -- error path" do
-    test "sets status to error, returns {:error, reason}, does not persist TrackingResult", %{video: video} do
+    test "sets status to error, returns {:error, reason}, does not persist TrackingResult", %{
+      video: video
+    } do
       PythonPortMock
-      |> expect(:run, fn _params -> {:error, "Python exited with code 1:\nsome traceback"} end)
+      |> expect(:run, fn _params, _on_progress ->
+        {:error, "Python exited with code 1:\nsome traceback"}
+      end)
 
       assert {:error, "Python exited with code 1:\nsome traceback"} =
                VideoProcessingWorker.perform(%Oban.Job{args: %{"video_id" => video.id}})

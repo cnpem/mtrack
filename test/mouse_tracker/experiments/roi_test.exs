@@ -2,21 +2,17 @@ defmodule MouseTracker.Experiments.RoiTest do
   use MouseTracker.DataCase, async: true
 
   import MouseTracker.AccountsFixtures
-  import MouseTracker.ExperimentsFixtures
 
   alias MouseTracker.Experiments.Roi
 
   describe "changeset/2" do
     setup do
-      user = user_fixture()
-      experiment = experiment_fixture(user)
-      video = video_fixture(experiment)
-      %{video: video}
+      %{user: user_fixture()}
     end
 
-    test "válido com shape rectangle", %{video: video} do
+    test "válido com shape rectangle", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI A",
           shape: "rectangle",
           x: 10,
@@ -28,9 +24,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert changeset.valid?
     end
 
-    test "válido com shape circle", %{video: video} do
+    test "válido com shape circle", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI B",
           shape: "circle",
           x: 50,
@@ -41,9 +37,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert changeset.valid?
     end
 
-    test "rectangle sem w falha", %{video: video} do
+    test "rectangle sem w falha", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "rectangle",
           x: 10,
@@ -54,9 +50,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert "can't be blank" in errors_on(changeset).w
     end
 
-    test "rectangle sem h falha", %{video: video} do
+    test "rectangle sem h falha", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "rectangle",
           x: 10,
@@ -67,9 +63,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert "can't be blank" in errors_on(changeset).h
     end
 
-    test "circle sem radius falha", %{video: video} do
+    test "circle sem radius falha", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "circle",
           x: 50,
@@ -79,9 +75,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert "can't be blank" in errors_on(changeset).radius
     end
 
-    test "w <= 0 é inválido", %{video: video} do
+    test "w <= 0 é inválido", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "rectangle",
           x: 10,
@@ -93,9 +89,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert errors_on(changeset).w != []
     end
 
-    test "h <= 0 é inválido", %{video: video} do
+    test "h <= 0 é inválido", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "rectangle",
           x: 10,
@@ -107,9 +103,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert errors_on(changeset).h != []
     end
 
-    test "radius <= 0 é inválido", %{video: video} do
+    test "radius <= 0 é inválido", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "circle",
           x: 50,
@@ -120,9 +116,9 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert errors_on(changeset).radius != []
     end
 
-    test "shape inválido é rejeitado", %{video: video} do
+    test "shape inválido é rejeitado", %{user: user} do
       changeset =
-        Roi.changeset(%Roi{video_id: video.id}, %{
+        Roi.changeset(%Roi{user_id: user.id}, %{
           name: "ROI",
           shape: "triangle",
           x: 10,
@@ -132,26 +128,36 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert errors_on(changeset).shape != []
     end
 
-    test "nome duplicado no mesmo vídeo falha no banco", %{video: video} do
-      roi_fixture(video, %{name: "ROI Único"})
+    test "nome duplicado para o mesmo usuário falha no banco", %{user: user} do
+      %Roi{user_id: user.id}
+      |> Roi.changeset(%{name: "ROI Único", shape: "rectangle", x: 0, y: 0, w: 10, h: 10})
+      |> Repo.insert!()
 
       assert {:error, changeset} =
-               %Roi{video_id: video.id}
-               |> Roi.changeset(%{name: "ROI Único", shape: "rectangle", x: 0, y: 0, w: 10, h: 10})
+               %Roi{user_id: user.id}
+               |> Roi.changeset(%{
+                 name: "ROI Único",
+                 shape: "rectangle",
+                 x: 0,
+                 y: 0,
+                 w: 10,
+                 h: 10
+               })
                |> Repo.insert()
 
       assert "has already been taken" in errors_on(changeset).name
     end
 
-    test "mesmo nome em vídeos diferentes é permitido" do
-      user = user_fixture()
-      experiment = experiment_fixture(user)
-      video1 = video_fixture(experiment)
-      video2 = video_fixture(experiment)
-      roi_fixture(video1, %{name: "ROI Compartilhado"})
+    test "mesmo nome para usuários diferentes é permitido" do
+      user1 = user_fixture()
+      user2 = user_fixture()
+
+      %Roi{user_id: user1.id}
+      |> Roi.changeset(%{name: "ROI Compartilhado", shape: "rectangle", x: 0, y: 0, w: 10, h: 10})
+      |> Repo.insert!()
 
       assert {:ok, _} =
-               %Roi{video_id: video2.id}
+               %Roi{user_id: user2.id}
                |> Roi.changeset(%{
                  name: "ROI Compartilhado",
                  shape: "rectangle",

@@ -19,7 +19,8 @@ defmodule MouseTracker.Repo.Migrations.CreateVideos do
     end
 
     create constraint(:videos, :valid_status,
-      check: "status IN ('pending', 'processing', 'done', 'error')")
+             check: "status IN ('pending', 'processing', 'done', 'error')"
+           )
 
     create index(:videos, [:experiment_id])
     create index(:videos, [:calibration_id])

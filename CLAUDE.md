@@ -134,6 +134,22 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 - [ ] Renderizar o heatmap como imagem estática gerada pelo Python
 - [ ] Integrar gráficos de velocidade usando um JS Hook com Chart.js
 
+### Sprint 3 (continuação) — Integração do design "Locomo" (planejado, ainda não implementado)
+
+Handoff de design recebido (`Mouse locomotion tracking app.zip` → `Locomo.dc.html` + `README.md`, 9 telas: Experiments List, Wizard 3 passos, Detail, Processing, Results 3-abas, Compare, Datasets, Analyses, Pipeline Settings — tudo mockado em JS). Plano completo de integração salvo em `C:\Users\talve\.claude\plans\dentro-do-mouse-locomotion-lexical-tiger.md`. Decisões já travadas com o usuário:
+
+1. **DaisyUI**: telas de auth existentes continuam com DaisyUI; todo o shell/telas novas do Locomo em **Tailwind puro** (o CLAUDE.md já proíbe DaisyUI, mas `core_components.ex`/layouts atuais violam essa regra — não migrar o existente agora).
+2. **Fases**: implementar primeiro o fluxo principal (sidebar shell, Experiments List, Wizard, Detail, Processing real, Results 3 abas). Compare/Datasets/Analyses(replay)/Settings ficam para depois.
+3. **ROI compartilhável**: `Roi` deixa de ser `belongs_to :video` e vira recurso do usuário reaproveitável entre N vídeos (many-to-many via tabela `videos_rois`), igual ao padrão já usado por `Calibration`. `treatment_group` (Saline/CNO) fica de fora por enquanto.
+
+Pontos técnicos principais do plano (ver arquivo completo para detalhes):
+- **Streaming de progresso**: `PythonPort.run/1` usa `System.cmd/3`, que bloqueia e descarta as linhas `{"type":"progress",...}` (o Python já as emite em `analyzer.py`). Precisa virar `Port.open` com leitura linha-a-linha + callback, para a tela de Processing mostrar progresso real via PubSub.
+- **Heatmap/speed-profile**: Python já gera esses dois como PNG estático (matplotlib) se os paths forem passados no JSON — não precisa de Chart.js/canvas no fluxo principal, só `<img>`. Precisa de migração nova adicionando `speed_profile_path` a `tracking_results`.
+- **Migração ROI**: nova tabela `videos_rois`, `rois.user_id` substitui `rois.video_id`, data-migration para preservar dados existentes.
+- Novas rotas/LiveViews: `ExperimentLive.Index/New/Show/Results`, `VideoLive.Processing`. `ExperimentLive.New` é uma LiveView só, com `live_action` por passo do wizard.
+- Wizard ROI/Calibração usa formulário estruturado (não desenho em canvas — fora de escopo por enquanto).
+- `test/support/mocks.ex` e testes de `python_port`/`video_processing_worker` precisam de atualização por causa da nova aridade do callback de progresso.
+
 ## Completed Features
 
 ### Métricas de rastreamento (Python)

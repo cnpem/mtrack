@@ -2,6 +2,7 @@ defmodule MouseTracker.Experiments.Roi do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias MouseTracker.Accounts.User
   alias MouseTracker.Experiments.{Video, RoiTime}
 
   @valid_shapes ~w[rectangle circle]
@@ -15,7 +16,8 @@ defmodule MouseTracker.Experiments.Roi do
     field :h, :integer
     field :radius, :integer
 
-    belongs_to :video, Video
+    belongs_to :user, User
+    many_to_many :videos, Video, join_through: "videos_rois"
     has_many :roi_times, RoiTime
 
     timestamps(type: :utc_datetime)
@@ -23,12 +25,12 @@ defmodule MouseTracker.Experiments.Roi do
 
   def changeset(roi, attrs) do
     roi
-    |> cast(attrs, [:name, :shape, :x, :y, :w, :h, :radius, :video_id])
-    |> validate_required([:name, :x, :y, :video_id])
+    |> cast(attrs, [:name, :shape, :x, :y, :w, :h, :radius, :user_id])
+    |> validate_required([:name, :x, :y, :user_id])
     |> validate_inclusion(:shape, @valid_shapes)
     |> validate_shape_fields()
-    |> foreign_key_constraint(:video_id)
-    |> unique_constraint(:name, name: :rois_video_id_name_index)
+    |> foreign_key_constraint(:user_id)
+    |> unique_constraint(:name, name: :rois_user_id_name_index)
   end
 
   defp validate_shape_fields(changeset) do

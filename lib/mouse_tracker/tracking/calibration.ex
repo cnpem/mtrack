@@ -29,9 +29,19 @@ defmodule MouseTracker.Experiments.Calibration do
   def changeset(calibration, attrs) do
     calibration
     |> cast(attrs, [
-      :name, :coordinate_x1, :coordinate_y1, :coordinate_x2, :coordinate_y2,
-      :cage_side_cm, :px_per_10cm, :threshold, :min_area,
-      :valid_region_x, :valid_region_y, :valid_region_w, :valid_region_h
+      :name,
+      :coordinate_x1,
+      :coordinate_y1,
+      :coordinate_x2,
+      :coordinate_y2,
+      :cage_side_cm,
+      :px_per_10cm,
+      :threshold,
+      :min_area,
+      :valid_region_x,
+      :valid_region_y,
+      :valid_region_w,
+      :valid_region_h
     ])
     |> validate_required([:cage_side_cm, :px_per_10cm, :threshold, :min_area])
     |> validate_number(:cage_side_cm, greater_than: 0)
@@ -48,7 +58,11 @@ defmodule MouseTracker.Experiments.Calibration do
     values = Enum.map(fields, &get_field(changeset, &1))
 
     if Enum.any?(values, &(!is_nil(&1))) and Enum.any?(values, &is_nil(&1)) do
-      add_error(changeset, :coordinate_x1, "all cage corner coordinates must be provided together")
+      add_error(
+        changeset,
+        :coordinate_x1,
+        "all cage corner coordinates must be provided together"
+      )
     else
       changeset
     end

@@ -11,7 +11,7 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
         <div class="text-center">
           <.header>Welcome {@user.email}</.header>
         </div>
-
+        
         <.form
           :if={!@user.confirmed_at}
           for={@form}
@@ -30,11 +30,12 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
           >
             Confirm and stay logged in
           </.button>
+          
           <.button phx-disable-with="Confirming..." class="btn btn-primary btn-soft w-full mt-2">
             Confirm and log in only this time
           </.button>
         </.form>
-
+        
         <.form
           :if={@user.confirmed_at}
           for={@form}
@@ -58,12 +59,13 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
             >
               Keep me logged in on this device
             </.button>
+            
             <.button phx-disable-with="Logging in..." class="btn btn-primary btn-soft w-full mt-2">
               Log me in only this time
             </.button>
           <% end %>
         </.form>
-
+        
         <p :if={!@user.confirmed_at} class="alert alert-outline mt-8">
           Tip: If you prefer passwords, you can enable them in the user settings.
         </p>

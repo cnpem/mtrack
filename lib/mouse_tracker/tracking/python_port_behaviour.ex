@@ -5,5 +5,9 @@ defmodule MouseTracker.Tracking.PythonPortBehaviour do
   Mox-generated mock instead of shelling out to `uv run python` in every test.
   """
 
-  @callback run(params :: map()) :: {:ok, map()} | {:error, term()}
+  @typedoc "Called for every `{\"type\":\"progress\",...}` line the Python process emits."
+  @type on_progress :: (map() -> any())
+
+  @callback run(params :: map(), on_progress :: on_progress()) ::
+              {:ok, map()} | {:error, term()}
 end

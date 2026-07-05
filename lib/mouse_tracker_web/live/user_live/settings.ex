@@ -15,7 +15,7 @@ defmodule MouseTrackerWeb.UserLive.Settings do
           <:subtitle>Manage your account email address and password settings</:subtitle>
         </.header>
       </div>
-
+      
       <.form for={@email_form} id="email_form" phx-submit="update_email" phx-change="validate_email">
         <.input
           field={@email_form[:email]}
@@ -24,12 +24,9 @@ defmodule MouseTrackerWeb.UserLive.Settings do
           autocomplete="username"
           spellcheck="false"
           required
-        />
-        <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+        /> <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
       </.form>
-
-      <div class="divider" />
-
+       <div class="divider" />
       <.form
         for={@password_form}
         id="password_form"

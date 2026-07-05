@@ -3,11 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title default="MouseTracker" suffix=" · Phoenix Framework" phx-no-format>{assigns[:page_title]}</.live_title>
+    <meta name="csrf-token" content={get_csrf_token()} /> <.live_title
+      default="MouseTracker"
+      suffix=" · Phoenix Framework"
+      phx-no-format
+    >{assigns[:page_title]}</.live_title>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
+    
     <script>
       (() => {
         const systemTheme = () => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -38,15 +42,18 @@
       })();
     </script>
   </head>
+  
   <body>
     <ul class="menu menu-horizontal w-full relative z-10 flex items-center gap-4 px-4 sm:px-6 lg:px-8 justify-end">
       <%= if @current_scope do %>
         <li>
           {@current_scope.user.email}
         </li>
+        
         <li>
           <.link href={~p"/users/settings"}>Settings</.link>
         </li>
+        
         <li>
           <.link href={~p"/users/log-out"} method="delete">Log out</.link>
         </li>
@@ -54,11 +61,12 @@
         <li>
           <.link href={~p"/users/register"}>Register</.link>
         </li>
+        
         <li>
           <.link href={~p"/users/log-in"}>Log in</.link>
         </li>
       <% end %>
     </ul>
-    {@inner_content}
+     {@inner_content}
   </body>
 </html>

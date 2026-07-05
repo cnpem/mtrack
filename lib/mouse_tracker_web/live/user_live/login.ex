@@ -11,6 +11,7 @@ defmodule MouseTrackerWeb.UserLive.Login do
         <div class="text-center">
           <.header>
             <p>Log in</p>
+            
             <:subtitle>
               <%= if @current_scope do %>
                 You need to reauthenticate to perform sensitive actions on your account.
@@ -24,17 +25,18 @@ defmodule MouseTrackerWeb.UserLive.Login do
             </:subtitle>
           </.header>
         </div>
-
+        
         <div :if={local_mail_adapter?()} class="alert alert-info">
           <.icon name="hero-information-circle" class="size-6 shrink-0" />
           <div>
             <p>You are running the local mail adapter.</p>
+            
             <p>
               To see sent emails, visit <.link href="/dev/mailbox" class="underline">the mailbox page</.link>.
             </p>
           </div>
         </div>
-
+        
         <.form
           :let={f}
           for={@form}
@@ -56,9 +58,9 @@ defmodule MouseTrackerWeb.UserLive.Login do
             Log in with email <span aria-hidden="true">→</span>
           </.button>
         </.form>
-
+        
         <div class="divider">or</div>
-
+        
         <.form
           :let={f}
           for={@form}
@@ -86,6 +88,7 @@ defmodule MouseTrackerWeb.UserLive.Login do
           <.button class="btn btn-primary w-full" name={@form[:remember_me].name} value="true">
             Log in and stay logged in <span aria-hidden="true">→</span>
           </.button>
+          
           <.button class="btn btn-primary btn-soft w-full mt-2">
             Log in only this time
           </.button>

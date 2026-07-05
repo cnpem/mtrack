@@ -98,17 +98,21 @@ defmodule MouseTracker.Experiments do
   end
 
   # --- ROIs ---
+  #
+  # A ROI is a user-owned, reusable geometry (like Calibration). It is attached
+  # to N videos via the `videos_rois` join table. Measured per-video data lives
+  # in `roi_times`/`tracking_results`, so sharing a ROI never shares acquired data.
 
-  def list_rois(%Video{} = video) do
-    Repo.all(from r in Roi, where: r.video_id == ^video.id)
+  def list_rois(%Scope{user: user}) do
+    Repo.all(from r in Roi, where: r.user_id == ^user.id, order_by: r.name)
   end
 
-  def get_roi!(%Video{} = video, id) do
-    Repo.get_by!(Roi, id: id, video_id: video.id)
+  def get_roi!(%Scope{user: user}, id) do
+    Repo.get_by!(Roi, id: id, user_id: user.id)
   end
 
-  def create_roi(%Video{} = video, attrs) do
-    %Roi{video_id: video.id}
+  def create_roi(%Scope{user: user}, attrs) do
+    %Roi{user_id: user.id}
     |> Roi.changeset(attrs)
     |> Repo.insert()
   end
@@ -123,6 +127,32 @@ defmodule MouseTracker.Experiments do
 
   def change_roi(%Roi{} = roi, attrs \\ %{}) do
     Roi.changeset(roi, attrs)
+  end
+
+  @doc "ROIs currently attached to the given video."
+  def list_rois_for_video(%Video{} = video) do
+    Repo.preload(video, :rois).rois
+  end
+
+  @doc """
+  Attaches an existing ROI to a video (idempotent — a duplicate link is ignored).
+  """
+  def attach_roi_to_video(%Video{} = video, %Roi{} = roi) do
+    Repo.insert_all(
+      "videos_rois",
+      [%{video_id: video.id, roi_id: roi.id}],
+      on_conflict: :nothing
+    )
+
+    :ok
+  end
+
+  @doc "Removes the link between a video and a ROI (leaves the ROI itself intact)."
+  def detach_roi_from_video(%Video{} = video, %Roi{} = roi) do
+    from(vr in "videos_rois", where: vr.video_id == ^video.id and vr.roi_id == ^roi.id)
+    |> Repo.delete_all()
+
+    :ok
   end
 
   # --- RoiTimes ---

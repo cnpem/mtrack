@@ -20,7 +20,7 @@ defmodule MouseTracker.Experiments.Video do
     belongs_to :experiment, Experiment
     belongs_to :calibration, Calibration
     belongs_to :subject, Subject
-    has_many :rois, Roi
+    many_to_many :rois, Roi, join_through: "videos_rois"
     has_one :tracking_result, TrackingResult
 
     timestamps(type: :utc_datetime)
@@ -29,8 +29,18 @@ defmodule MouseTracker.Experiments.Video do
   def changeset(video, attrs) do
     video
     |> cast(attrs, [
-      :filename, :filepath, :format, :fps, :duration_seconds,
-      :frame_count, :width, :height, :status, :experiment_id, :calibration_id, :subject_id
+      :filename,
+      :filepath,
+      :format,
+      :fps,
+      :duration_seconds,
+      :frame_count,
+      :width,
+      :height,
+      :status,
+      :experiment_id,
+      :calibration_id,
+      :subject_id
     ])
     |> validate_required([:filename, :filepath, :experiment_id])
     |> validate_inclusion(:status, @valid_statuses)

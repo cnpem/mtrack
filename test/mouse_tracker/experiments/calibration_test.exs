@@ -50,21 +50,30 @@ defmodule MouseTracker.Experiments.CalibrationTest do
 
     test "inválido sem cage_side_cm", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.delete(@valid_attrs, :cage_side_cm))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.delete(@valid_attrs, :cage_side_cm)
+        )
 
       assert "can't be blank" in errors_on(changeset).cage_side_cm
     end
 
     test "inválido sem px_per_10cm", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.delete(@valid_attrs, :px_per_10cm))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.delete(@valid_attrs, :px_per_10cm)
+        )
 
       assert "can't be blank" in errors_on(changeset).px_per_10cm
     end
 
     test "inválido sem threshold", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.delete(@valid_attrs, :threshold))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.delete(@valid_attrs, :threshold)
+        )
 
       assert "can't be blank" in errors_on(changeset).threshold
     end
@@ -78,28 +87,40 @@ defmodule MouseTracker.Experiments.CalibrationTest do
 
     test "cage_side_cm <= 0 é inválido", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.put(@valid_attrs, :cage_side_cm, 0.0))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :cage_side_cm, 0.0)
+        )
 
       assert errors_on(changeset).cage_side_cm != []
     end
 
     test "px_per_10cm <= 0 é inválido", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.put(@valid_attrs, :px_per_10cm, 0.0))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :px_per_10cm, 0.0)
+        )
 
       assert errors_on(changeset).px_per_10cm != []
     end
 
     test "threshold fora de [0..255] é inválido", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.put(@valid_attrs, :threshold, 256))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :threshold, 256)
+        )
 
       assert errors_on(changeset).threshold != []
     end
 
     test "threshold negativo é inválido", %{user: user} do
       changeset =
-        Calibration.changeset(%Calibration{user_id: user.id}, Map.put(@valid_attrs, :threshold, -1))
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :threshold, -1)
+        )
 
       assert errors_on(changeset).threshold != []
     end

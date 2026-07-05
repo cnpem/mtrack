@@ -27,7 +27,8 @@ defmodule MouseTracker.Tracking.PythonPortTest do
     if File.exists?(@video_path) do
       :ok
     else
-      {:skip, "sample video not found at #{@video_path} -- data/ is gitignored; skipping integration test"}
+      {:skip,
+       "sample video not found at #{@video_path} -- data/ is gitignored; skipping integration test"}
     end
   end
 
