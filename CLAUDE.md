@@ -51,14 +51,22 @@ The DB hierarchy is:
 ```
 User
 ├── Experiment (name, description)
-│   └── Video (filename, filepath, fps, status, calibration_id?)
-│       ├── ROI (x, y, w, h)
-│       │   └── RoiTime (seconds, frame_count) → TrackingResult
-│       └── TrackingResult (distance_px/cm, speed_mean/median, heatmap_path)
-└── Calibration (cage corners, px_per_10cm, threshold, min_area, valid_region)
+│   ├── Subject (name, sex, age_days, weight_g, genotype, notes)
+│   └── Video (filename, filepath, fps, status, calibration_id?, subject_id?)
+│       ├── ROI  ← many-to-many via `videos_rois`
+│       └── TrackingResult (distance_px/cm, speed_mean/median, heatmap_path, speed_profile_path)
+│           └── RoiTime (seconds, frame_count)  ← per (ROI, TrackingResult)
+├── Calibration (cage corners, px_per_10cm, threshold, min_area, valid_region)
+└── ROI (name, shape, x/y/w/h/radius)  — user-owned geometry, shared across videos
 ```
 
-`Calibration` is reusable across videos. `Video.status` tracks processing state (`"pending"`, etc.).
+`Calibration` and `ROI` are **reusable, user-owned resources**. A `Video` links to
+one `Calibration` (via `calibration_id`) and to N `ROI`s (via the `videos_rois`
+join table). A `ROI` row holds only the *geometry* (name/shape/coords); all
+measured per-video data lives in `roi_times`/`tracking_results` keyed per video,
+so attaching the same ROI to many videos never superimposes acquired data
+(distinct `roi_times` per video's `tracking_result`; distinct heatmaps per video).
+`Video.status` tracks processing state (`"pending"/"processing"/"done"/"error"`).
 
 ### Elixir contexts
 
@@ -80,7 +88,9 @@ Use the `:req` (`Req`) library for all HTTP requests. **Never** use `:httpoison`
 
 ### Python ↔ Elixir boundary
 
-The Python module (`priv/python/`) exposes a headless CLI mode (`--json`) designed to be invoked as a subprocess by Phoenix. The Elixir side will pass calibration and ROI parameters (stored in Postgres) as a JSON string, and read progress/result lines from stdout. Each stdout line is a valid JSON object — either `{"type":"progress","value":N}` or `{"type":"result",...}`.
+The Python module (`priv/python/`) exposes a headless CLI mode (`--json`) designed to be invoked as a subprocess by Phoenix. The Elixir side passes calibration and ROI parameters (stored in Postgres) as a JSON string, and reads progress/result lines from stdout. Each stdout line is a valid JSON object — either `{"type":"progress","value":N}` or `{"type":"result",...}`.
+
+`MouseTracker.Tracking.PythonPort.run/2` runs the subprocess via `Port.open` (not `System.cmd`) so stdout is read line-by-line as it is produced. Its signature is `run(params, on_progress)` where `on_progress` is called with each decoded progress map; it returns `{:ok, result_map}` or `{:error, reason}`. The behaviour `MouseTracker.Tracking.PythonPortBehaviour` (arity 2) backs the Mox mock used in tests. Note: the Python result JSON does **not** echo `heatmap_path`/`speed_profile_path` — the caller decides those output paths, passes them in the params (`heatmap`/`speed_profile`), and the Python side writes the PNGs there.
 
 The module is split into:
 - `run.py` — entry point; dispatches to interactive or headless mode
@@ -96,9 +106,11 @@ The ROI format passed via JSON is a flat list: `[x, y, w, h]` for rectangles or 
 `MouseTracker.Workers.VideoProcessingWorker` handles async video processing:
 1. Receives `%{"video_id" => id}` as job args
 2. Preloads `calibration` and `rois` from the video record
-3. Sets `video.status = "processing"`, calls `PythonPort.run/1`
-4. On success: inserts `TrackingResult`, sets status `"done"`, broadcasts `{:processing_done, video_id}` on PubSub topic `"video:<id>"`
-5. On error: sets status `"error"`, returns `{:error, reason}` so Oban retries (max 3 attempts)
+3. Sets `video.status = "processing"`, broadcasts `{:status, id, "processing"}`, then calls `PythonPort.run/2` with a progress callback that broadcasts `{:progress, id, pct}`
+4. On success: inserts `TrackingResult` (including `heatmap_path`/`speed_profile_path`), persists per-zone `RoiTime` rows from the result's `frames_into_roi`/`time_into_roi_s` (zipped to `video.rois` order), sets status `"done"`, broadcasts `{:status, id, "done"}` and `{:processing_done, id}`
+5. On error: sets status `"error"`, broadcasts `{:status, id, "error"}` and `{:processing_error, id, reason}`, returns `{:error, reason}` so Oban retries (max 3 attempts)
+
+All broadcasts go to PubSub topic `"video:<id>"` (`VideoProcessingWorker.topic/1`). Heatmap/speed-profile PNGs are written under `priv/static/uploads/results/<video_id>/` and served via `Plug.Static` (`uploads` is in `static_paths/0`); the DB stores their web paths.
 
 Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
@@ -134,7 +146,18 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 - [ ] Renderizar o heatmap como imagem estática gerada pelo Python
 - [ ] Integrar gráficos de velocidade usando um JS Hook com Chart.js
 
-### Sprint 3 (continuação) — Integração do design "Locomo" (planejado, ainda não implementado)
+### Sprint 3 (continuação) — Integração do design "Locomo"
+
+**Status: Fase 1 (fundação de dados + backend) concluída.** As telas (Fase 2) ainda não foram construídas.
+
+Fase 1 — feito (`mix precommit` limpo, migrações aplicadas em dev preservando dados):
+- [x] Migração `make_rois_shareable`: `ROI` deixou de ser `belongs_to :video` e virou recurso do usuário, N:N com vídeos via tabela `videos_rois`; `rois.user_id` substitui `rois.video_id`; unicidade de nome agora por usuário. Data-migration preserva vínculos e posse.
+- [x] Migração `add_speed_profile_path` em `tracking_results`.
+- [x] Context `Experiments`: funções de ROI escopadas por `Scope` (padrão de `Calibration`) + `attach_roi_to_video/2`, `detach_roi_from_video/2`, `list_rois_for_video/1`.
+- [x] Streaming de progresso: `PythonPort.run/2` via `Port.open` linha-a-linha; worker faz broadcast de `{:status}`/`{:progress}`/`{:processing_error}`, persiste `roi_times` e gera/salva heatmap + speed-profile.
+- [x] Testes/fixtures adaptados à nova posse de ROI e à aridade `run/2`.
+
+Fase 2 — pendente: app shell (sidebar/topbar em Tailwind puro), rotas + LiveViews `ExperimentLive.Index/New/Show/Results` e `VideoLive.Processing`, upload de vídeos.
 
 Handoff de design recebido (`Mouse locomotion tracking app.zip` → `Locomo.dc.html` + `README.md`, 9 telas: Experiments List, Wizard 3 passos, Detail, Processing, Results 3-abas, Compare, Datasets, Analyses, Pipeline Settings — tudo mockado em JS). Plano completo de integração salvo em `C:\Users\talve\.claude\plans\dentro-do-mouse-locomotion-lexical-tiger.md`. Decisões já travadas com o usuário:
 
@@ -143,12 +166,14 @@ Handoff de design recebido (`Mouse locomotion tracking app.zip` → `Locomo.dc.h
 3. **ROI compartilhável**: `Roi` deixa de ser `belongs_to :video` e vira recurso do usuário reaproveitável entre N vídeos (many-to-many via tabela `videos_rois`), igual ao padrão já usado por `Calibration`. `treatment_group` (Saline/CNO) fica de fora por enquanto.
 
 Pontos técnicos principais do plano (ver arquivo completo para detalhes):
-- **Streaming de progresso**: `PythonPort.run/1` usa `System.cmd/3`, que bloqueia e descarta as linhas `{"type":"progress",...}` (o Python já as emite em `analyzer.py`). Precisa virar `Port.open` com leitura linha-a-linha + callback, para a tela de Processing mostrar progresso real via PubSub.
-- **Heatmap/speed-profile**: Python já gera esses dois como PNG estático (matplotlib) se os paths forem passados no JSON — não precisa de Chart.js/canvas no fluxo principal, só `<img>`. Precisa de migração nova adicionando `speed_profile_path` a `tracking_results`.
-- **Migração ROI**: nova tabela `videos_rois`, `rois.user_id` substitui `rois.video_id`, data-migration para preservar dados existentes.
-- Novas rotas/LiveViews: `ExperimentLive.Index/New/Show/Results`, `VideoLive.Processing`. `ExperimentLive.New` é uma LiveView só, com `live_action` por passo do wizard.
+- ✅ **Streaming de progresso** (feito): `PythonPort.run/2` usa `Port.open` com leitura linha-a-linha + callback; a tela de Processing consome os broadcasts via PubSub.
+- ✅ **Heatmap/speed-profile** (feito): Python gera os dois como PNG estático (matplotlib) via paths no JSON — só `<img>` no fluxo principal, sem Chart.js/canvas; migração `speed_profile_path` aplicada.
+- ✅ **Migração ROI** (feito): tabela `videos_rois`, `rois.user_id` substitui `rois.video_id`, data-migration preservou dados.
+- Novas rotas/LiveViews (pendente, Fase 2): `ExperimentLive.Index/New/Show/Results`, `VideoLive.Processing`. `ExperimentLive.New` é uma LiveView só, com `live_action` por passo do wizard.
 - Wizard ROI/Calibração usa formulário estruturado (não desenho em canvas — fora de escopo por enquanto).
-- `test/support/mocks.ex` e testes de `python_port`/`video_processing_worker` precisam de atualização por causa da nova aridade do callback de progresso.
+- ✅ Testes de `python_port`/`video_processing_worker` (feito) atualizados para a nova aridade do callback.
+
+Ponto em aberto (decidido adiar): editar a geometria de uma ROI já usada em vídeo processado altera o desenho para todos os vídeos que a compartilham, dessincronizando de resultados antigos. Não é sobreposição de dados (medições continuam por-vídeo) — tratar quando a tela de edição de ROI for construída (bloquear edição ou clonar-ao-editar).
 
 ## Completed Features
 

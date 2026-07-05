@@ -86,6 +86,8 @@ defmodule MouseTrackerWeb do
       import Phoenix.HTML
       # Core UI components
       import MouseTrackerWeb.CoreComponents
+      # Locomo domain UI components (status pills, stat cards, ...)
+      import MouseTrackerWeb.LocomoComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

@@ -23,6 +23,52 @@ defmodule MouseTracker.Experiments do
     Repo.get_by!(Experiment, id: id, user_id: user.id)
   end
 
+  @doc """
+  Lists the user's experiments with `:videos` and `:subjects` preloaded, so the
+  list/detail screens can derive an aggregate status and show counts without an
+  N+1. Ordered newest-first.
+  """
+  def list_experiments_with_details(%Scope{user: user}) do
+    Repo.all(
+      from e in Experiment,
+        where: e.user_id == ^user.id,
+        order_by: [desc: e.inserted_at],
+        preload: [:videos, :subjects]
+    )
+  end
+
+  @doc """
+  Loads one experiment (scoped to the user) with `:subjects` and its `:videos`
+  (each video's `:subject` and `:tracking_result` preloaded) for the detail screen.
+  """
+  def get_experiment_with_details!(%Scope{user: user}, id) do
+    Repo.one!(
+      from e in Experiment,
+        where: e.id == ^id and e.user_id == ^user.id,
+        preload: [:subjects, videos: [:subject, :tracking_result]]
+    )
+  end
+
+  @doc """
+  Derives a single status for an experiment from its (preloaded) videos:
+
+    * `"error"` if any video errored,
+    * `"processing"` if any video is still processing (or pending while others run),
+    * `"done"` if there is at least one video and all are done,
+    * `"pending"` otherwise (no videos yet, or all pending).
+  """
+  def experiment_status(%Experiment{videos: videos}) when is_list(videos) do
+    statuses = Enum.map(videos, & &1.status)
+
+    cond do
+      "error" in statuses -> "error"
+      "processing" in statuses -> "processing"
+      statuses != [] and Enum.all?(statuses, &(&1 == "done")) -> "done"
+      "done" in statuses -> "processing"
+      true -> "pending"
+    end
+  end
+
   def create_experiment(%Scope{user: user}, attrs) do
     %Experiment{user_id: user.id}
     |> Experiment.changeset(attrs)
@@ -50,6 +96,11 @@ defmodule MouseTracker.Experiments do
   end
 
   def get_video!(id), do: Repo.get!(Video, id)
+
+  @doc "Loads a video with its `:experiment` and `:subject` preloaded."
+  def get_video_with_experiment!(id) do
+    Repo.get!(Video, id) |> Repo.preload([:experiment, :subject])
+  end
 
   def create_video(%Experiment{} = experiment, attrs) do
     %Video{experiment_id: experiment.id}
