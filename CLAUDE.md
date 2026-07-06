@@ -99,7 +99,7 @@ The module is split into:
 - `metrics.py` — distance, speed stats, px↔cm conversion (pure functions)
 - `render.py` — interactive OpenCV setup + matplotlib plot generation
 
-The ROI format passed via JSON is a flat list: `[x, y, w, h]` for rectangles or `[x, y, radius]` for circles (Python distinguishes by list length).
+The ROI format passed via JSON is a flat list, and Python distinguishes shape by list length: `[x, y, radius]` (3) for circles, `[x, y, w, h]` (4) for axis-aligned rectangles, or `[x1, y1, x2, y2, x3, y3, x4, y4]` (≥6, even) for a free 4-point polygon, checked via ray-casting (`metrics.is_pt_into_polygon/2`, handles concave quads).
 
 ### Background job processing (Oban)
 
@@ -131,9 +131,9 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
 ### Sprint 3 — Interface Web com Phoenix LiveView
 
-**3.1 — Tela de upload de vídeos**
-- [ ] Implementar upload de arquivo único e em lote (batch)
-- [ ] Salvar arquivos em `priv/static/uploads/` e registrar na tabela `videos` do banco
+**3.1 — Tela de upload de vídeos** ✅ (via `ExperimentLive.New`, ver seção "Wizard" abaixo)
+- [x] Implementar upload de arquivo único e em lote (batch)
+- [x] Salvar arquivos em `priv/static/uploads/` e registrar na tabela `videos` do banco
 - **Estudo:** LiveView Uploads
 
 **3.2 — Tela de listagem de experimentos e vídeos**
@@ -148,7 +148,7 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
 ### Sprint 3 (continuação) — Integração do design "Locomo"
 
-**Status: Fase 1 (fundação de dados + backend) concluída.** As telas (Fase 2) ainda não foram construídas.
+**Status: Fase 1 (fundação de dados + backend) concluída. Fase 2 (telas): fluxo principal completo — Experiments List/Show, Processing, Wizard (upload + ROI/escala visual + review) e Results (aba "Por vídeo") implementados e testados.**
 
 Fase 1 — feito (`mix precommit` limpo, migrações aplicadas em dev preservando dados):
 - [x] Migração `make_rois_shareable`: `ROI` deixou de ser `belongs_to :video` e virou recurso do usuário, N:N com vídeos via tabela `videos_rois`; `rois.user_id` substitui `rois.video_id`; unicidade de nome agora por usuário. Data-migration preserva vínculos e posse.
@@ -157,7 +157,35 @@ Fase 1 — feito (`mix precommit` limpo, migrações aplicadas em dev preservand
 - [x] Streaming de progresso: `PythonPort.run/2` via `Port.open` linha-a-linha; worker faz broadcast de `{:status}`/`{:progress}`/`{:processing_error}`, persiste `roi_times` e gera/salva heatmap + speed-profile.
 - [x] Testes/fixtures adaptados à nova posse de ROI e à aridade `run/2`.
 
-Fase 2 — pendente: app shell (sidebar/topbar em Tailwind puro), rotas + LiveViews `ExperimentLive.Index/New/Show/Results` e `VideoLive.Processing`, upload de vídeos.
+Fase 2 — parte 1 feita (`mix test` 202 passando, compila limpo):
+- [x] **App shell** `Layouts.locomo/1` (`components/layouts.ex`): sidebar fixa 248px (`#1a212e`) + topbar sticky 58px, Tailwind puro, tokens do handoff. Fontes Inter + JetBrains Mono via Google Fonts (`root.html.heex`); utilitários `.font-ui`/`.font-data` e keyframes `locomo-spin/pulse/shimmer/blink` em `app.css`. `Layouts.app` (auth) intocado.
+- [x] **Componentes compartilhados** `MouseTrackerWeb.LocomoComponents` (`status_pill`, `stat_card`, `icon_tile`, `subject_color`), importados em `mouse_tracker_web.ex`.
+- [x] **`ExperimentLive.Index`** (`/experiments`): lista com busca (nome/subject), tabs de status e empty state. Status agregado do experimento derivado dos vídeos via `Experiments.experiment_status/1`.
+- [x] **`ExperimentLive.Show`** (`/experiments/:id`): meta strip, chips de subject (genótipo, sem grupo Saline/CNO), lista de vídeos com status real + botões (View progress/results).
+- [x] **`VideoLive.Processing`** (`/videos/:video_id/processing`): assina `video:<id>` no `mount`, consome `{:progress}`/`{:status}`/`{:processing_done}`/`{:processing_error}`; % + barra shimmer + console de log + passos de pipeline (heurística do %). Valida posse via `experiment.user_id`.
+- [x] Context: `list_experiments_with_details/1`, `get_experiment_with_details!/2`, `experiment_status/1`, `get_video_with_experiment!/1`.
+- [x] Rotas no `live_session :require_authenticated_user`; `signed_in_path/1` → `/experiments`; testes de auth ajustados para o novo redirect.
+- [x] `MouseTrackerWeb.ComingSoonLive`: placeholder no shell para telas ainda não construídas (`/experiments/new`, `/experiments/:id/results`, `/datasets`, `/analyses`, `/pipeline-settings`) — nenhum link dá 404.
+- [x] Seed de dev `priv/repo/seeds_locomo.exs` (`mix run priv/repo/seeds_locomo.exs`): usuário `demo@locomo.dev` / `locomo-demo-123!` + 1 experimento populado (4 vídeos, um por status; subjects; calibração; ROIs; tracking result + roi_times no vídeo "done"). Idempotente.
+
+Fase 2 — parte 2 feita (`mix precommit` limpo, 211 testes passando):
+- [x] **`ExperimentLive.New`** (`/experiments/new`, `/experiments/new/roi`, `/experiments/new/review`): wizard de 3 passos em uma única LiveView, `live_action` seleciona o passo (`push_patch` entre eles, mesmo processo/estado). Passo 1: `allow_upload` de vídeo único ou em lote. Passo 3: nome do experimento + tabela de revisão por vídeo + `create`.
+- [x] **Passo 2 (ROI & escala) totalmente visual**: ao avançar do passo 1, cada vídeo é salvo em disco e seu 1º frame extraído (`MouseTracker.Tracking.FrameExtractor`, `System.cmd` chamando `run.py --extract-frame`); o frame é mostrado num `<canvas>` (hook JS `RoiCanvas`, `assets/js/hooks/roi_canvas.js`, registrado classicamente em `app.js` — não colocated, por causa de `:eperm` de symlink no Windows) sobre o qual o usuário desenha: região válida (caixa), **1 referência de escala** (segmento de 2 pontos + medida real em cm → deriva `px_per_10cm`, substituindo o formulário numérico de calibração) e ROIs (**polígono de 4 pontos livres** ou círculo). O formulário numérico de coordenadas foi removido; `threshold`/`min_area` ficam como 2 campos avançados com default 80/250.
+- [x] Modelo de **referência/herança** entre vídeos do batch: qualquer vídeo pode ser marcado como referência de ROI e/ou de escala; os demais herdam (ciclando entre as referências disponíveis) — preservado do design original, só mudou a forma de preenchimento (desenho, não form).
+- [x] **ROI vira polígono** no schema: migração `add_roi_polygon_points` (8 inteiros `x1..y4`), `Roi` ganha shape `"polygon"`, `roi_to_list/1` do worker monta lista de 8; Python (`analyzer.py`/`metrics.py`) ganha `is_pt_into_polygon/2` (ray-casting puro, aceita côncavo).
+- [x] **`ExperimentLive.Results`** (`/experiments/:id/results`): aba "Por vídeo" com stat cards (distância, velocidade média/mediana, tempo por zona), heatmap + speed-profile como `<img>`, tabela de zonas ROI. Abas "Média da batch"/"Por subject" desabilitadas (placeholder "soon") — dependem de `treatment_group`, fora de escopo.
+- [x] Testes: `experiments_wizard_test.exs` (context, incl. ROI polígono), `experiment_live/new_test.exs`, `experiment_live/results_test.exs`, teste de polígono em `video_processing_worker_test.exs`.
+
+Fase 2 — pendente (próximas partes):
+- [ ] **Limpeza de uploads órfãos**: como o vídeo é salvo em disco já ao entrar no passo 2 (não só no create), abandonar o wizard depois disso deixa arquivo + frame órfãos em `priv/static/uploads/{videos,frames}/<token>/`. Precisa de uma rotina de limpeza (ex.: job periódico que remove tokens sem experimento associado).
+- [ ] **Edição de ROI**: ainda não existe tela; quando for criada, resolver o ponto em aberto abaixo (bloquear edição de ROI já usada em vídeo processado, ou clonar-ao-editar).
+- [ ] (fase seguinte) Compare/Datasets/Analyses/Settings — telas ainda mockadas (`ComingSoonLive`).
+
+Inconsistências design × schema resolvidas nesta parte (adaptações, não bugs):
+- **Grupos Saline/CNO** omitidos (sem `treatment_group`) — chips mostram genótipo.
+- **Meta strip do Detail**: design pedia apparatus/arena size (inexistentes) → Videos/Subjects/Analyzed/Created.
+- **Estágios do Processing** nomeados são heurística do `%` (Python emite só progresso de frames).
+- **Edit details / Compare subjects / dropzone de upload** no Detail: adiados (dependem de telas não construídas).
 
 Handoff de design recebido (`Mouse locomotion tracking app.zip` → `Locomo.dc.html` + `README.md`, 9 telas: Experiments List, Wizard 3 passos, Detail, Processing, Results 3-abas, Compare, Datasets, Analyses, Pipeline Settings — tudo mockado em JS). Plano completo de integração salvo em `C:\Users\talve\.claude\plans\dentro-do-mouse-locomotion-lexical-tiger.md`. Decisões já travadas com o usuário:
 
@@ -169,8 +197,8 @@ Pontos técnicos principais do plano (ver arquivo completo para detalhes):
 - ✅ **Streaming de progresso** (feito): `PythonPort.run/2` usa `Port.open` com leitura linha-a-linha + callback; a tela de Processing consome os broadcasts via PubSub.
 - ✅ **Heatmap/speed-profile** (feito): Python gera os dois como PNG estático (matplotlib) via paths no JSON — só `<img>` no fluxo principal, sem Chart.js/canvas; migração `speed_profile_path` aplicada.
 - ✅ **Migração ROI** (feito): tabela `videos_rois`, `rois.user_id` substitui `rois.video_id`, data-migration preservou dados.
-- Novas rotas/LiveViews (pendente, Fase 2): `ExperimentLive.Index/New/Show/Results`, `VideoLive.Processing`. `ExperimentLive.New` é uma LiveView só, com `live_action` por passo do wizard.
-- Wizard ROI/Calibração usa formulário estruturado (não desenho em canvas — fora de escopo por enquanto).
+- Rotas/LiveViews: ✅ `ExperimentLive.Index/Show`, `VideoLive.Processing`, `ExperimentLive.New` (wizard) e `ExperimentLive.Results` — todas feitas.
+- ✅ Wizard ROI/Calibração: veio desenho em canvas sobre o 1º frame do vídeo (ver Fase 2 parte 2 acima), não formulário estruturado — decisão revista depois do handoff original com base no uso real da tela.
 - ✅ Testes de `python_port`/`video_processing_worker` (feito) atualizados para a nova aridade do callback.
 
 Ponto em aberto (decidido adiar): editar a geometria de uma ROI já usada em vídeo processado altera o desenho para todos os vídeos que a compartilham, dessincronizando de resultados antigos. Não é sobreposição de dados (medições continuam por-vídeo) — tratar quando a tela de edição de ROI for construída (bloquear edição ou clonar-ao-editar).

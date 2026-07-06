@@ -95,6 +95,64 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
     end
   end
 
+  describe "perform/1 -- ROI shapes" do
+    test "encodes a polygon ROI as an 8-element list for Python", %{video: video} do
+      user = user_fixture()
+      experiment = experiment_fixture(user)
+
+      calibration =
+        calibration_fixture(user, %{
+          valid_region_x: 0,
+          valid_region_y: 0,
+          valid_region_w: 640,
+          valid_region_h: 480
+        })
+
+      poly_video = video_fixture(experiment, calibration)
+
+      poly =
+        %MouseTracker.Experiments.Roi{user_id: user.id}
+        |> MouseTracker.Experiments.Roi.changeset(%{
+          name: "Quad",
+          shape: "polygon",
+          x: 1,
+          y: 2,
+          x1: 1,
+          y1: 2,
+          x2: 10,
+          y2: 2,
+          x3: 10,
+          y3: 20,
+          x4: 1,
+          y4: 20,
+          user_id: user.id
+        })
+        |> Repo.insert!()
+
+      :ok = MouseTracker.Experiments.attach_roi_to_video(poly_video, poly)
+
+      PythonPortMock
+      |> expect(:run, fn params, _on_progress ->
+        assert params["rois"] == [[1, 2, 10, 2, 10, 20, 1, 20]]
+
+        {:ok,
+         %{
+           "distance_px" => 1.0,
+           "distance_cm" => 1.0,
+           "speed_mean_px" => 1.0,
+           "speed_mean_cm" => 1.0,
+           "speed_median_px" => 1.0,
+           "speed_median_cm" => 1.0
+         }}
+      end)
+
+      assert :ok = VideoProcessingWorker.perform(%Oban.Job{args: %{"video_id" => poly_video.id}})
+
+      # keep the outer `video` binding referenced so setup stays meaningful
+      assert Repo.get!(Video, video.id).status in ["pending", "processing", "done"]
+    end
+  end
+
   describe "perform/1 -- error path" do
     test "sets status to error, returns {:error, reason}, does not persist TrackingResult", %{
       video: video

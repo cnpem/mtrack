@@ -62,8 +62,13 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
     }
   end
 
-  # Python distinguishes ROI shape by list length: 3 = circle, 4 = rectangle
+  # Python distinguishes ROI shape by list length: 3 = circle, 4 = rectangle,
+  # 8 = polygon (4 free vertices x1,y1..x4,y4).
   defp roi_to_list(%{shape: "circle"} = roi), do: [roi.x, roi.y, roi.radius]
+
+  defp roi_to_list(%{shape: "polygon"} = roi),
+    do: [roi.x1, roi.y1, roi.x2, roi.y2, roi.x3, roi.y3, roi.x4, roi.y4]
+
   defp roi_to_list(roi), do: [roi.x, roi.y, roi.w, roi.h]
 
   # Absolute path under priv/static so Plug.Static (from: :mouse_tracker) serves it.

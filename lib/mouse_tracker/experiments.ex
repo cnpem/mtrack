@@ -50,6 +50,20 @@ defmodule MouseTracker.Experiments do
   end
 
   @doc """
+  Loads one experiment (scoped to the user) for the results screen, preloading
+  each video's `:subject` and its `:tracking_result` with `roi_times: :roi`, so
+  the per-video metrics, heatmap/speed-profile paths and per-zone times can all
+  be rendered without an N+1.
+  """
+  def get_experiment_for_results!(%Scope{user: user}, id) do
+    Repo.one!(
+      from e in Experiment,
+        where: e.id == ^id and e.user_id == ^user.id,
+        preload: [:subjects, videos: [:subject, tracking_result: [roi_times: :roi]]]
+    )
+  end
+
+  @doc """
   Derives a single status for an experiment from its (preloaded) videos:
 
     * `"error"` if any video errored,
@@ -88,6 +102,96 @@ defmodule MouseTracker.Experiments do
   def change_experiment(%Experiment{} = experiment, attrs \\ %{}) do
     Experiment.changeset(experiment, attrs)
   end
+
+  @doc """
+  Creates an experiment and all of its videos (with subjects, shared
+  calibrations and shared ROIs) in a single transaction — the commit step of the
+  upload wizard.
+
+  `payload` is a plain map, already resolved by the wizard, of the form:
+
+      %{
+        name: "My experiment",
+        # one entry per video that is a *reference* for that resource; keyed by
+        # the upload entry ref that owns it:
+        calibrations: %{ref => calibration_params_map},
+        rois: %{ref => [roi_params_map, ...]},
+        videos: [
+          %{
+            filename: "...", filepath: "/abs/path",
+            subject_name: "M-01" | "" | nil,
+            cal_ref: ref,   # which calibration reference this video uses
+            roi_ref: ref    # which ROI reference this video uses (nil => no ROIs)
+          }
+        ]
+      }
+
+  ROI names are unique per user, so each ROI is stored prefixed with the
+  experiment name to avoid collisions across experiments. Returns
+  `{:ok, {experiment, videos}}` or `{:error, changeset}` (rolls back on any
+  insert failure, so no partial experiment is left behind).
+  """
+  def create_experiment_with_videos(%Scope{} = scope, payload) do
+    Repo.transaction(fn ->
+      experiment = insert_or_rollback(create_experiment(scope, %{name: payload.name}))
+      subjects = create_wizard_subjects(experiment, payload.videos)
+      calibrations = create_wizard_calibrations(scope, payload.calibrations)
+      rois = create_wizard_rois(scope, payload.name, payload.rois)
+      videos = create_wizard_videos(experiment, payload.videos, subjects, calibrations, rois)
+
+      {experiment, videos}
+    end)
+  end
+
+  defp create_wizard_subjects(experiment, videos) do
+    videos
+    |> Enum.map(& &1.subject_name)
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
+    |> Map.new(fn name ->
+      {name, insert_or_rollback(create_subject(experiment, %{name: name}))}
+    end)
+  end
+
+  defp create_wizard_calibrations(scope, calibrations) do
+    Map.new(calibrations, fn {ref, params} ->
+      {ref, insert_or_rollback(create_calibration(scope, params))}
+    end)
+  end
+
+  defp create_wizard_rois(scope, experiment_name, rois) do
+    Map.new(rois, fn {ref, roi_params_list} ->
+      created =
+        Enum.map(roi_params_list, fn params ->
+          prefixed = Map.put(params, "name", "#{experiment_name} · #{params["name"]}")
+          insert_or_rollback(create_roi(scope, prefixed))
+        end)
+
+      {ref, created}
+    end)
+  end
+
+  defp create_wizard_videos(experiment, videos, subjects, calibrations, rois) do
+    Enum.map(videos, fn v ->
+      cal = Map.get(calibrations, v.cal_ref)
+      subject = if v.subject_name in [nil, ""], do: nil, else: Map.get(subjects, v.subject_name)
+
+      attrs = %{
+        filename: v.filename,
+        filepath: v.filepath,
+        calibration_id: cal && cal.id,
+        subject_id: subject && subject.id
+      }
+
+      video = insert_or_rollback(create_video(experiment, attrs))
+
+      for roi <- Map.get(rois, v.roi_ref, []), do: attach_roi_to_video(video, roi)
+      video
+    end)
+  end
+
+  defp insert_or_rollback({:ok, record}), do: record
+  defp insert_or_rollback({:error, changeset}), do: Repo.rollback(changeset)
 
   # --- Videos ---
 

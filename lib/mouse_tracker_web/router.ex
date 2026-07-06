@@ -58,9 +58,11 @@ defmodule MouseTrackerWeb.Router do
       # Locomo main flow. Static segments (`/new`) must be declared before the
       # `/:id` catch-all so they are not captured as an experiment id.
       live "/experiments", ExperimentLive.Index, :index
-      live "/experiments/new", ComingSoonLive, :new
+      live "/experiments/new", ExperimentLive.New, :upload
+      live "/experiments/new/roi", ExperimentLive.New, :roi
+      live "/experiments/new/review", ExperimentLive.New, :review
       live "/experiments/:id", ExperimentLive.Show, :show
-      live "/experiments/:id/results", ComingSoonLive, :results
+      live "/experiments/:id/results", ExperimentLive.Results, :results
       live "/videos/:video_id/processing", VideoLive.Processing, :show
 
       # Other sidebar destinations still to be built (placeholder screens).

@@ -86,6 +86,32 @@ def is_pt_into_circle(pt, circle):
     return distance(pt, (cx, cy)) < r
 
 
+def is_pt_into_polygon(pt, flat_pts):
+    """Return True if point pt lies inside the polygon.
+
+    `flat_pts` is a flat list of vertex coordinates `[x0, y0, x1, y1, ...]`
+    (e.g. 8 values for a quadrilateral). Uses the ray-casting (even-odd) rule,
+    so it also works for concave polygons. Pure Python — no OpenCV.
+    """
+    verts = [(flat_pts[i], flat_pts[i + 1]) for i in range(0, len(flat_pts), 2)]
+    n = len(verts)
+    if n < 3:
+        return False
+
+    x, y = pt[0], pt[1]
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = verts[i]
+        xj, yj = verts[j]
+        if (yi > y) != (yj > y):
+            x_cross = (xj - xi) * (y - yi) / (yj - yi) + xi
+            if x < x_cross:
+                inside = not inside
+        j = i
+    return inside
+
+
 def compute_thigmotaxis_pct(nframe_peripheral, nframe_detected):
     """
     Return % of detected frames where the animal was in the peripheral zone (0–100).

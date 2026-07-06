@@ -7,9 +7,6 @@ defmodule MouseTrackerWeb.ComingSoonLive do
   use MouseTrackerWeb, :live_view
 
   @screens %{
-    new: {:experiments, "New experiment", "The upload wizard is the next part to be built."},
-    results:
-      {:experiments, "Results", "The 3-tab results dashboard is coming in a following part."},
     datasets: {:datasets, "Datasets", "The dataset library is planned for a later iteration."},
     analyses:
       {:analyses, "Analyses", "The trajectory-replay tool is planned for a later iteration."},
