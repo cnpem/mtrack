@@ -1,7 +1,16 @@
 defmodule MouseTracker.ExperimentsFixtures do
   alias MouseTracker.Repo
   alias MouseTracker.Experiments
-  alias MouseTracker.Experiments.{Calibration, Experiment, Video, Roi, TrackingResult, RoiTime}
+
+  alias MouseTracker.Experiments.{
+    Calibration,
+    Experiment,
+    Video,
+    Roi,
+    TrackingResult,
+    RoiTime,
+    Subject
+  }
 
   def calibration_fixture(user, attrs \\ %{}) do
     attrs =
@@ -14,6 +23,14 @@ defmodule MouseTracker.ExperimentsFixtures do
 
     %Calibration{user_id: user.id}
     |> Calibration.changeset(attrs)
+    |> Repo.insert!()
+  end
+
+  def subject_fixture(user, attrs \\ %{}) do
+    attrs = Enum.into(attrs, %{name: "Subject #{System.unique_integer()}"})
+
+    %Subject{user_id: user.id}
+    |> Subject.changeset(attrs)
     |> Repo.insert!()
   end
 

@@ -47,14 +47,14 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_name: "M-01",
+            subject_ref: {:new, "M-01"},
             cal_ref: "r1",
             roi_ref: "r1"
           },
           %{
             filename: "b.mp4",
             filepath: "/tmp/b.mp4",
-            subject_name: "M-02",
+            subject_ref: {:new, "M-02"},
             cal_ref: "r1",
             roi_ref: "r1"
           }
@@ -75,7 +75,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert [%{name: "Batch A · Center"}] = Experiments.list_rois_for_video(v2)
 
       # One subject per distinct name.
-      assert length(Experiments.list_subjects(experiment)) == 2
+      assert length(Experiments.list_subjects(scope)) == 2
     end
 
     test "stores a polygon ROI with its four vertices", %{scope: scope} do
@@ -102,7 +102,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_name: "",
+            subject_ref: nil,
             cal_ref: "r1",
             roi_ref: "r1"
           }
@@ -126,7 +126,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_name: "",
+            subject_ref: nil,
             cal_ref: "r1",
             roi_ref: nil
           }
@@ -149,7 +149,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_name: "",
+            subject_ref: nil,
             cal_ref: "r1",
             roi_ref: nil
           }
@@ -167,6 +167,49 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert {calibration.coordinate_x4, calibration.coordinate_y4} == {50, 10}
     end
 
+    test "reuses an existing subject across separate experiments", %{scope: scope} do
+      payload_a = %{
+        name: "Batch D",
+        calibrations: %{"r1" => cal_params()},
+        rois: %{},
+        videos: [
+          %{
+            filename: "a.mp4",
+            filepath: "/tmp/a.mp4",
+            subject_ref: {:new, "M-01"},
+            cal_ref: "r1",
+            roi_ref: nil
+          }
+        ]
+      }
+
+      assert {:ok, {_experiment_a, [video_a]}} =
+               Experiments.create_experiment_with_videos(scope, payload_a)
+
+      assert length(Experiments.list_subjects(scope)) == 1
+
+      payload_b = %{
+        name: "Batch E",
+        calibrations: %{"r1" => cal_params()},
+        rois: %{},
+        videos: [
+          %{
+            filename: "b.mp4",
+            filepath: "/tmp/b.mp4",
+            subject_ref: {:existing, video_a.subject_id},
+            cal_ref: "r1",
+            roi_ref: nil
+          }
+        ]
+      }
+
+      assert {:ok, {_experiment_b, [video_b]}} =
+               Experiments.create_experiment_with_videos(scope, payload_b)
+
+      assert video_b.subject_id == video_a.subject_id
+      assert length(Experiments.list_subjects(scope)) == 1
+    end
+
     test "rolls back entirely on an invalid calibration", %{scope: scope} do
       payload = %{
         name: "Bad",
@@ -176,7 +219,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_name: "",
+            subject_ref: nil,
             cal_ref: "r1",
             roi_ref: nil
           }

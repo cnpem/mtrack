@@ -10,7 +10,8 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
     {:ok,
      socket
      |> assign(:page_title, experiment.name)
-     |> assign(:experiment, experiment)}
+     |> assign(:experiment, experiment)
+     |> assign(:experiment_subjects, Experiments.experiment_subjects(experiment))}
   end
 
   @impl true
@@ -45,14 +46,14 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
         <div class="mt-5 grid grid-cols-2 divide-x divide-[#e7e9ee] overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white sm:grid-cols-4">
           <.meta_cell label="Videos" value={to_string(length(@experiment.videos))} />
-          <.meta_cell label="Subjects" value={to_string(length(@experiment.subjects))} />
+          <.meta_cell label="Subjects" value={to_string(length(@experiment_subjects))} />
           <.meta_cell label="Analyzed" value={to_string(analyzed_count(@experiment))} />
           <.meta_cell label="Created" value={format_date(@experiment.inserted_at)} />
         </div>
 
-        <div :if={@experiment.subjects != []} class="mt-5 flex flex-wrap gap-2">
+        <div :if={@experiment_subjects != []} class="mt-5 flex flex-wrap gap-2">
           <div
-            :for={subject <- @experiment.subjects}
+            :for={subject <- @experiment_subjects}
             class="inline-flex items-center gap-2 rounded-[20px] border border-[#e7e9ee] bg-white px-3 py-1.5"
           >
             <span class="size-2 rounded-full" style={"background:#{subject_color(subject.id)}"}></span>

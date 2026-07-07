@@ -2,8 +2,14 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
   use MouseTrackerWeb.ConnCase
 
   import Phoenix.LiveViewTest
+  import Mox
+  import MouseTracker.ExperimentsFixtures
+
+  alias MouseTracker.Experiments
+  alias MouseTracker.Tracking.PythonPortMock
 
   setup :register_and_log_in_user
+  setup :verify_on_exit!
 
   test "renders the upload step first", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/experiments/new")
@@ -195,5 +201,185 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       assert html =~ ~s(phx-value-step="review" disabled)
     end
+  end
+
+  describe "step 3 review — subject picker" do
+    setup %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp = Path.join(System.tmp_dir!(), "wizard-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp, "not a real video, just bytes for the upload input")
+
+      video =
+        file_input(lv, "form", :videos, [
+          %{name: "a.mp4", content: File.read!(tmp), type: "video/mp4"}
+        ])
+
+      render_upload(video, "a.mp4")
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+      [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
+
+      lv
+      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> render_click()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm']", %{"value" => "10"})
+      |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"})
+      |> render_change()
+
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      %{lv: lv, ref: ref}
+    end
+
+    test "defaults to creating a new subject named after the video", %{lv: lv, scope: scope} do
+      html = render(lv)
+
+      assert html =~ "+ New subject"
+      refute html =~ "M-existing"
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Solo run"})
+      |> render_submit()
+
+      assert length(Experiments.list_subjects(scope)) == 1
+      assert [subject] = Experiments.list_subjects(scope)
+      assert subject.name == "a"
+    end
+  end
+
+  describe "step 3 review — reusing an existing subject" do
+    setup %{conn: conn, user: user} do
+      subject = subject_fixture(user, %{name: "M-existing"})
+
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp = Path.join(System.tmp_dir!(), "wizard-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp, "not a real video, just bytes for the upload input")
+
+      video =
+        file_input(lv, "form", :videos, [
+          %{name: "a.mp4", content: File.read!(tmp), type: "video/mp4"}
+        ])
+
+      render_upload(video, "a.mp4")
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+      [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
+
+      lv
+      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> render_click()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm']", %{"value" => "10"})
+      |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"})
+      |> render_change()
+
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      %{lv: lv, ref: ref, subject: subject}
+    end
+
+    test "shows the existing subject in the dropdown and reuses it without duplicating", %{
+      lv: lv,
+      ref: ref,
+      subject: subject,
+      scope: scope
+    } do
+      html = render(lv)
+      assert html =~ "M-existing"
+
+      lv
+      |> form("form[phx-submit='create']", %{"subject" => %{ref => to_string(subject.id)}})
+      |> render_change()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Reuse run"})
+      |> render_submit()
+
+      assert length(Experiments.list_subjects(scope)) == 1
+
+      [experiment] = Experiments.list_experiments(scope)
+      [video] = Experiments.list_videos(experiment)
+      assert video.subject_id == subject.id
+    end
+  end
+
+  defp stub_python_port_success do
+    PythonPortMock
+    |> stub(:run, fn _params, _on_progress ->
+      {:ok,
+       %{
+         "distance_px" => 100.0,
+         "distance_cm" => 20.0,
+         "speed_mean_px" => 5.0,
+         "speed_mean_cm" => 1.0,
+         "speed_median_px" => 4.0,
+         "speed_median_cm" => 0.8
+       }}
+    end)
   end
 end

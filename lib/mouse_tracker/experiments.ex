@@ -24,28 +24,28 @@ defmodule MouseTracker.Experiments do
   end
 
   @doc """
-  Lists the user's experiments with `:videos` and `:subjects` preloaded, so the
-  list/detail screens can derive an aggregate status and show counts without an
-  N+1. Ordered newest-first.
+  Lists the user's experiments with `:videos` (and each video's `:subject`)
+  preloaded, so the list/detail screens can derive an aggregate status and show
+  subjects without an N+1. Ordered newest-first.
   """
   def list_experiments_with_details(%Scope{user: user}) do
     Repo.all(
       from e in Experiment,
         where: e.user_id == ^user.id,
         order_by: [desc: e.inserted_at],
-        preload: [:videos, :subjects]
+        preload: [videos: [:subject]]
     )
   end
 
   @doc """
-  Loads one experiment (scoped to the user) with `:subjects` and its `:videos`
-  (each video's `:subject` and `:tracking_result` preloaded) for the detail screen.
+  Loads one experiment (scoped to the user) with its `:videos` (each video's
+  `:subject` and `:tracking_result` preloaded) for the detail screen.
   """
   def get_experiment_with_details!(%Scope{user: user}, id) do
     Repo.one!(
       from e in Experiment,
         where: e.id == ^id and e.user_id == ^user.id,
-        preload: [:subjects, videos: [:subject, :tracking_result]]
+        preload: [videos: [:subject, :tracking_result]]
     )
   end
 
@@ -59,8 +59,22 @@ defmodule MouseTracker.Experiments do
     Repo.one!(
       from e in Experiment,
         where: e.id == ^id and e.user_id == ^user.id,
-        preload: [:subjects, videos: [:subject, tracking_result: [roi_times: :roi]]]
+        preload: [videos: [:subject, tracking_result: [roi_times: :roi]]]
     )
+  end
+
+  @doc """
+  Subject is a reusable, user-owned resource (like Calibration/ROI) — it no
+  longer belongs to a single experiment. "An experiment's subjects" means the
+  distinct subjects its videos currently point at. Requires `:videos` (with
+  `:subject`) preloaded on `experiment`.
+  """
+  def experiment_subjects(%Experiment{videos: videos}) when is_list(videos) do
+    videos
+    |> Enum.map(& &1.subject)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.name)
   end
 
   @doc """
@@ -119,7 +133,7 @@ defmodule MouseTracker.Experiments do
         videos: [
           %{
             filename: "...", filepath: "/abs/path",
-            subject_name: "M-01" | "" | nil,
+            subject_ref: {:existing, id} | {:new, "M-01"} | nil,
             cal_ref: ref,   # which calibration reference this video uses
             roi_ref: ref    # which ROI reference this video uses (nil => no ROIs)
           }
@@ -134,22 +148,26 @@ defmodule MouseTracker.Experiments do
   def create_experiment_with_videos(%Scope{} = scope, payload) do
     Repo.transaction(fn ->
       experiment = insert_or_rollback(create_experiment(scope, %{name: payload.name}))
-      subjects = create_wizard_subjects(experiment, payload.videos)
+      new_subjects = create_wizard_subjects(scope, payload.videos)
       calibrations = create_wizard_calibrations(scope, payload.calibrations)
       rois = create_wizard_rois(scope, payload.name, payload.rois)
-      videos = create_wizard_videos(experiment, payload.videos, subjects, calibrations, rois)
+      videos = create_wizard_videos(experiment, payload.videos, new_subjects, calibrations, rois)
 
       {experiment, videos}
     end)
   end
 
-  defp create_wizard_subjects(experiment, videos) do
+  # Only `{:new, name}` entries need creating; `{:existing, id}` entries
+  # already reference a real Subject row and require no insert.
+  defp create_wizard_subjects(scope, videos) do
     videos
-    |> Enum.map(& &1.subject_name)
+    |> Enum.map(& &1.subject_ref)
+    |> Enum.filter(&match?({:new, _name}, &1))
+    |> Enum.map(fn {:new, name} -> name end)
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.uniq()
     |> Map.new(fn name ->
-      {name, insert_or_rollback(create_subject(experiment, %{name: name}))}
+      {name, insert_or_rollback(create_subject(scope, %{name: name}))}
     end)
   end
 
@@ -171,16 +189,15 @@ defmodule MouseTracker.Experiments do
     end)
   end
 
-  defp create_wizard_videos(experiment, videos, subjects, calibrations, rois) do
+  defp create_wizard_videos(experiment, videos, new_subjects, calibrations, rois) do
     Enum.map(videos, fn v ->
       cal = Map.get(calibrations, v.cal_ref)
-      subject = if v.subject_name in [nil, ""], do: nil, else: Map.get(subjects, v.subject_name)
 
       attrs = %{
         filename: v.filename,
         filepath: v.filepath,
         calibration_id: cal && cal.id,
-        subject_id: subject && subject.id
+        subject_id: resolve_wizard_subject_id(v.subject_ref, new_subjects)
       }
 
       video = insert_or_rollback(create_video(experiment, attrs))
@@ -189,6 +206,14 @@ defmodule MouseTracker.Experiments do
       video
     end)
   end
+
+  defp resolve_wizard_subject_id({:existing, id}, _new_subjects), do: id
+  defp resolve_wizard_subject_id({:new, name}, _new_subjects) when name in [nil, ""], do: nil
+
+  defp resolve_wizard_subject_id({:new, name}, new_subjects),
+    do: Map.fetch!(new_subjects, name).id
+
+  defp resolve_wizard_subject_id(nil, _new_subjects), do: nil
 
   defp insert_or_rollback({:ok, record}), do: record
   defp insert_or_rollback({:error, changeset}), do: Repo.rollback(changeset)
@@ -330,14 +355,16 @@ defmodule MouseTracker.Experiments do
 
   # --- Subjects ---
 
-  def list_subjects(%Experiment{} = experiment) do
-    Repo.all(from s in Subject, where: s.experiment_id == ^experiment.id, order_by: s.name)
+  def list_subjects(%Scope{user: user}) do
+    Repo.all(from s in Subject, where: s.user_id == ^user.id, order_by: s.name)
   end
 
-  def get_subject!(id), do: Repo.get!(Subject, id)
+  def get_subject!(%Scope{user: user}, id) do
+    Repo.get_by!(Subject, id: id, user_id: user.id)
+  end
 
-  def create_subject(%Experiment{} = experiment, attrs) do
-    %Subject{experiment_id: experiment.id}
+  def create_subject(%Scope{user: user}, attrs) do
+    %Subject{user_id: user.id}
     |> Subject.changeset(attrs)
     |> Repo.insert()
   end

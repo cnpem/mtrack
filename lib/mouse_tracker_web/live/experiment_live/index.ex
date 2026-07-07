@@ -42,7 +42,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
   end
 
   defp matches_query?(exp, q) do
-    names = [exp.name | Enum.map(exp.subjects, & &1.name)]
+    names = [exp.name | Enum.map(Experiments.experiment_subjects(exp), & &1.name)]
     Enum.any?(names, fn name -> name && String.contains?(String.downcase(name), q) end)
   end
 
@@ -179,10 +179,11 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
 
   defp tabs, do: @tabs
 
-  defp subjects_line(%{subjects: []}), do: "No subjects"
-
-  defp subjects_line(%{subjects: subjects}) do
-    subjects |> Enum.map(& &1.name) |> Enum.join(" · ")
+  defp subjects_line(exp) do
+    case Experiments.experiment_subjects(exp) do
+      [] -> "No subjects"
+      subjects -> subjects |> Enum.map(& &1.name) |> Enum.join(" · ")
+    end
   end
 
   defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %d, %Y")

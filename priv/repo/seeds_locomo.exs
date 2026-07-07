@@ -83,7 +83,7 @@ else
     })
 
   {:ok, subject_a} =
-    Experiments.create_subject(experiment, %{
+    Experiments.create_subject(scope, %{
       name: "M-01",
       sex: "M",
       age_days: 70,
@@ -92,7 +92,7 @@ else
     })
 
   {:ok, subject_b} =
-    Experiments.create_subject(experiment, %{
+    Experiments.create_subject(scope, %{
       name: "M-02",
       sex: "F",
       age_days: 72,

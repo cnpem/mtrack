@@ -42,6 +42,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:active_ref, nil)
      |> assign(:draw_mode, "roi_polygon")
      |> assign(:experiment_name, "")
+     |> assign(:existing_subjects, Experiments.list_subjects(socket.assigns.current_scope))
      |> allow_upload(:videos,
        accept: ~w(.mp4 .avi .mov),
        max_entries: 20,
@@ -182,11 +183,18 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   # --- Review step events ---
 
   def handle_event("update_review", params, socket) do
+    subject_sel = params["subject"] || %{}
+    subject_new_names = params["subject_new_name"] || %{}
+
     specs =
-      Enum.reduce(params["subject"] || %{}, socket.assigns.specs, fn {ref, name}, acc ->
+      Enum.reduce(subject_sel, socket.assigns.specs, fn {ref, value}, acc ->
         case acc do
-          %{^ref => spec} -> Map.put(acc, ref, %{spec | subject_name: name})
-          _ -> acc
+          %{^ref => spec} ->
+            ref_value = parse_subject_ref(value, Map.get(subject_new_names, ref, ""))
+            Map.put(acc, ref, %{spec | subject_ref: ref_value})
+
+          _ ->
+            acc
         end
       end)
 
@@ -358,7 +366,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           %{
             filename: v.filename,
             filepath: v.filepath,
-            subject_name: specs[v.ref].subject_name,
+            subject_ref: specs[v.ref].subject_ref,
             cal_ref: resolve_ref(v.ref, specs, :cal),
             roi_ref: resolve_ref(v.ref, specs, :roi)
           }
@@ -937,13 +945,32 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           class="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] px-4 py-3 last:border-0"
         >
           <div class="truncate font-data text-[12.5px] text-[#0f1729]">{v.filename}</div>
-          <input
-            type="text"
-            name={"subject[#{v.ref}]"}
-            value={@specs[v.ref].subject_name}
-            placeholder="Subject name"
-            class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
-          />
+          <div class="space-y-1.5">
+            <select
+              name={"subject[#{v.ref}]"}
+              class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+            >
+              <option value="" selected={@specs[v.ref].subject_ref == nil}>— No subject —</option>
+              <option
+                :for={s <- @existing_subjects}
+                value={s.id}
+                selected={@specs[v.ref].subject_ref == {:existing, s.id}}
+              >
+                {s.name}
+              </option>
+              <option value="new" selected={match?({:new, _}, @specs[v.ref].subject_ref)}>
+                + New subject
+              </option>
+            </select>
+            <input
+              :if={match?({:new, _}, @specs[v.ref].subject_ref)}
+              type="text"
+              name={"subject_new_name[#{v.ref}]"}
+              value={subject_new_name(@specs[v.ref].subject_ref)}
+              placeholder="New subject name"
+              class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+            />
+          </div>
           <div class="font-data text-[12px] text-[#667085]">
             {resolve_label(v.ref, @specs, :roi, @saved_videos) || "—"}
           </div>
@@ -1067,7 +1094,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   defp default_spec(filename) do
     %{
-      subject_name: Path.rootname(filename),
+      subject_ref: {:new, Path.rootname(filename)},
       roi_ref?: false,
       cal_ref?: false,
       roi_source: nil,
@@ -1290,6 +1317,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   end
 
   defp parse_float(_), do: 0.0
+
+  defp parse_subject_ref("new", name) do
+    case String.trim(name || "") do
+      "" -> {:new, ""}
+      n -> {:new, n}
+    end
+  end
+
+  defp parse_subject_ref("", _name), do: nil
+  defp parse_subject_ref(id_str, _name), do: {:existing, String.to_integer(id_str)}
+
+  defp subject_new_name({:new, name}), do: name
+  defp subject_new_name(_), do: nil
 
   # --- Misc ---
 
