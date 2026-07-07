@@ -11,7 +11,12 @@ defmodule MouseTracker.Experiments.Calibration do
     field :coordinate_y1, :integer
     field :coordinate_x2, :integer
     field :coordinate_y2, :integer
+    field :coordinate_x3, :integer
+    field :coordinate_y3, :integer
+    field :coordinate_x4, :integer
+    field :coordinate_y4, :integer
     field :cage_side_cm, :float
+    field :scale_cm_2, :float
     field :px_per_10cm, :float
     field :threshold, :integer
     field :min_area, :integer
@@ -34,7 +39,12 @@ defmodule MouseTracker.Experiments.Calibration do
       :coordinate_y1,
       :coordinate_x2,
       :coordinate_y2,
+      :coordinate_x3,
+      :coordinate_y3,
+      :coordinate_x4,
+      :coordinate_y4,
       :cage_side_cm,
+      :scale_cm_2,
       :px_per_10cm,
       :threshold,
       :min_area,
@@ -45,10 +55,12 @@ defmodule MouseTracker.Experiments.Calibration do
     ])
     |> validate_required([:cage_side_cm, :px_per_10cm, :threshold, :min_area])
     |> validate_number(:cage_side_cm, greater_than: 0)
+    |> validate_number(:scale_cm_2, greater_than: 0)
     |> validate_number(:px_per_10cm, greater_than: 0)
     |> validate_number(:threshold, greater_than_or_equal_to: 0, less_than_or_equal_to: 255)
     |> validate_number(:min_area, greater_than: 0)
     |> validate_coordinates_together()
+    |> validate_coordinates2_together()
     |> validate_valid_region_together()
     |> foreign_key_constraint(:user_id)
   end
@@ -62,6 +74,21 @@ defmodule MouseTracker.Experiments.Calibration do
         changeset,
         :coordinate_x1,
         "all cage corner coordinates must be provided together"
+      )
+    else
+      changeset
+    end
+  end
+
+  defp validate_coordinates2_together(changeset) do
+    fields = [:coordinate_x3, :coordinate_y3, :coordinate_x4, :coordinate_y4]
+    values = Enum.map(fields, &get_field(changeset, &1))
+
+    if Enum.any?(values, &(!is_nil(&1))) and Enum.any?(values, &is_nil(&1)) do
+      add_error(
+        changeset,
+        :coordinate_x3,
+        "all segment-2 coordinates must be provided together"
       )
     else
       changeset

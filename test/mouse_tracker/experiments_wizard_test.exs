@@ -14,13 +14,22 @@ defmodule MouseTracker.ExperimentsWizardTest do
   defp cal_params do
     %{
       "cage_side_cm" => "30",
+      "scale_cm_2" => "30",
       "px_per_10cm" => "50",
       "threshold" => "80",
       "min_area" => "250",
       "valid_region_x" => "0",
       "valid_region_y" => "0",
       "valid_region_w" => "100",
-      "valid_region_h" => "100"
+      "valid_region_h" => "100",
+      "coordinate_x1" => "0",
+      "coordinate_y1" => "0",
+      "coordinate_x2" => "50",
+      "coordinate_y2" => "0",
+      "coordinate_x3" => "0",
+      "coordinate_y3" => "10",
+      "coordinate_x4" => "50",
+      "coordinate_y4" => "10"
     }
   end
 
@@ -129,6 +138,33 @@ defmodule MouseTracker.ExperimentsWizardTest do
 
       assert Experiments.list_rois_for_video(video) == []
       assert is_nil(video.subject_id)
+    end
+
+    test "persists the second scale segment's raw coordinates and cm", %{scope: scope} do
+      payload = %{
+        name: "Batch C",
+        calibrations: %{"r1" => cal_params()},
+        rois: %{},
+        videos: [
+          %{
+            filename: "a.mp4",
+            filepath: "/tmp/a.mp4",
+            subject_name: "",
+            cal_ref: "r1",
+            roi_ref: nil
+          }
+        ]
+      }
+
+      assert {:ok, {_experiment, [video]}} =
+               Experiments.create_experiment_with_videos(scope, payload)
+
+      calibration =
+        MouseTracker.Repo.get!(MouseTracker.Experiments.Calibration, video.calibration_id)
+
+      assert calibration.scale_cm_2 == 30.0
+      assert {calibration.coordinate_x3, calibration.coordinate_y3} == {0, 10}
+      assert {calibration.coordinate_x4, calibration.coordinate_y4} == {50, 10}
     end
 
     test "rolls back entirely on an invalid calibration", %{scope: scope} do

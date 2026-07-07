@@ -22,6 +22,11 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   alias MouseTracker.Experiments
   alias MouseTracker.Tracking.FrameExtractor
 
+  # Two independent scale segments are required so px_per_10cm is the average
+  # of two measurements instead of a single click-prone one; divergence above
+  # this only warns (non-blocking) — it doesn't gate wizard navigation.
+  @divergence_warning_pct 8.0
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -147,6 +152,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   def handle_event("set_scale_cm", %{"value" => value}, socket) do
     {:noreply, update_calibration(socket, socket.assigns.active_ref, &%{&1 | scale_cm: value})}
+  end
+
+  def handle_event("set_scale_cm2", %{"value" => value}, socket) do
+    {:noreply, update_calibration(socket, socket.assigns.active_ref, &%{&1 | scale_cm2: value})}
   end
 
   def handle_event("cal_setting", %{"threshold" => th, "min_area" => ma}, socket) do
@@ -292,12 +301,24 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     end
   end
 
+  defp apply_shape(socket, %{"kind" => "scale2", "x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}) do
+    if active_flag?(socket, :cal) do
+      update_calibration(
+        socket,
+        socket.assigns.active_ref,
+        &%{&1 | scale2: %{x1: x1, y1: y1, x2: x2, y2: y2}}
+      )
+    else
+      socket
+    end
+  end
+
   defp apply_shape(socket, %{"kind" => "roi_polygon", "points" => points}) do
-    add_roi(socket, %{shape: "polygon", name: "", points: points})
+    add_roi(socket, %{shape: "polygon", name: nil, points: points})
   end
 
   defp apply_shape(socket, %{"kind" => "roi_circle", "cx" => cx, "cy" => cy, "r" => r}) do
-    add_roi(socket, %{shape: "circle", name: "", cx: cx, cy: cy, r: r})
+    add_roi(socket, %{shape: "circle", name: nil, cx: cx, cy: cy, r: r})
   end
 
   defp apply_shape(socket, _), do: socket
@@ -305,8 +326,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp add_roi(socket, roi) do
     if active_flag?(socket, :roi) do
       ref = socket.assigns.active_ref
-      list = Map.get(socket.assigns.rois, ref, []) ++ [roi]
-      assign(socket, :rois, Map.put(socket.assigns.rois, ref, list))
+      list = Map.get(socket.assigns.rois, ref, [])
+      roi = %{roi | name: "Zone #{length(list) + 1}"}
+      assign(socket, :rois, Map.put(socket.assigns.rois, ref, list ++ [roi]))
     else
       socket
     end
@@ -366,21 +388,28 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     for ref <- live_refs(socket.assigns, :cal), into: %{} do
       cal = socket.assigns.calibrations[ref]
       vr = cal.valid_region
-      s = cal.scale
+      s1 = cal.scale
+      s2 = cal.scale2
+      summary = derive_px_per_10cm_pair(cal) || %{avg: 0.0}
 
       params = %{
         "cage_side_cm" => cal.scale_cm,
-        "px_per_10cm" => derive_px_per_10cm(s, cal.scale_cm),
+        "scale_cm_2" => cal.scale_cm2,
+        "px_per_10cm" => summary.avg,
         "threshold" => cal.threshold,
         "min_area" => cal.min_area,
         "valid_region_x" => vr.x,
         "valid_region_y" => vr.y,
         "valid_region_w" => vr.w,
         "valid_region_h" => vr.h,
-        "coordinate_x1" => s.x1,
-        "coordinate_y1" => s.y1,
-        "coordinate_x2" => s.x2,
-        "coordinate_y2" => s.y2
+        "coordinate_x1" => s1.x1,
+        "coordinate_y1" => s1.y1,
+        "coordinate_x2" => s1.x2,
+        "coordinate_y2" => s1.y2,
+        "coordinate_x3" => s2.x1,
+        "coordinate_y3" => s2.y1,
+        "coordinate_x4" => s2.x2,
+        "coordinate_y4" => s2.y2
       }
 
       {ref, params}
@@ -422,6 +451,30 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       _ -> 0.0
     end
   end
+
+  # Combines both scale segments into one px_per_10cm (their average) plus the
+  # relative divergence between them, for the non-blocking warning banner.
+  # Returns nil when either segment isn't fully drawn/measured yet.
+  defp derive_px_per_10cm_pair(%{scale: s1, scale_cm: cm1, scale2: s2, scale_cm2: cm2})
+       when not is_nil(s1) and not is_nil(s2) do
+    px1 = derive_px_per_10cm(s1, cm1)
+    px2 = derive_px_per_10cm(s2, cm2)
+
+    if px1 > 0 and px2 > 0 do
+      avg = (px1 + px2) / 2
+
+      %{
+        px1: px1,
+        px2: px2,
+        avg: Float.round(avg, 4),
+        divergence_pct: Float.round(abs(px1 - px2) / avg * 100, 2)
+      }
+    end
+  end
+
+  defp derive_px_per_10cm_pair(_cal), do: nil
+
+  defp divergence_warning_pct, do: @divergence_warning_pct
 
   # --- Render ---
 
@@ -594,7 +647,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       assign(assigns,
         active_video: Enum.find(assigns.saved_videos, &(&1.ref == active)),
         active_spec: assigns.specs[active],
-        active_rois: Map.get(assigns.rois, active, [])
+        active_rois: Map.get(assigns.rois, active, []),
+        scale_summary:
+          assigns.calibrations[active] && derive_px_per_10cm_pair(assigns.calibrations[active])
       )
 
     ~H"""
@@ -651,10 +706,16 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           <div class="text-[12px] font-bold text-[#0f1729]">Escala & região válida</div>
           <div class="mt-2 flex flex-wrap gap-1.5">
             <.mode_button current={@draw_mode} mode="valid_region" label="Região válida" />
-            <.mode_button current={@draw_mode} mode="scale" label="Escala (2 pts)" />
+            <.mode_button current={@draw_mode} mode="scale" label="Escala 1 (2 pts)" />
+            <.mode_button current={@draw_mode} mode="scale2" label="Escala 2 (2 pts)" />
           </div>
-          <form phx-change="set_scale_cm" phx-submit="set_scale_cm" class="mt-3">
-            <label class="text-[11px] text-[#667085]">Medida real da referência (cm)</label>
+          <form
+            id={"scale-cm-#{@active_ref}"}
+            phx-change="set_scale_cm"
+            phx-submit="set_scale_cm"
+            class="mt-3"
+          >
+            <label class="text-[11px] text-[#667085]">Medida real da referência 1 (cm)</label>
             <input
               type="number"
               step="any"
@@ -664,10 +725,39 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
             />
           </form>
+          <form
+            id={"scale-cm2-#{@active_ref}"}
+            phx-change="set_scale_cm2"
+            phx-submit="set_scale_cm2"
+            class="mt-3"
+          >
+            <label class="text-[11px] text-[#667085]">Medida real da referência 2 (cm)</label>
+            <input
+              type="number"
+              step="any"
+              name="value"
+              value={cal_field(@calibrations, @active_ref, :scale_cm2)}
+              placeholder="ex: 40"
+              class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+            />
+          </form>
           <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
             {scale_status(@calibrations, @active_ref)}
           </div>
-          <form phx-change="cal_setting" phx-submit="cal_setting" class="mt-3 grid grid-cols-2 gap-2">
+          <div
+            :if={@scale_summary && @scale_summary.divergence_pct > divergence_warning_pct()}
+            class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
+          >
+            <div class="text-[11.5px] font-semibold text-[#92400e]">
+              As duas medidas de escala divergem {@scale_summary.divergence_pct}% (esperado ≤{divergence_warning_pct()}%). Confira os pontos clicados em cada segmento.
+            </div>
+          </div>
+          <form
+            id={"cal-setting-#{@active_ref}"}
+            phx-change="cal_setting"
+            phx-submit="cal_setting"
+            class="mt-3 grid grid-cols-2 gap-2"
+          >
             <label class="block">
               <span class="text-[11px] text-[#667085]">Threshold</span>
               <input
@@ -710,7 +800,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           <ul class="mt-3 space-y-2">
             <li :for={{roi, idx} <- Enum.with_index(@active_rois)} class="flex items-center gap-2">
               <span class="font-data text-[10.5px] uppercase text-[#98a2b3]">{roi.shape}</span>
-              <form phx-change="set_roi_name" phx-submit="set_roi_name" class="flex-1">
+              <form
+                id={"roi-name-#{@active_ref}-#{idx}"}
+                phx-change="set_roi_name"
+                phx-submit="set_roi_name"
+                class="flex-1"
+              >
                 <input type="hidden" name="index" value={idx} />
                 <input
                   type="text"
@@ -778,6 +873,18 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           </ul>
         </div>
       </div>
+    </div>
+
+    <div
+      :if={not step2_valid?(assigns)}
+      class="mt-4 rounded-[10px] border border-[#fdecec] bg-[#fff9f8] p-3"
+    >
+      <div class="text-[11.5px] font-semibold text-[#b42318]">
+        Falta para continuar:
+      </div>
+      <ul class="mt-1 list-disc pl-4 text-[11.5px] text-[#b42318]">
+        <li :for={msg <- step2_missing_reasons(assigns)}>{msg}</li>
+      </ul>
     </div>
 
     <div class="mt-6 flex items-center justify-between">
@@ -945,6 +1052,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     %{
       valid_region: cal && cal.valid_region,
       scale: cal && cal.scale,
+      scale2: cal && cal.scale2,
       rois: roi_ref |> then(&Map.get(assigns.rois, &1, [])) |> Enum.map(&shape_json/1)
     }
   end
@@ -968,7 +1076,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   end
 
   defp default_cal do
-    %{valid_region: nil, scale: nil, scale_cm: "", threshold: "80", min_area: "250"}
+    %{
+      valid_region: nil,
+      scale: nil,
+      scale_cm: "",
+      scale2: nil,
+      scale_cm2: "",
+      threshold: "80",
+      min_area: "250"
+    }
   end
 
   defp toggle_ref(socket, ref, kind) do
@@ -1071,21 +1187,23 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   defp scale_status(calibrations, ref) do
     case Map.get(calibrations, ref) do
-      %{valid_region: vr, scale: s, scale_cm: cm} ->
+      %{valid_region: vr, scale: s1, scale2: s2} = cal ->
         parts = [
           if(vr, do: "região ✓", else: "região —"),
-          if(s, do: "escala ✓", else: "escala —")
+          if(s1, do: "escala 1 ✓", else: "escala 1 —"),
+          if(s2, do: "escala 2 ✓", else: "escala 2 —")
         ]
 
         px =
-          if s && parse_float(cm) > 0,
-            do: " · px_per_10cm=#{derive_px_per_10cm(s, cm)}",
-            else: ""
+          case derive_px_per_10cm_pair(cal) do
+            %{avg: avg, divergence_pct: pct} -> " · px_per_10cm=#{avg} (div #{pct}%)"
+            nil -> ""
+          end
 
         Enum.join(parts, " · ") <> px
 
       _ ->
-        "região — · escala —"
+        "região — · escala 1 — · escala 2 —"
     end
   end
 
@@ -1116,10 +1234,46 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       length(roi_names) == length(Enum.uniq(roi_names))
   end
 
+  # Human-readable breakdown of step2_valid?/1, shown next to the disabled
+  # Continue button so an unmet condition (e.g. an unnamed ROI) is visible
+  # instead of silently blocking navigation.
+  defp step2_missing_reasons(assigns) do
+    videos = assigns.saved_videos
+    refs = entry_refs(assigns)
+    roi_refs = live_refs(assigns, :roi)
+
+    cal_msgs =
+      for r <- refs,
+          cal_ref = resolve_ref(r, assigns.specs, :cal),
+          is_nil(cal_ref) or not cal_complete?(assigns.calibrations[cal_ref]) do
+        "#{ref_filename(r, videos)}: escala/região válida incompleta"
+      end
+
+    roi_name_msgs =
+      for r <- roi_refs,
+          roi <- Map.get(assigns.rois, r, []),
+          not present?(roi.name) do
+        "#{ref_filename(r, videos)}: uma zona ROI está sem nome"
+      end
+
+    roi_names = for r <- roi_refs, roi <- Map.get(assigns.rois, r, []), do: roi.name
+
+    dup_msgs =
+      if length(roi_names) != length(Enum.uniq(roi_names)) do
+        ["Duas zonas ROI têm o mesmo nome — nomes precisam ser únicos"]
+      else
+        []
+      end
+
+    (cal_msgs ++ roi_name_msgs ++ dup_msgs) |> Enum.uniq()
+  end
+
   defp cal_complete?(nil), do: false
 
-  defp cal_complete?(%{valid_region: vr, scale: s, scale_cm: cm}) do
-    not is_nil(vr) and not is_nil(s) and parse_float(cm) > 0
+  defp cal_complete?(%{valid_region: vr, scale: s1, scale_cm: cm1, scale2: s2, scale_cm2: cm2}) do
+    not is_nil(vr) and
+      not is_nil(s1) and parse_float(cm1) > 0 and
+      not is_nil(s2) and parse_float(cm2) > 0
   end
 
   defp present?(nil), do: false

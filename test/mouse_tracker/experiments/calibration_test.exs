@@ -138,6 +138,41 @@ defmodule MouseTracker.Experiments.CalibrationTest do
       assert errors_on(changeset).coordinate_x1 != []
     end
 
+    test "válido sem nenhum campo do segmento 2 (opcional no schema)", %{user: user} do
+      changeset = Calibration.changeset(%Calibration{user_id: user.id}, @valid_attrs)
+      assert changeset.valid?
+    end
+
+    test "válido com coordenadas do segmento 2 completas", %{user: user} do
+      attrs =
+        Map.merge(@valid_attrs, %{
+          coordinate_x3: 0,
+          coordinate_y3: 10,
+          coordinate_x4: 640,
+          coordinate_y4: 10,
+          scale_cm_2: 30.0
+        })
+
+      changeset = Calibration.changeset(%Calibration{user_id: user.id}, attrs)
+      assert changeset.valid?
+    end
+
+    test "coordenadas do segmento 2 parciais são inválidas (all-or-nothing)", %{user: user} do
+      attrs = Map.merge(@valid_attrs, %{coordinate_x3: 10})
+      changeset = Calibration.changeset(%Calibration{user_id: user.id}, attrs)
+      assert errors_on(changeset).coordinate_x3 != []
+    end
+
+    test "scale_cm_2 <= 0 é inválido", %{user: user} do
+      changeset =
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :scale_cm_2, 0.0)
+        )
+
+      assert errors_on(changeset).scale_cm_2 != []
+    end
+
     test "valid_region parcial é inválido (all-or-nothing)", %{user: user} do
       attrs = Map.merge(@valid_attrs, %{valid_region_x: 10, valid_region_y: 10})
       changeset = Calibration.changeset(%Calibration{user_id: user.id}, attrs)

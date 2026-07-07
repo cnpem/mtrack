@@ -6,7 +6,7 @@
 //
 // Element contract:
 //   data-frame  — PNG url of the frame
-//   data-mode   — "valid_region" | "scale" | "roi_polygon" | "roi_circle"
+//   data-mode   — "valid_region" | "scale" | "scale2" | "roi_polygon" | "roi_circle"
 //   data-shapes — JSON of committed shapes (native px) to overlay
 // Children: <img data-role="frame">, <canvas data-role="overlay">
 //
@@ -101,9 +101,9 @@ export const RoiCanvas = {
 
     if (mode === "valid_region" || mode === "roi_circle") {
       this.dragging = { start: p, current: p }
-    } else if (mode === "scale" || mode === "roi_polygon") {
+    } else if (mode === "scale" || mode === "scale2" || mode === "roi_polygon") {
       this.pending.push(p)
-      const target = mode === "scale" ? 2 : 4
+      const target = mode === "scale" || mode === "scale2" ? 2 : 4
       if (this.pending.length >= target) {
         this.commitPending(mode)
       }
@@ -154,9 +154,9 @@ export const RoiCanvas = {
     const pts = this.pending.map((p) => this.toNative(p))
     this.pending = []
 
-    if (mode === "scale") {
+    if (mode === "scale" || mode === "scale2") {
       this.pushEvent("shape_drawn", {
-        kind: "scale",
+        kind: mode,
         x1: pts[0].x,
         y1: pts[0].y,
         x2: pts[1].x,
@@ -211,6 +211,19 @@ export const RoiCanvas = {
       ctx.stroke()
       this.dot(a, "#059669")
       this.dot(b, "#059669")
+    }
+
+    if (shapes.scale2) {
+      const a = this.fromNative(shapes.scale2.x1, shapes.scale2.y1)
+      const b = this.fromNative(shapes.scale2.x2, shapes.scale2.y2)
+      ctx.strokeStyle = "#7c3aed"
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.moveTo(a.x, a.y)
+      ctx.lineTo(b.x, b.y)
+      ctx.stroke()
+      this.dot(a, "#7c3aed")
+      this.dot(b, "#7c3aed")
     }
 
     for (const roi of shapes.rois || []) {
