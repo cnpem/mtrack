@@ -15,6 +15,17 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
   end
 
   @impl true
+  def handle_event("update_subject_notes", %{"subject-id" => id, "value" => notes}, socket) do
+    subject = Experiments.get_subject!(socket.assigns.current_scope, id)
+    {:ok, updated} = Experiments.update_subject(subject, %{notes: notes})
+
+    {:noreply,
+     update(socket, :experiment_subjects, fn subjects ->
+       Enum.map(subjects, &if(&1.id == updated.id, do: updated, else: &1))
+     end)}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <Layouts.locomo
@@ -54,11 +65,21 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
         <div :if={@experiment_subjects != []} class="mt-5 flex flex-wrap gap-2">
           <div
             :for={subject <- @experiment_subjects}
-            class="inline-flex items-center gap-2 rounded-[20px] border border-[#e7e9ee] bg-white px-3 py-1.5"
+            class="flex w-56 flex-col gap-1.5 rounded-[13px] border border-[#e7e9ee] bg-white p-3"
           >
-            <span class="size-2 rounded-full" style={"background:#{subject_color(subject.id)}"}></span>
-            <span class="font-data text-[12px] font-medium text-[#344054]">{subject.name}</span>
-            <span :if={subject.genotype} class="text-[11px] text-[#98a2b3]">{subject.genotype}</span>
+            <div class="flex items-center gap-2">
+              <span class="size-2 rounded-full" style={"background:#{subject_color(subject.id)}"}></span>
+              <span class="font-data text-[12px] font-medium text-[#344054]">{subject.name}</span>
+              <span :if={subject.genotype} class="text-[11px] text-[#98a2b3]">{subject.genotype}</span>
+            </div>
+            <textarea
+              name="notes"
+              phx-blur="update_subject_notes"
+              phx-value-subject-id={subject.id}
+              rows="2"
+              placeholder="Observações (ex: manqueira, problema de visão)"
+              class="w-full resize-none rounded-[6px] border border-[#e7e9ee] bg-[#fafbfc] px-2 py-1.5 font-data text-[11.5px] text-[#344054] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+            >{subject.notes}</textarea>
           </div>
         </div>
 

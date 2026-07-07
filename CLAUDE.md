@@ -51,22 +51,30 @@ The DB hierarchy is:
 ```
 User
 ├── Experiment (name, description)
-│   ├── Subject (name, sex, age_days, weight_g, genotype, notes)
 │   └── Video (filename, filepath, fps, status, calibration_id?, subject_id?)
 │       ├── ROI  ← many-to-many via `videos_rois`
 │       └── TrackingResult (distance_px/cm, speed_mean/median, heatmap_path, speed_profile_path)
 │           └── RoiTime (seconds, frame_count)  ← per (ROI, TrackingResult)
-├── Calibration (cage corners, px_per_10cm, threshold, min_area, valid_region)
-└── ROI (name, shape, x/y/w/h/radius)  — user-owned geometry, shared across videos
+├── Calibration (2 scale segments' coords + cm, px_per_10cm, threshold, min_area, valid_region)
+├── ROI (name, shape, x/y/w/h/radius)  — user-owned geometry, shared across videos
+└── Subject (name, sex, age_days, weight_g, genotype, notes)  — user-owned identity, shared across videos/experiments
 ```
 
-`Calibration` and `ROI` are **reusable, user-owned resources**. A `Video` links to
-one `Calibration` (via `calibration_id`) and to N `ROI`s (via the `videos_rois`
-join table). A `ROI` row holds only the *geometry* (name/shape/coords); all
-measured per-video data lives in `roi_times`/`tracking_results` keyed per video,
-so attaching the same ROI to many videos never superimposes acquired data
-(distinct `roi_times` per video's `tracking_result`; distinct heatmaps per video).
-`Video.status` tracks processing state (`"pending"/"processing"/"done"/"error"`).
+`Calibration`, `ROI` and `Subject` are **reusable, user-owned resources**. A
+`Video` links to one `Calibration` (via `calibration_id`), one `Subject` (via
+`subject_id`), and to N `ROI`s (via the `videos_rois` join table). A `ROI` row
+holds only the *geometry* (name/shape/coords); all measured per-video data
+lives in `roi_times`/`tracking_results` keyed per video, so attaching the same
+ROI to many videos never superimposes acquired data (distinct `roi_times` per
+video's `tracking_result`; distinct heatmaps per video). Likewise, the same
+`Subject` can be reused across many videos/experiments (same physical animal
+tracked over time) without superimposing data — only its identity/metadata
+(name, sex, genotype, `notes`) is shared, never measurements.
+`Calibration.px_per_10cm` is derived from **2 independent scale segments**
+(`coordinate_x1..y2` + `cage_side_cm`, `coordinate_x3..y4` + `scale_cm_2`) —
+averaged, with a non-blocking UI warning if they diverge by more than 8% (see
+"Segundo segmento de escala" below). `Video.status` tracks processing state
+(`"pending"/"processing"/"done"/"error"`).
 
 ### Elixir contexts
 
@@ -148,7 +156,7 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
 ### Sprint 3 (continuação) — Integração do design "Locomo"
 
-**Status: Fase 1 (fundação de dados + backend) concluída. Fase 2 (telas): fluxo principal completo — Experiments List/Show, Processing, Wizard (upload + ROI/escala visual + review) e Results (aba "Por vídeo") implementados e testados.**
+**Status: Fase 1 (fundação de dados + backend) concluída. Fase 2 (telas): fluxo principal completo — Experiments List/Show, Processing, Wizard (upload + ROI/escala visual + review, agora com 2 segmentos de escala e picker de subject reutilizável) e Results (aba "Por vídeo") implementados e testados. `Subject` também virou recurso reutilizável do usuário (como ROI/Calibration), com campo de observações editável na tela de detalhe.**
 
 Fase 1 — feito (`mix precommit` limpo, migrações aplicadas em dev preservando dados):
 - [x] Migração `make_rois_shareable`: `ROI` deixou de ser `belongs_to :video` e virou recurso do usuário, N:N com vídeos via tabela `videos_rois`; `rois.user_id` substitui `rois.video_id`; unicidade de nome agora por usuário. Data-migration preserva vínculos e posse.
@@ -176,9 +184,16 @@ Fase 2 — parte 2 feita (`mix precommit` limpo, 211 testes passando):
 - [x] **`ExperimentLive.Results`** (`/experiments/:id/results`): aba "Por vídeo" com stat cards (distância, velocidade média/mediana, tempo por zona), heatmap + speed-profile como `<img>`, tabela de zonas ROI. Abas "Média da batch"/"Por subject" desabilitadas (placeholder "soon") — dependem de `treatment_group`, fora de escopo.
 - [x] Testes: `experiments_wizard_test.exs` (context, incl. ROI polígono), `experiment_live/new_test.exs`, `experiment_live/results_test.exs`, teste de polígono em `video_processing_worker_test.exs`.
 
+Fase 2 — parte 3 feita (`mix precommit` limpo, 236 testes passando):
+- [x] **Segundo segmento de escala (redundância no `px_per_10cm`)**: migração `add_second_scale_segment_to_calibrations` adiciona `coordinate_x3/y3/x4/y4` + `scale_cm_2` (nullable) a `calibrations`. No passo 2 da wizard, o usuário agora desenha **2 segmentos de referência** independentes (modos `"scale"`/`"scale2"` no `RoiCanvas`, cor verde/roxo), cada um com sua própria medida em cm; `derive_px_per_10cm_pair/1` (`experiment_live/new.ex`) calcula os dois `px_per_10cm` e usa a **média** como valor final. Se os dois divergirem mais que 8% (`@divergence_warning_pct`), aparece um banner de aviso **não bloqueante** — não impede avançar no wizard. Motivação: um único segmento deixava qualquer erro de clique ir 100% para o fator de conversão, sem checagem cruzada (comparado ao código antigo em `main`/`mouse_tracker.py`, que tirava média de 4 lados da gaiola).
+- [x] **Subject vira recurso reutilizável do usuário**: migração `make_subjects_shareable` (mesmo padrão da `make_rois_shareable`, mas mais simples — sem tabela de join, já que `videos.subject_id` já era FK direta): `subjects` perde `experiment_id`, ganha `user_id` (backfill via `experiments.user_id`) + `unique_index(:subjects, [:user_id, :name])`. Context `Experiments`: `list_subjects/1`, `get_subject!/2`, `create_subject/2` agora escopados por `Scope` (padrão de `Calibration`/`ROI`); nova `experiment_subjects/1` deriva os subjects de um experimento a partir dos vídeos preloaded (`Enum.uniq_by`), já que `Experiment` não tem mais `has_many :subjects`. Na wizard (passo 3, Review), o input de texto livre virou um `<select>` com os subjects já cadastrados do usuário + opção "+ Novo subject" (revela campo de nome) — resolve para `subject_ref :: {:existing, id} | {:new, name} | nil`, escolhido explicitamente em vez de casar por string digitada (elimina risco de duplicar subject por erro de digitação/maiúsculas). Mesma cobaia agora pode ser reaproveitada entre experimentos diferentes.
+- [x] **Campo de observações (`notes`) do Subject**: `ExperimentLive.Show` (`/experiments/:id`) — os cards de subject (antes só nome+genótipo) ganharam um `<textarea>` sempre visível para `notes`, salvo ao perder o foco (`phx-blur`, evento `update_subject_notes`). Serve para registrar observações fenotípicas (ex.: "manqueira na pata esquerda", "problema de visão") **em vez de** modelar um `treatment_group`/cohort separado — decisão explícita do usuário. Funciona tanto para subjects novos quanto reaproveitados, editável a qualquer momento (não só na criação).
+- [x] Testes: `calibration_test.exs` (validações do 2º segmento), `experiments/subject_test.exs` (novo — validações + unicidade por usuário), `experiment_live/show_test.exs` (novo — primeiro teste dessa tela), `experiments_wizard_test.exs` e `experiment_live/new_test.exs` atualizados (2 segmentos de escala, picker de subject, reuso entre experimentos).
+
 Fase 2 — pendente (próximas partes):
 - [ ] **Limpeza de uploads órfãos**: como o vídeo é salvo em disco já ao entrar no passo 2 (não só no create), abandonar o wizard depois disso deixa arquivo + frame órfãos em `priv/static/uploads/{videos,frames}/<token>/`. Precisa de uma rotina de limpeza (ex.: job periódico que remove tokens sem experimento associado).
 - [ ] **Edição de ROI**: ainda não existe tela; quando for criada, resolver o ponto em aberto abaixo (bloquear edição de ROI já usada em vídeo processado, ou clonar-ao-editar).
+- [ ] **Aba "Por subject" em Results**: continua desabilitada/placeholder — o `Subject` agora é reutilizável entre experimentos (base de dados pronta para agregação por animal), mas a tela de agregação em si (médias por subject ao longo de experimentos) ainda não foi construída.
 - [ ] (fase seguinte) Compare/Datasets/Analyses/Settings — telas ainda mockadas (`ComingSoonLive`).
 
 Inconsistências design × schema resolvidas nesta parte (adaptações, não bugs):
