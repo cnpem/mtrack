@@ -45,13 +45,43 @@ def main():
         "--json", dest="json_params",
         help="JSON string com parâmetros (modo headless, sem janelas OpenCV)",
     )
+    ap.add_argument(
+        "--extract-frame", type=int, dest="extract_frame", default=None,
+        help="Extrai o frame N como PNG (modo headless) e sai",
+    )
+    ap.add_argument(
+        "--extract-output", dest="extract_output",
+        help="Caminho de saída do PNG para --extract-frame",
+    )
 
     args = vars(ap.parse_args())
 
-    if args["json_params"]:
+    if args["extract_frame"] is not None:
+        _extract_frame(args["video"], args["extract_frame"], args["extract_output"])
+    elif args["json_params"]:
         _run_headless(args["json_params"])
     else:
         _run_interactive(args)
+
+
+def _extract_frame(video_path, frame_num, output_path):
+    """Save frame `frame_num` of the video as a PNG at `output_path` (headless)."""
+    vs = cv2.VideoCapture(video_path)
+    if not vs.isOpened():
+        print(json.dumps({"type": "error", "message": "could not open video"}), flush=True)
+        sys.exit(1)
+
+    if frame_num > 0:
+        vs.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+    ok, frame = vs.read()
+    vs.release()
+
+    if not ok or frame is None:
+        print(json.dumps({"type": "error", "message": "could not read frame"}), flush=True)
+        sys.exit(1)
+
+    cv2.imwrite(output_path, frame)
+    print(json.dumps({"type": "frame", "path": output_path}), flush=True)
 
 
 def _run_headless(json_str):

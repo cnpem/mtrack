@@ -8,7 +8,7 @@ Processes frames and yields/returns raw coordinates, speeds, distances, and time
 import json
 import cv2
 import numpy as np
-from .metrics import distance, is_pt_into_roi, is_pt_into_circle
+from .metrics import distance, is_pt_into_roi, is_pt_into_circle, is_pt_into_polygon
 from .detector import diff_btw_frames, exclude_invalid_region, apply_threshold
 
 
@@ -130,10 +130,15 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
                 # ROI statistics
                 for i in range(len(rois)):
                     roi = rois[i]
+                    # ROI shape is distinguished by list length:
+                    # 3 = circle [cx, cy, r], 4 = axis-aligned rect [x, y, w, h],
+                    # >= 6 (even) = polygon [x0, y0, x1, y1, ...].
                     if len(roi) == 3:
                         inside = is_pt_into_circle(_pos_curr, roi)
-                    else:
+                    elif len(roi) == 4:
                         inside = is_pt_into_roi(_pos_curr, roi)
+                    else:
+                        inside = is_pt_into_polygon(_pos_curr, roi)
                     if inside:
                         nframe_into_roi[i] += 1
 

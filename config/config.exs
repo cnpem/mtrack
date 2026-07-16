@@ -82,7 +82,15 @@ config :phoenix, :json_library, Jason
 config :mouse_tracker, Oban,
   engine: Oban.Engines.Basic,
   repo: MouseTracker.Repo,
-  queues: [video_processing: 2]
+  queues: [video_processing: 4, maintenance: 1],
+  plugins: [
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"@daily", MouseTracker.Workers.OrphanUploadCleanupWorker}
+     ]}
+  ]
+
+config :mouse_tracker, :orphan_upload_max_age_hours, 24
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

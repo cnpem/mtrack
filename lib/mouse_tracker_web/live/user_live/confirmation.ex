@@ -30,6 +30,7 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
           >
             Confirm and stay logged in
           </.button>
+
           <.button phx-disable-with="Confirming..." class="btn btn-primary btn-soft w-full mt-2">
             Confirm and log in only this time
           </.button>
@@ -58,6 +59,7 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
             >
               Keep me logged in on this device
             </.button>
+
             <.button phx-disable-with="Logging in..." class="btn btn-primary btn-soft w-full mt-2">
               Log me in only this time
             </.button>

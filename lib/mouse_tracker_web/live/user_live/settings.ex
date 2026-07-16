@@ -24,12 +24,9 @@ defmodule MouseTrackerWeb.UserLive.Settings do
           autocomplete="username"
           spellcheck="false"
           required
-        />
-        <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+        /> <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
       </.form>
-
       <div class="divider" />
-
       <.form
         for={@password_form}
         id="password_form"

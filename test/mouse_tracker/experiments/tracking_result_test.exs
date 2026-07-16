@@ -35,7 +35,14 @@ defmodule MouseTracker.Experiments.TrackingResultTest do
       assert changeset.valid?
     end
 
-    for field <- [:distance_px, :distance_cm, :speed_mean_px, :speed_mean_cm, :speed_median_px, :speed_median_cm] do
+    for field <- [
+          :distance_px,
+          :distance_cm,
+          :speed_mean_px,
+          :speed_mean_cm,
+          :speed_median_px,
+          :speed_median_cm
+        ] do
       test "inválido sem #{field}", %{video: video} do
         changeset =
           TrackingResult.changeset(

@@ -1,6 +1,16 @@
 defmodule MouseTracker.ExperimentsFixtures do
   alias MouseTracker.Repo
-  alias MouseTracker.Experiments.{Calibration, Experiment, Video, Roi, TrackingResult, RoiTime}
+  alias MouseTracker.Experiments
+
+  alias MouseTracker.Experiments.{
+    Calibration,
+    Experiment,
+    Video,
+    Roi,
+    TrackingResult,
+    RoiTime,
+    Subject
+  }
 
   def calibration_fixture(user, attrs \\ %{}) do
     attrs =
@@ -13,6 +23,14 @@ defmodule MouseTracker.ExperimentsFixtures do
 
     %Calibration{user_id: user.id}
     |> Calibration.changeset(attrs)
+    |> Repo.insert!()
+  end
+
+  def subject_fixture(user, attrs \\ %{}) do
+    attrs = Enum.into(attrs, %{name: "Subject #{System.unique_integer()}"})
+
+    %Subject{user_id: user.id}
+    |> Subject.changeset(attrs)
     |> Repo.insert!()
   end
 
@@ -36,7 +54,16 @@ defmodule MouseTracker.ExperimentsFixtures do
     |> Repo.insert!()
   end
 
+  @doc """
+  Creates a user-owned ROI and attaches it to the given video.
+
+  A ROI is now a reusable, user-scoped geometry (many-to-many with videos via
+  `videos_rois`), so the fixture resolves the owning user from the video's
+  experiment and links the two.
+  """
   def roi_fixture(video, attrs \\ %{}) do
+    experiment = Repo.get!(Experiment, video.experiment_id)
+
     attrs =
       Enum.into(attrs, %{
         name: "ROI #{System.unique_integer()}",
@@ -47,9 +74,13 @@ defmodule MouseTracker.ExperimentsFixtures do
         h: 100
       })
 
-    %Roi{video_id: video.id}
-    |> Roi.changeset(attrs)
-    |> Repo.insert!()
+    roi =
+      %Roi{user_id: experiment.user_id}
+      |> Roi.changeset(attrs)
+      |> Repo.insert!()
+
+    :ok = Experiments.attach_roi_to_video(video, roi)
+    roi
   end
 
   def tracking_result_fixture(video, attrs \\ %{}) do

@@ -1,5 +1,6 @@
 defmodule MouseTracker.Experiments do
   import Ecto.Query
+  require Logger
   alias MouseTracker.Repo
   alias MouseTracker.Accounts.Scope
 
@@ -23,6 +24,80 @@ defmodule MouseTracker.Experiments do
     Repo.get_by!(Experiment, id: id, user_id: user.id)
   end
 
+  @doc """
+  Lists the user's experiments with `:videos` (and each video's `:subject`)
+  preloaded, so the list/detail screens can derive an aggregate status and show
+  subjects without an N+1. Ordered newest-first.
+  """
+  def list_experiments_with_details(%Scope{user: user}) do
+    Repo.all(
+      from e in Experiment,
+        where: e.user_id == ^user.id,
+        order_by: [desc: e.inserted_at],
+        preload: [videos: [:subject]]
+    )
+  end
+
+  @doc """
+  Loads one experiment (scoped to the user) with its `:videos` (each video's
+  `:subject` and `:tracking_result` preloaded) for the detail screen.
+  """
+  def get_experiment_with_details!(%Scope{user: user}, id) do
+    Repo.one!(
+      from e in Experiment,
+        where: e.id == ^id and e.user_id == ^user.id,
+        preload: [videos: [:subject, :tracking_result, :rois]]
+    )
+  end
+
+  @doc """
+  Loads one experiment (scoped to the user) for the results screen, preloading
+  each video's `:subject` and its `:tracking_result` with `roi_times: :roi`, so
+  the per-video metrics, heatmap/speed-profile paths and per-zone times can all
+  be rendered without an N+1.
+  """
+  def get_experiment_for_results!(%Scope{user: user}, id) do
+    Repo.one!(
+      from e in Experiment,
+        where: e.id == ^id and e.user_id == ^user.id,
+        preload: [videos: [:subject, tracking_result: [roi_times: :roi]]]
+    )
+  end
+
+  @doc """
+  Subject is a reusable, user-owned resource (like Calibration/ROI) — it no
+  longer belongs to a single experiment. "An experiment's subjects" means the
+  distinct subjects its videos currently point at. Requires `:videos` (with
+  `:subject`) preloaded on `experiment`.
+  """
+  def experiment_subjects(%Experiment{videos: videos}) when is_list(videos) do
+    videos
+    |> Enum.map(& &1.subject)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  @doc """
+  Derives a single status for an experiment from its (preloaded) videos:
+
+    * `"error"` if any video errored,
+    * `"processing"` if any video is still processing (or pending while others run),
+    * `"done"` if there is at least one video and all are done,
+    * `"pending"` otherwise (no videos yet, or all pending).
+  """
+  def experiment_status(%Experiment{videos: videos}) when is_list(videos) do
+    statuses = Enum.map(videos, & &1.status)
+
+    cond do
+      "error" in statuses -> "error"
+      "processing" in statuses -> "processing"
+      statuses != [] and Enum.all?(statuses, &(&1 == "done")) -> "done"
+      "done" in statuses -> "processing"
+      true -> "pending"
+    end
+  end
+
   def create_experiment(%Scope{user: user}, attrs) do
     %Experiment{user_id: user.id}
     |> Experiment.changeset(attrs)
@@ -36,12 +111,118 @@ defmodule MouseTracker.Experiments do
   end
 
   def delete_experiment(%Scope{}, %Experiment{} = experiment) do
-    Repo.delete(experiment)
+    experiment = Repo.preload(experiment, :videos)
+
+    with {:ok, deleted} <- Repo.delete(experiment) do
+      Enum.each(experiment.videos, &cleanup_video_files/1)
+      {:ok, deleted}
+    end
   end
 
   def change_experiment(%Experiment{} = experiment, attrs \\ %{}) do
     Experiment.changeset(experiment, attrs)
   end
+
+  @doc """
+  Creates an experiment and all of its videos (with subjects, shared
+  calibrations and shared ROIs) in a single transaction — the commit step of the
+  upload wizard.
+
+  `payload` is a plain map, already resolved by the wizard, of the form:
+
+      %{
+        name: "My experiment",
+        # one entry per video that is a *reference* for that resource; keyed by
+        # the upload entry ref that owns it:
+        calibrations: %{ref => calibration_params_map},
+        rois: %{ref => [roi_params_map, ...]},
+        videos: [
+          %{
+            filename: "...", filepath: "/abs/path",
+            subject_ref: {:existing, id} | {:new, "M-01"} | nil,
+            cal_ref: ref,   # which calibration reference this video uses
+            roi_ref: ref    # which ROI reference this video uses (nil => no ROIs)
+          }
+        ]
+      }
+
+  ROI names are unique per user, so each ROI is stored prefixed with the
+  experiment name to avoid collisions across experiments. Returns
+  `{:ok, {experiment, videos}}` or `{:error, changeset}` (rolls back on any
+  insert failure, so no partial experiment is left behind).
+  """
+  def create_experiment_with_videos(%Scope{} = scope, payload) do
+    Repo.transaction(fn ->
+      experiment = insert_or_rollback(create_experiment(scope, %{name: payload.name}))
+      new_subjects = create_wizard_subjects(scope, payload.videos)
+      calibrations = create_wizard_calibrations(scope, payload.calibrations)
+      rois = create_wizard_rois(scope, payload.name, payload.rois)
+      videos = create_wizard_videos(experiment, payload.videos, new_subjects, calibrations, rois)
+
+      {experiment, videos}
+    end)
+  end
+
+  # Only `{:new, name}` entries need creating; `{:existing, id}` entries
+  # already reference a real Subject row and require no insert.
+  defp create_wizard_subjects(scope, videos) do
+    videos
+    |> Enum.map(& &1.subject_ref)
+    |> Enum.filter(&match?({:new, _name}, &1))
+    |> Enum.map(fn {:new, name} -> name end)
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.uniq()
+    |> Map.new(fn name ->
+      {name, insert_or_rollback(create_subject(scope, %{name: name}))}
+    end)
+  end
+
+  defp create_wizard_calibrations(scope, calibrations) do
+    Map.new(calibrations, fn {ref, params} ->
+      {ref, insert_or_rollback(create_calibration(scope, params))}
+    end)
+  end
+
+  defp create_wizard_rois(scope, experiment_name, rois) do
+    Map.new(rois, fn {ref, roi_params_list} ->
+      created =
+        Enum.map(roi_params_list, fn params ->
+          prefixed = Map.put(params, "name", "#{experiment_name} · #{params["name"]}")
+          insert_or_rollback(create_roi(scope, prefixed))
+        end)
+
+      {ref, created}
+    end)
+  end
+
+  defp create_wizard_videos(experiment, videos, new_subjects, calibrations, rois) do
+    Enum.map(videos, fn v ->
+      cal = Map.get(calibrations, v.cal_ref)
+
+      attrs = %{
+        filename: v.filename,
+        filepath: v.filepath,
+        calibration_id: cal && cal.id,
+        subject_id: resolve_wizard_subject_id(v.subject_ref, new_subjects)
+      }
+
+      video = insert_or_rollback(create_video(experiment, attrs))
+
+      for roi <- Map.get(rois, v.roi_ref, []), do: attach_roi_to_video(video, roi)
+      video
+    end)
+  end
+
+  defp resolve_wizard_subject_id({:existing, id}, _new_subjects), do: id
+  defp resolve_wizard_subject_id({:new, name}, _new_subjects) when name in [nil, ""], do: nil
+
+  defp resolve_wizard_subject_id({:new, name}, new_subjects),
+    do: Map.fetch!(new_subjects, name).id
+
+  defp resolve_wizard_subject_id(nil, _new_subjects), do: nil
+
+  defp insert_or_rollback({:ok, record}), do: record
+  defp insert_or_rollback({:error, changeset}), do: Repo.rollback(changeset)
 
   # --- Videos ---
 
@@ -50,6 +231,11 @@ defmodule MouseTracker.Experiments do
   end
 
   def get_video!(id), do: Repo.get!(Video, id)
+
+  @doc "Loads a video with its `:experiment` and `:subject` preloaded."
+  def get_video_with_experiment!(id) do
+    Repo.get!(Video, id) |> Repo.preload([:experiment, :subject])
+  end
 
   def create_video(%Experiment{} = experiment, attrs) do
     %Video{experiment_id: experiment.id}
@@ -63,7 +249,43 @@ defmodule MouseTracker.Experiments do
     |> Repo.update()
   end
 
-  def delete_video(%Video{} = video), do: Repo.delete(video)
+  def delete_video(%Video{} = video) do
+    with {:ok, deleted} <- Repo.delete(video) do
+      cleanup_video_files(video)
+      {:ok, deleted}
+    end
+  end
+
+  # The DB row is deleted first (source of truth); file removal below is
+  # best-effort and non-fatal (logged, not raised) — orphaned files here are
+  # a lesser problem than blocking the delete on a filesystem hiccup.
+  defp cleanup_video_files(video) do
+    remove_file(video.filepath)
+    remove_dir(Path.join([static_dir(), "uploads", "results", to_string(video.id)]))
+  end
+
+  defp remove_file(nil), do: :ok
+
+  defp remove_file(path) do
+    case File.rm(path) do
+      :ok ->
+        :ok
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Experiments: failed to remove #{path}: #{inspect(reason)}")
+    end
+  end
+
+  defp remove_dir(dir) do
+    File.rm_rf!(dir)
+  rescue
+    error -> Logger.warning("Experiments: failed to remove #{dir}: #{inspect(error)}")
+  end
+
+  defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")
 
   def change_video(%Video{} = video, attrs \\ %{}) do
     Video.changeset(video, attrs)
@@ -98,31 +320,110 @@ defmodule MouseTracker.Experiments do
   end
 
   # --- ROIs ---
+  #
+  # A ROI is a user-owned, reusable geometry (like Calibration). It is attached
+  # to N videos via the `videos_rois` join table. Measured per-video data lives
+  # in `roi_times`/`tracking_results`, so sharing a ROI never shares acquired data.
 
-  def list_rois(%Video{} = video) do
-    Repo.all(from r in Roi, where: r.video_id == ^video.id)
+  def list_rois(%Scope{user: user}) do
+    Repo.all(from r in Roi, where: r.user_id == ^user.id, order_by: r.name)
   end
 
-  def get_roi!(%Video{} = video, id) do
-    Repo.get_by!(Roi, id: id, video_id: video.id)
+  def get_roi!(%Scope{user: user}, id) do
+    Repo.get_by!(Roi, id: id, user_id: user.id)
   end
 
-  def create_roi(%Video{} = video, attrs) do
-    %Roi{video_id: video.id}
+  def create_roi(%Scope{user: user}, attrs) do
+    %Roi{user_id: user.id}
     |> Roi.changeset(attrs)
     |> Repo.insert()
   end
 
-  def update_roi(%Roi{} = roi, attrs) do
+  @doc """
+  Clones `roi`'s geometry into a brand-new ROI owned by `scope`'s user,
+  appending " (copy)" (then " (copy 2)", etc.) to the name to satisfy the
+  `[:user_id, :name]` uniqueness constraint. The duplicate starts unattached
+  to any video, so it's always freely editable — used as the escape hatch
+  when the source ROI is `roi_locked?/1`.
+  """
+  def duplicate_roi(%Scope{user: user} = scope, %Roi{user_id: user_id} = roi)
+      when user_id == user.id do
+    attrs =
+      roi
+      |> Map.take([:shape, :x, :y, :w, :h, :radius, :x1, :y1, :x2, :y2, :x3, :y3, :x4, :y4])
+      |> Map.put(:name, unique_copy_name(scope, roi.name))
+
+    create_roi(scope, attrs)
+  end
+
+  defp unique_copy_name(scope, base_name) do
+    existing = scope |> list_rois() |> MapSet.new(& &1.name)
+    do_unique_copy_name(existing, base_name, 1)
+  end
+
+  defp do_unique_copy_name(existing, base_name, n) do
+    candidate = if n == 1, do: "#{base_name} (copy)", else: "#{base_name} (copy #{n})"
+
+    if MapSet.member?(existing, candidate),
+      do: do_unique_copy_name(existing, base_name, n + 1),
+      else: candidate
+  end
+
+  def update_roi(%Scope{user: user}, %Roi{user_id: user_id} = roi, attrs)
+      when user_id == user.id do
     roi
     |> Roi.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_roi(%Roi{} = roi), do: Repo.delete(roi)
+  def delete_roi(%Scope{user: user}, %Roi{user_id: user_id} = roi) when user_id == user.id do
+    Repo.delete(roi)
+  end
 
   def change_roi(%Roi{} = roi, attrs \\ %{}) do
     Roi.changeset(roi, attrs)
+  end
+
+  @doc "ROIs currently attached to the given video."
+  def list_rois_for_video(%Video{} = video) do
+    Repo.preload(video, :rois).rois
+  end
+
+  @doc """
+  True if `roi` is attached to at least one video whose status is `"done"` or
+  `"processing"`. Editing geometry in place at that point would change what
+  those videos' (already-produced or in-flight) results are based on, so
+  callers should block geometry edits and offer `duplicate_roi/2` instead.
+  The `name` field has no such hazard and stays editable regardless.
+  """
+  def roi_locked?(%Roi{} = roi) do
+    Repo.exists?(
+      from vr in "videos_rois",
+        join: v in Video,
+        on: v.id == vr.video_id,
+        where: vr.roi_id == ^roi.id and v.status in ["done", "processing"]
+    )
+  end
+
+  @doc """
+  Attaches an existing ROI to a video (idempotent — a duplicate link is ignored).
+  """
+  def attach_roi_to_video(%Video{} = video, %Roi{} = roi) do
+    Repo.insert_all(
+      "videos_rois",
+      [%{video_id: video.id, roi_id: roi.id}],
+      on_conflict: :nothing
+    )
+
+    :ok
+  end
+
+  @doc "Removes the link between a video and a ROI (leaves the ROI itself intact)."
+  def detach_roi_from_video(%Video{} = video, %Roi{} = roi) do
+    from(vr in "videos_rois", where: vr.video_id == ^video.id and vr.roi_id == ^roi.id)
+    |> Repo.delete_all()
+
+    :ok
   end
 
   # --- RoiTimes ---
@@ -145,14 +446,16 @@ defmodule MouseTracker.Experiments do
 
   # --- Subjects ---
 
-  def list_subjects(%Experiment{} = experiment) do
-    Repo.all(from s in Subject, where: s.experiment_id == ^experiment.id, order_by: s.name)
+  def list_subjects(%Scope{user: user}) do
+    Repo.all(from s in Subject, where: s.user_id == ^user.id, order_by: s.name)
   end
 
-  def get_subject!(id), do: Repo.get!(Subject, id)
+  def get_subject!(%Scope{user: user}, id) do
+    Repo.get_by!(Subject, id: id, user_id: user.id)
+  end
 
-  def create_subject(%Experiment{} = experiment, attrs) do
-    %Subject{experiment_id: experiment.id}
+  def create_subject(%Scope{user: user}, attrs) do
+    %Subject{user_id: user.id}
     |> Subject.changeset(attrs)
     |> Repo.insert()
   end

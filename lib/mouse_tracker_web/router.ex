@@ -54,6 +54,22 @@ defmodule MouseTrackerWeb.Router do
       on_mount: [{MouseTrackerWeb.UserAuth, :require_authenticated}] do
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
+
+      # Locomo main flow. Static segments (`/new`) must be declared before the
+      # `/:id` catch-all so they are not captured as an experiment id.
+      live "/experiments", ExperimentLive.Index, :index
+      live "/experiments/new", ExperimentLive.New, :upload
+      live "/experiments/new/roi", ExperimentLive.New, :roi
+      live "/experiments/new/review", ExperimentLive.New, :review
+      live "/experiments/:id", ExperimentLive.Show, :show
+      live "/experiments/:id/results", ExperimentLive.Results, :results
+      live "/videos/:video_id/processing", VideoLive.Processing, :show
+      live "/videos/:video_id/rois/:roi_id/edit", ExperimentLive.RoiEdit, :edit
+
+      # Other sidebar destinations still to be built (placeholder screens).
+      live "/datasets", ComingSoonLive, :datasets
+      live "/analyses", ComingSoonLive, :analyses
+      live "/pipeline-settings", ComingSoonLive, :settings
     end
 
     post "/users/update-password", UserSessionController, :update_password

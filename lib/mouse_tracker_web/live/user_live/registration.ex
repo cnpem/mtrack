@@ -32,7 +32,6 @@ defmodule MouseTrackerWeb.UserLive.Registration do
             required
             phx-mounted={JS.focus()}
           />
-
           <.button phx-disable-with="Creating account..." class="btn btn-primary w-full">
             Create an account
           </.button>

@@ -51,14 +51,30 @@ The DB hierarchy is:
 ```
 User
 ├── Experiment (name, description)
-│   └── Video (filename, filepath, fps, status, calibration_id?)
-│       ├── ROI (x, y, w, h)
-│       │   └── RoiTime (seconds, frame_count) → TrackingResult
-│       └── TrackingResult (distance_px/cm, speed_mean/median, heatmap_path)
-└── Calibration (cage corners, px_per_10cm, threshold, min_area, valid_region)
+│   └── Video (filename, filepath, fps, status, calibration_id?, subject_id?)
+│       ├── ROI  ← many-to-many via `videos_rois`
+│       └── TrackingResult (distance_px/cm, speed_mean/median, heatmap_path, speed_profile_path)
+│           └── RoiTime (seconds, frame_count)  ← per (ROI, TrackingResult)
+├── Calibration (2 scale segments' coords + cm, px_per_10cm, threshold, min_area, valid_region)
+├── ROI (name, shape, x/y/w/h/radius)  — user-owned geometry, shared across videos
+└── Subject (name, sex, age_days, weight_g, genotype, notes)  — user-owned identity, shared across videos/experiments
 ```
 
-`Calibration` is reusable across videos. `Video.status` tracks processing state (`"pending"`, etc.).
+`Calibration`, `ROI` and `Subject` are **reusable, user-owned resources**. A
+`Video` links to one `Calibration` (via `calibration_id`), one `Subject` (via
+`subject_id`), and to N `ROI`s (via the `videos_rois` join table). A `ROI` row
+holds only the *geometry* (name/shape/coords); all measured per-video data
+lives in `roi_times`/`tracking_results` keyed per video, so attaching the same
+ROI to many videos never superimposes acquired data (distinct `roi_times` per
+video's `tracking_result`; distinct heatmaps per video). Likewise, the same
+`Subject` can be reused across many videos/experiments (same physical animal
+tracked over time) without superimposing data — only its identity/metadata
+(name, sex, genotype, `notes`) is shared, never measurements.
+`Calibration.px_per_10cm` is derived from **2 independent scale segments**
+(`coordinate_x1..y2` + `cage_side_cm`, `coordinate_x3..y4` + `scale_cm_2`) —
+averaged, with a non-blocking UI warning if they diverge by more than 8% (see
+"Segundo segmento de escala" below). `Video.status` tracks processing state
+(`"pending"/"processing"/"done"/"error"`).
 
 ### Elixir contexts
 
@@ -80,7 +96,9 @@ Use the `:req` (`Req`) library for all HTTP requests. **Never** use `:httpoison`
 
 ### Python ↔ Elixir boundary
 
-The Python module (`priv/python/`) exposes a headless CLI mode (`--json`) designed to be invoked as a subprocess by Phoenix. The Elixir side will pass calibration and ROI parameters (stored in Postgres) as a JSON string, and read progress/result lines from stdout. Each stdout line is a valid JSON object — either `{"type":"progress","value":N}` or `{"type":"result",...}`.
+The Python module (`priv/python/`) exposes a headless CLI mode (`--json`) designed to be invoked as a subprocess by Phoenix. The Elixir side passes calibration and ROI parameters (stored in Postgres) as a JSON string, and reads progress/result lines from stdout. Each stdout line is a valid JSON object — either `{"type":"progress","value":N}` or `{"type":"result",...}`.
+
+`MouseTracker.Tracking.PythonPort.run/2` runs the subprocess via `Port.open` (not `System.cmd`) so stdout is read line-by-line as it is produced. Its signature is `run(params, on_progress)` where `on_progress` is called with each decoded progress map; it returns `{:ok, result_map}` or `{:error, reason}`. The behaviour `MouseTracker.Tracking.PythonPortBehaviour` (arity 2) backs the Mox mock used in tests. Note: the Python result JSON does **not** echo `heatmap_path`/`speed_profile_path` — the caller decides those output paths, passes them in the params (`heatmap`/`speed_profile`), and the Python side writes the PNGs there.
 
 The module is split into:
 - `run.py` — entry point; dispatches to interactive or headless mode
@@ -89,16 +107,18 @@ The module is split into:
 - `metrics.py` — distance, speed stats, px↔cm conversion (pure functions)
 - `render.py` — interactive OpenCV setup + matplotlib plot generation
 
-The ROI format passed via JSON is a flat list: `[x, y, w, h]` for rectangles or `[x, y, radius]` for circles (Python distinguishes by list length).
+The ROI format passed via JSON is a flat list, and Python distinguishes shape by list length: `[x, y, radius]` (3) for circles, `[x, y, w, h]` (4) for axis-aligned rectangles, or `[x1, y1, x2, y2, x3, y3, x4, y4]` (≥6, even) for a free 4-point polygon, checked via ray-casting (`metrics.is_pt_into_polygon/2`, handles concave quads).
 
 ### Background job processing (Oban)
 
 `MouseTracker.Workers.VideoProcessingWorker` handles async video processing:
 1. Receives `%{"video_id" => id}` as job args
 2. Preloads `calibration` and `rois` from the video record
-3. Sets `video.status = "processing"`, calls `PythonPort.run/1`
-4. On success: inserts `TrackingResult`, sets status `"done"`, broadcasts `{:processing_done, video_id}` on PubSub topic `"video:<id>"`
-5. On error: sets status `"error"`, returns `{:error, reason}` so Oban retries (max 3 attempts)
+3. Sets `video.status = "processing"`, broadcasts `{:status, id, "processing"}`, then calls `PythonPort.run/2` with a progress callback that broadcasts `{:progress, id, pct}`
+4. On success: inserts `TrackingResult` (including `heatmap_path`/`speed_profile_path`), persists per-zone `RoiTime` rows from the result's `frames_into_roi`/`time_into_roi_s` (zipped to `video.rois` order), sets status `"done"`, broadcasts `{:status, id, "done"}` and `{:processing_done, id}`
+5. On error: sets status `"error"`, broadcasts `{:status, id, "error"}` and `{:processing_error, id, reason}`, returns `{:error, reason}` so Oban retries (max 3 attempts)
+
+All broadcasts go to PubSub topic `"video:<id>"` (`VideoProcessingWorker.topic/1`). Heatmap/speed-profile PNGs are written under `priv/static/uploads/results/<video_id>/` and served via `Plug.Static` (`uploads` is in `static_paths/0`); the DB stores their web paths.
 
 Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
@@ -108,31 +128,108 @@ Enqueue via: `MouseTracker.Experiments.enqueue_video_processing(video_id)`
 
 - [x] Implementar `MouseTracker.Tracking.PythonPort` — módulo Elixir que encapsula a chamada ao script Python
 - [x] Usar `System.cmd/3` para executar o script em modo `--json` e capturar o stdout linha a linha
-- [ ] Testar a integração chamando o script com um vídeo de exemplo e decodificando o resultado com `Jason.decode!/1`
+- [x] Testar a integração chamando o script com um vídeo de exemplo e decodificando o resultado com `Jason.decode!/1`
 
-### Sprint 2.5 — Processamento de vídeo em background com Oban
+### Sprint 2.5 — Processamento de vídeo em background com Oban ✅
 
 - [x] Adicionar dependência `{:oban, "~> 2.18"}` e configurar queue `video_processing`
 - [x] Criar `MouseTracker.Workers.VideoProcessingWorker` — chama `PythonPort`, grava `TrackingResult`, atualiza `Video.status`, broadcast PubSub
 - [x] Adicionar `MouseTracker.Experiments.enqueue_video_processing/1` no contexto
-- [ ] Rodar `mix oban.install` e `mix ecto.migrate` para criar as tabelas do Oban
+- [x] Rodar `mix oban.install` e `mix ecto.migrate` para criar as tabelas do Oban
 
 ### Sprint 3 — Interface Web com Phoenix LiveView
 
-**3.1 — Tela de upload de vídeos**
-- [ ] Implementar upload de arquivo único e em lote (batch)
-- [ ] Salvar arquivos em `priv/static/uploads/` e registrar na tabela `videos` do banco
+**3.1 — Tela de upload de vídeos** ✅ (via `ExperimentLive.New`, ver seção "Wizard" abaixo)
+- [x] Implementar upload de arquivo único e em lote (batch)
+- [x] Salvar arquivos em `priv/static/uploads/` e registrar na tabela `videos` do banco
 - **Estudo:** LiveView Uploads
 
-**3.2 — Tela de listagem de experimentos e vídeos**
-- [ ] Listar todos os experimentos com os vídeos e status de cada um (`pending`, `processing`, `done`, `failed`)
-- [ ] Atualizar a lista em tempo real quando o status de um vídeo mudar, via Phoenix PubSub
+**3.2 — Tela de listagem de experimentos e vídeos** ✅ (`ExperimentLive.Index`/`Show`, ver "Fase 2 — parte 5" abaixo)
+- [x] Listar todos os experimentos com os vídeos e status de cada um (`pending`, `processing`, `done`, `failed`)
+- [x] Atualizar a lista em tempo real quando o status de um vídeo mudar, via Phoenix PubSub
 - **Estudo:** Phoenix PubSub
 
 **3.4 — Tela de Dashboard de resultados**
 - [ ] Exibir cartões com as métricas finais (distância, velocidade, tortuosidade, tigmotaxia, etc.)
 - [ ] Renderizar o heatmap como imagem estática gerada pelo Python
 - [ ] Integrar gráficos de velocidade usando um JS Hook com Chart.js
+
+### Sprint 3 (continuação) — Integração do design "Locomo"
+
+**Status: Fase 1 (fundação de dados + backend) concluída. Fase 2 (telas): fluxo principal completo — Experiments List/Show, Processing, Wizard (upload + ROI/escala visual + review, agora com 2 segmentos de escala e picker de subject reutilizável) e Results (aba "Por vídeo") implementados e testados. `Subject` também virou recurso reutilizável do usuário (como ROI/Calibration), com campo de observações editável na tela de detalhe.**
+
+Fase 1 — feito (`mix precommit` limpo, migrações aplicadas em dev preservando dados):
+- [x] Migração `make_rois_shareable`: `ROI` deixou de ser `belongs_to :video` e virou recurso do usuário, N:N com vídeos via tabela `videos_rois`; `rois.user_id` substitui `rois.video_id`; unicidade de nome agora por usuário. Data-migration preserva vínculos e posse.
+- [x] Migração `add_speed_profile_path` em `tracking_results`.
+- [x] Context `Experiments`: funções de ROI escopadas por `Scope` (padrão de `Calibration`) + `attach_roi_to_video/2`, `detach_roi_from_video/2`, `list_rois_for_video/1`.
+- [x] Streaming de progresso: `PythonPort.run/2` via `Port.open` linha-a-linha; worker faz broadcast de `{:status}`/`{:progress}`/`{:processing_error}`, persiste `roi_times` e gera/salva heatmap + speed-profile.
+- [x] Testes/fixtures adaptados à nova posse de ROI e à aridade `run/2`.
+
+Fase 2 — parte 1 feita (`mix test` 202 passando, compila limpo):
+- [x] **App shell** `Layouts.locomo/1` (`components/layouts.ex`): sidebar fixa 248px (`#1a212e`) + topbar sticky 58px, Tailwind puro, tokens do handoff. Fontes Inter + JetBrains Mono via Google Fonts (`root.html.heex`); utilitários `.font-ui`/`.font-data` e keyframes `locomo-spin/pulse/shimmer/blink` em `app.css`. `Layouts.app` (auth) intocado.
+- [x] **Componentes compartilhados** `MouseTrackerWeb.LocomoComponents` (`status_pill`, `stat_card`, `icon_tile`, `subject_color`), importados em `mouse_tracker_web.ex`.
+- [x] **`ExperimentLive.Index`** (`/experiments`): lista com busca (nome/subject), tabs de status e empty state. Status agregado do experimento derivado dos vídeos via `Experiments.experiment_status/1`.
+- [x] **`ExperimentLive.Show`** (`/experiments/:id`): meta strip, chips de subject (genótipo, sem grupo Saline/CNO), lista de vídeos com status real + botões (View progress/results).
+- [x] **`VideoLive.Processing`** (`/videos/:video_id/processing`): assina `video:<id>` no `mount`, consome `{:progress}`/`{:status}`/`{:processing_done}`/`{:processing_error}`; % + barra shimmer + console de log + passos de pipeline (heurística do %). Valida posse via `experiment.user_id`.
+- [x] Context: `list_experiments_with_details/1`, `get_experiment_with_details!/2`, `experiment_status/1`, `get_video_with_experiment!/1`.
+- [x] Rotas no `live_session :require_authenticated_user`; `signed_in_path/1` → `/experiments`; testes de auth ajustados para o novo redirect.
+- [x] `MouseTrackerWeb.ComingSoonLive`: placeholder no shell para telas ainda não construídas (`/experiments/new`, `/experiments/:id/results`, `/datasets`, `/analyses`, `/pipeline-settings`) — nenhum link dá 404.
+- [x] Seed de dev `priv/repo/seeds_locomo.exs` (`mix run priv/repo/seeds_locomo.exs`): usuário `demo@locomo.dev` / `locomo-demo-123!` + 1 experimento populado (4 vídeos, um por status; subjects; calibração; ROIs; tracking result + roi_times no vídeo "done"). Idempotente.
+
+Fase 2 — parte 2 feita (`mix precommit` limpo, 211 testes passando):
+- [x] **`ExperimentLive.New`** (`/experiments/new`, `/experiments/new/roi`, `/experiments/new/review`): wizard de 3 passos em uma única LiveView, `live_action` seleciona o passo (`push_patch` entre eles, mesmo processo/estado). Passo 1: `allow_upload` de vídeo único ou em lote. Passo 3: nome do experimento + tabela de revisão por vídeo + `create`.
+- [x] **Passo 2 (ROI & escala) totalmente visual**: ao avançar do passo 1, cada vídeo é salvo em disco e seu 1º frame extraído (`MouseTracker.Tracking.FrameExtractor`, `System.cmd` chamando `run.py --extract-frame`); o frame é mostrado num `<canvas>` (hook JS `RoiCanvas`, `assets/js/hooks/roi_canvas.js`, registrado classicamente em `app.js` — não colocated, por causa de `:eperm` de symlink no Windows) sobre o qual o usuário desenha: região válida (caixa), **1 referência de escala** (segmento de 2 pontos + medida real em cm → deriva `px_per_10cm`, substituindo o formulário numérico de calibração) e ROIs (**polígono de 4 pontos livres** ou círculo). O formulário numérico de coordenadas foi removido; `threshold`/`min_area` ficam como 2 campos avançados com default 80/250.
+- [x] Modelo de **referência/herança** entre vídeos do batch: qualquer vídeo pode ser marcado como referência de ROI e/ou de escala; os demais herdam, escolhendo a referência numa dropdown (`<select>`; era um botão de ciclar, trocado na Fase 2 parte 4) — preservado do design original, só mudou a forma de preenchimento (desenho, não form).
+- [x] **ROI vira polígono** no schema: migração `add_roi_polygon_points` (8 inteiros `x1..y4`), `Roi` ganha shape `"polygon"`, `roi_to_list/1` do worker monta lista de 8; Python (`analyzer.py`/`metrics.py`) ganha `is_pt_into_polygon/2` (ray-casting puro, aceita côncavo).
+- [x] **`ExperimentLive.Results`** (`/experiments/:id/results`): aba "Por vídeo" com stat cards (distância, velocidade média/mediana, tempo por zona), heatmap + speed-profile como `<img>`, tabela de zonas ROI. Abas "Média da batch"/"Por subject" desabilitadas (placeholder "soon") — dependem de `treatment_group`, fora de escopo.
+- [x] Testes: `experiments_wizard_test.exs` (context, incl. ROI polígono), `experiment_live/new_test.exs`, `experiment_live/results_test.exs`, teste de polígono em `video_processing_worker_test.exs`.
+
+Fase 2 — parte 3 feita (`mix precommit` limpo, 236 testes passando):
+- [x] **Segundo segmento de escala (redundância no `px_per_10cm`)**: migração `add_second_scale_segment_to_calibrations` adiciona `coordinate_x3/y3/x4/y4` + `scale_cm_2` (nullable) a `calibrations`. No passo 2 da wizard, o usuário agora desenha **2 segmentos de referência** independentes (modos `"scale"`/`"scale2"` no `RoiCanvas`, cor verde/roxo), cada um com sua própria medida em cm; `derive_px_per_10cm_pair/1` (`experiment_live/new.ex`) calcula os dois `px_per_10cm` e usa a **média** como valor final. Se os dois divergirem mais que 8% (`@divergence_warning_pct`), aparece um banner de aviso **não bloqueante** — não impede avançar no wizard. Motivação: um único segmento deixava qualquer erro de clique ir 100% para o fator de conversão, sem checagem cruzada (comparado ao código antigo em `main`/`mouse_tracker.py`, que tirava média de 4 lados da gaiola).
+- [x] **Subject vira recurso reutilizável do usuário**: migração `make_subjects_shareable` (mesmo padrão da `make_rois_shareable`, mas mais simples — sem tabela de join, já que `videos.subject_id` já era FK direta): `subjects` perde `experiment_id`, ganha `user_id` (backfill via `experiments.user_id`) + `unique_index(:subjects, [:user_id, :name])`. Context `Experiments`: `list_subjects/1`, `get_subject!/2`, `create_subject/2` agora escopados por `Scope` (padrão de `Calibration`/`ROI`); nova `experiment_subjects/1` deriva os subjects de um experimento a partir dos vídeos preloaded (`Enum.uniq_by`), já que `Experiment` não tem mais `has_many :subjects`. Na wizard (passo 3, Review), o input de texto livre virou um `<select>` com os subjects já cadastrados do usuário + opção "+ Novo subject" (revela campo de nome) — resolve para `subject_ref :: {:existing, id} | {:new, name} | nil`, escolhido explicitamente em vez de casar por string digitada (elimina risco de duplicar subject por erro de digitação/maiúsculas). Mesma cobaia agora pode ser reaproveitada entre experimentos diferentes.
+- [x] **Campo de observações (`notes`) do Subject**: `ExperimentLive.Show` (`/experiments/:id`) — os cards de subject (antes só nome+genótipo) ganharam um `<textarea>` sempre visível para `notes`, salvo ao perder o foco (`phx-blur`, evento `update_subject_notes`). Serve para registrar observações fenotípicas (ex.: "manqueira na pata esquerda", "problema de visão") **em vez de** modelar um `treatment_group`/cohort separado — decisão explícita do usuário. Funciona tanto para subjects novos quanto reaproveitados, editável a qualquer momento (não só na criação).
+- [x] Testes: `calibration_test.exs` (validações do 2º segmento), `experiments/subject_test.exs` (novo — validações + unicidade por usuário), `experiment_live/show_test.exs` (novo — primeiro teste dessa tela), `experiments_wizard_test.exs` e `experiment_live/new_test.exs` atualizados (2 segmentos de escala, picker de subject, reuso entre experimentos).
+- [x] **Limpeza de uploads órfãos**: novo `MouseTracker.Workers.OrphanUploadCleanupWorker` (fila `:maintenance`, separada de `:video_processing`), agendado via `Oban.Plugins.Cron` (`@daily`, `config/config.exs`). A cada execução: varre `priv/static/uploads/{videos,frames}/<token>/`, apaga `frames/<token>/` incondicionalmente uma vez velho o suficiente (frame nunca é referenciado no banco, é lixo assim que o experimento é criado ou o wizard é abandonado) e apaga `videos/<token>/` só se nenhum `Video.filepath` aponta pra dentro dele **e** o diretório já passou do limiar de idade (`:orphan_upload_max_age_hours`, default 24h, mtime do diretório — sem tabela nova no banco). O "token reivindicado" é resolvido por prefixo relativo ao próprio `uploads_base_dir` configurado (não por regex fixa em `"uploads/videos"`), para funcionar tanto em prod quanto com o diretório base trocado em teste. `config/test.exs` desliga o plugin de Cron (`plugins: false`) para não disparar durante a suite; os testes chamam `perform/1` direto, com diretório temporário e `max_age_hours`/`uploads_base_dir` via job args (sem mexer em config global). Fora de escopo (decisão explícita): `delete_experiment`/`delete_video` continuam sem limpar arquivos do disco ao deletar — bug relacionado, mas distinto, fica como item futuro.
+
+Fase 2 — parte 4 feita (`mix precommit` limpo, 244 testes passando):
+- [x] **Dropdown para referência de ROI/escala**: o `inherit_control/1` (`experiment_live/new.ex`) trocou o botão "Trocar referência" (ciclava por clique) por um `<select>` nativo, no mesmo estilo do picker de subject do passo 3 — lista os vídeos marcados como referência daquele tipo (`source_options/2`) e mostra a seleção atual (`current_source_ref/2`). Handlers `cycle_cal_source`/`cycle_roi_source` (+ `cycle_source/3`) viraram `set_cal_source`/`set_roi_source` (+ `set_source/4`), disparados por `phx-change`.
+- [x] **Extração de frame em paralelo**: `save_pending_uploads/1` (`experiment_live/new.ex`) separou a cópia do upload pro disco (ainda sequencial, dentro de `consume_uploaded_entries`, pois só aí o path temporário é válido) da extração do 1º frame (`FrameExtractor.extract_first_frame/3`), que agora roda via `Task.async_stream/3` (`max_concurrency: System.schedulers_online()`). Motivação: cada extração sobe um interpretador Python novo (`uv run python -m priv.python.run --extract-frame`), ~2-6s de overhead só de startup por vídeo — sequencial isso significava N × (2-6s) parado no botão "Continuar" do passo 1 antes de qualquer feedback visual; em paralelo cai para ~tempo do vídeo mais lento do lote. Upload de 1 vídeo só não é afetado (o custo de startup do Python continua o mesmo).
+- [x] **Concorrência do Oban**: fila `video_processing` foi de 2 para 4 (`config/config.exs`), já que cada job só dispara um subprocesso Python via `Port.open` (o teto real é núcleos livres da máquina, não o pool do Repo, que já tem folga em 10 conexões). Em produção, `config/runtime.exs` agora lê `OBAN_VIDEO_PROCESSING_CONCURRENCY` (default `"4"`) e sobrescreve `queues[:video_processing]`, permitindo ajustar via variável de ambiente sem recompilar.
+
+Fase 2 — parte 5 feita (`mix precommit` limpo, 247 testes passando):
+- [x] **Listagem em tempo real (Sprint 3.2)**: `ExperimentLive.Index` e `ExperimentLive.Show` agora assinam, no `mount/3` (só se `connected?(socket)`), o tópico PubSub `"video:<id>"` (`VideoProcessingWorker.topic/1`, já usado por `VideoLive.Processing`) de cada vídeo carregado — sem nenhuma mudança no worker. `handle_info({:status, video_id, status}, socket)` atualiza o `status` do vídeo certo dentro de `:all_experiments`/`@experiment.videos` (helper privado `patch_status/3` em cada módulo); como o status agregado (`Experiments.experiment_status/1`) e os componentes (`status_pill`, `video_action`) já são recomputados a partir de `exp.videos`/`video.status` a cada render, isso basta para o pill e o botão de ação atualizarem sozinhos, sem refresh manual. Mensagens `{:progress,...}`/`{:processing_done,...}`/`{:processing_error,...}` (mesmo tópico, usadas só pela tela de Processing) caem num `handle_info` catch-all e são ignoradas. Limitação aceita: um experimento criado depois do `mount` desta tela não entra na lista nem tem seus vídeos assinados até navegar/recarregar — fora do escopo pedido ("atualizar status", não "listar experimentos novos ao vivo").
+- [x] Testes: novo `experiment_live/index_test.exs` (não existia) + caso novo em `experiment_live/show_test.exs`, ambos fazendo `Phoenix.PubSub.broadcast/3` direto no tópico do vídeo e verificando o HTML re-renderizado (índice usa `element(lv, "li", nome)` para escopar ao card certo, já que a barra de tabs sempre contém os 4 labels de status).
+
+Fase 2 — parte 6 feita (`mix precommit` limpo, 249 testes passando):
+- [x] **Limpeza de arquivos ao deletar Experiment/Video**: `delete_experiment/2` e `delete_video/1` (`lib/mouse_tracker/experiments.ex`) agora removem do disco, além da linha no banco, o `Video.filepath` e o diretório `priv/static/uploads/results/<video_id>/` (heatmap/speed-profile — derivado só do `video.id`, mesma fórmula de `VideoProcessingWorker.output_path/2`, sem precisar preloadar `TrackingResult`). Ordem: `Repo.delete` primeiro (fonte da verdade — cascata do banco já apaga `videos`/`tracking_results`/`roi_times`), remoção de arquivo depois, best-effort (`File.rm`/`File.rm_rf!` com `rescue` + `Logger.warning`, não derruba a operação se falhar) — mesma filosofia do `OrphanUploadCleanupWorker`. `delete_experiment/2` precisa dar `Repo.preload(experiment, :videos)` antes de deletar, já que o cascade apaga as linhas de vídeo no banco (o struct em memória continua válido depois). Fora de escopo (gap pré-existente, não introduzido aqui): `delete_video/1` ainda não recebe `Scope` para checagem de posse.
+
+Fase 2 — parte 7 feita (`mix precommit` limpo, 265 testes passando):
+- [x] **Edição de ROI**: nova `ExperimentLive.RoiEdit` (`/videos/:video_id/rois/:roi_id/edit`), acessada a partir de um chip por ROI anexada a cada vídeo em `ExperimentLive.Show` (antes não havia nenhuma exibição de ROI ali — `get_experiment_with_details!/2` ganhou `:rois` no preload de `videos`). Resolve o ponto em aberto abaixo: se a ROI está anexada a algum vídeo `"done"`/`"processing"` (`Experiments.roi_locked?/1`, nova query em `videos_rois`), a geometria fica bloqueada (só o nome é editável) e a tela oferece "Duplicar ROI" (`Experiments.duplicate_roi/2`, clona a geometria com nome `"(copy)"`/`"(copy N)"` único, cópia sem vínculo com nenhum vídeo); sem vídeo done/processing, a geometria é livre para editar. O canvas reaproveita o hook `RoiCanvas` do wizard sem nenhuma alteração no JS: a geometria atual entra como `data-shapes` (fantasma somente-leitura) e redesenhar por cima substitui — o hook não suporta arrastar vértice de forma existente. Frame do vídeo é extraído sob demanda (`FrameExtractor.extract_first_frame/3`) e cacheado em `priv/static/uploads/roi_edit_frames/<video_id>.png` (chaveado por vídeo, não por token de upload, pra não reextrair em revisitas), via `assign_async/3` (LiveView 1.2). Também: `update_roi/2`→`update_roi/3` e `delete_roi/1`→`delete_roi/2` ganharam `Scope` (gap de autorização pré-existente, sem caller fora de teste até então).
+- [x] **Fix: dropdown de referência de ROI/escala não aplicava a seleção** (regressão da Fase 2 parte 4 — troca do botão de ciclar por `<select>`, sem cobertura de teste então). Causa raiz: o `<select phx-change=...>` de `inherit_control/1` (`experiment_live/new.ex`) não estava dentro de um `<form>` — o client-side do Phoenix LiveView exige isso para eventos de change (`pushInput` lança `"form events require the input to be inside a form"` e o evento nunca chega ao servidor); além disso `phx-value-ref` não é considerado em eventos de change (só em cliques), então mesmo só embrulhando num form o `ref` não viajaria. Fix: `inherit_control/1` ganhou um `<form id="inherit-#{@event}-#{@ref}" phx-change={@event}>` envolvendo o `<select>`, com o `ref` agora carregado por um `<input type="hidden" name="ref">` dentro do form (em vez de `phx-value-ref`). Diagnosticado lendo o JS bundlado de `phoenix_live_view` (`deps/phoenix_live_view/priv/static/phoenix_live_view.js`), não só pelos testes. Teste de regressão novo em `new_test.exs` (`describe "step 2 — reference dropdown (batch)"`, 2 vídeos reais no batch, seleciona referência via `form(...) |> render_change()` e confirma que resolve a herança e libera o botão Continue).
+- [ ] **Aba "Por subject" em Results**: continua desabilitada/placeholder — o `Subject` agora é reutilizável entre experimentos (base de dados pronta para agregação por animal), mas a tela de agregação em si (médias por subject ao longo de experimentos) ainda não foi construída.
+- [ ] (fase seguinte) Compare/Datasets/Analyses/Settings — telas ainda mockadas (`ComingSoonLive`).
+
+Inconsistências design × schema resolvidas nesta parte (adaptações, não bugs):
+- **Grupos Saline/CNO** omitidos (sem `treatment_group`) — chips mostram genótipo.
+- **Meta strip do Detail**: design pedia apparatus/arena size (inexistentes) → Videos/Subjects/Analyzed/Created.
+- **Estágios do Processing** nomeados são heurística do `%` (Python emite só progresso de frames).
+- **Edit details / Compare subjects / dropzone de upload** no Detail: adiados (dependem de telas não construídas).
+
+Handoff de design recebido (`Mouse locomotion tracking app.zip` → `Locomo.dc.html` + `README.md`, 9 telas: Experiments List, Wizard 3 passos, Detail, Processing, Results 3-abas, Compare, Datasets, Analyses, Pipeline Settings — tudo mockado em JS). Plano completo de integração salvo em `C:\Users\talve\.claude\plans\dentro-do-mouse-locomotion-lexical-tiger.md`. Decisões já travadas com o usuário:
+
+1. **DaisyUI**: telas de auth existentes continuam com DaisyUI; todo o shell/telas novas do Locomo em **Tailwind puro** (o CLAUDE.md já proíbe DaisyUI, mas `core_components.ex`/layouts atuais violam essa regra — não migrar o existente agora).
+2. **Fases**: implementar primeiro o fluxo principal (sidebar shell, Experiments List, Wizard, Detail, Processing real, Results 3 abas). Compare/Datasets/Analyses(replay)/Settings ficam para depois.
+3. **ROI compartilhável**: `Roi` deixa de ser `belongs_to :video` e vira recurso do usuário reaproveitável entre N vídeos (many-to-many via tabela `videos_rois`), igual ao padrão já usado por `Calibration`. `treatment_group` (Saline/CNO) fica de fora por enquanto.
+
+Pontos técnicos principais do plano (ver arquivo completo para detalhes):
+- ✅ **Streaming de progresso** (feito): `PythonPort.run/2` usa `Port.open` com leitura linha-a-linha + callback; a tela de Processing consome os broadcasts via PubSub.
+- ✅ **Heatmap/speed-profile** (feito): Python gera os dois como PNG estático (matplotlib) via paths no JSON — só `<img>` no fluxo principal, sem Chart.js/canvas; migração `speed_profile_path` aplicada.
+- ✅ **Migração ROI** (feito): tabela `videos_rois`, `rois.user_id` substitui `rois.video_id`, data-migration preservou dados.
+- Rotas/LiveViews: ✅ `ExperimentLive.Index/Show`, `VideoLive.Processing`, `ExperimentLive.New` (wizard) e `ExperimentLive.Results` — todas feitas.
+- ✅ Wizard ROI/Calibração: veio desenho em canvas sobre o 1º frame do vídeo (ver Fase 2 parte 2 acima), não formulário estruturado — decisão revista depois do handoff original com base no uso real da tela.
+- ✅ Testes de `python_port`/`video_processing_worker` (feito) atualizados para a nova aridade do callback.
+
+Ponto em aberto resolvido na Fase 2 parte 7: editar a geometria de uma ROI já usada em vídeo processado alteraria o desenho pra todos os vídeos que a compartilham, dessincronizando de resultados antigos (não é sobreposição de dados — medições continuam por-vídeo — mas confunde). Decisão: bloquear a edição de geometria nesse caso (só o nome fica editável) e oferecer "Duplicar ROI" como alternativa livre — ver `ExperimentLive.RoiEdit` acima.
 
 ## Completed Features
 

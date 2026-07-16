@@ -17,7 +17,7 @@ defmodule MouseTrackerWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
+  def static_paths, do: ~w(assets fonts images uploads favicon.ico robots.txt)
 
   def router do
     quote do
@@ -86,6 +86,8 @@ defmodule MouseTrackerWeb do
       import Phoenix.HTML
       # Core UI components
       import MouseTrackerWeb.CoreComponents
+      # Locomo domain UI components (status pills, stat cards, ...)
+      import MouseTrackerWeb.LocomoComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
