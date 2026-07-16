@@ -144,6 +144,15 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               <div class="mt-0.5 truncate text-[11.5px] text-[#8a93a3]">
                 {video_meta_line(video)}
               </div>
+              <div :if={video.rois != []} class="mt-1.5 flex flex-wrap gap-1">
+                <.link
+                  :for={roi <- video.rois}
+                  navigate={~p"/videos/#{video.id}/rois/#{roi.id}/edit"}
+                  class="inline-flex items-center gap-1 rounded-[6px] bg-[#f2f4f7] px-2 py-0.5 font-data text-[10.5px] text-[#475467] hover:bg-[#e7e9ee]"
+                >
+                  {roi.name} <.icon name="hero-pencil-square-micro" class="size-3" />
+                </.link>
+              </div>
             </div>
             <.status_pill status={video.status} />
             <.video_action experiment={@experiment} video={video} />

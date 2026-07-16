@@ -332,28 +332,44 @@ defmodule MouseTracker.ExperimentsTest do
     end
   end
 
-  describe "update_roi/2" do
+  describe "update_roi/3" do
     test "atualiza as coordenadas da ROI" do
-      exp = experiment_fixture(user_fixture())
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
       video = video_fixture(exp)
       roi = roi_fixture(video)
 
-      assert {:ok, updated} = Experiments.update_roi(roi, %{x: 50, y: 50})
+      assert {:ok, updated} = Experiments.update_roi(scope, roi, %{x: 50, y: 50})
       assert updated.x == 50
       assert updated.y == 50
     end
 
     test "retorna erro com w <= 0" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      video = video_fixture(exp)
+      roi = roi_fixture(video)
+
+      assert {:error, changeset} = Experiments.update_roi(scope, roi, %{w: 0})
+      assert errors_on(changeset).w != []
+    end
+
+    test "levanta erro se a ROI pertencer a outro usuário" do
       exp = experiment_fixture(user_fixture())
       video = video_fixture(exp)
       roi = roi_fixture(video)
 
-      assert {:error, changeset} = Experiments.update_roi(roi, %{w: 0})
-      assert errors_on(changeset).w != []
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.update_roi(other_scope, roi, %{x: 50})
+      end
     end
   end
 
-  describe "delete_roi/1" do
+  describe "delete_roi/2" do
     test "remove a ROI do banco" do
       user = user_fixture()
       scope = user_scope_fixture(user)
@@ -361,9 +377,115 @@ defmodule MouseTracker.ExperimentsTest do
       video = video_fixture(exp)
       roi = roi_fixture(video)
 
-      assert {:ok, _} = Experiments.delete_roi(roi)
+      assert {:ok, _} = Experiments.delete_roi(scope, roi)
       assert Experiments.list_rois(scope) == []
       assert Experiments.list_rois_for_video(video) == []
+    end
+  end
+
+  describe "roi_locked?/1" do
+    test "false quando a ROI não está anexada a nenhum vídeo" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp)
+      roi = roi_fixture(video)
+      Experiments.detach_roi_from_video(video, roi)
+
+      refute Experiments.roi_locked?(roi)
+    end
+
+    test "false quando só há vídeos pending usando a ROI" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp, nil, %{status: "pending"})
+      roi = roi_fixture(video)
+
+      refute Experiments.roi_locked?(roi)
+    end
+
+    test "true quando há um vídeo done usando a ROI" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp, nil, %{status: "done"})
+      roi = roi_fixture(video)
+
+      assert Experiments.roi_locked?(roi)
+    end
+
+    test "true quando há um vídeo processing usando a ROI" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp, nil, %{status: "processing"})
+      roi = roi_fixture(video)
+
+      assert Experiments.roi_locked?(roi)
+    end
+
+    test "false quando o único vídeo usando a ROI está com erro" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp, nil, %{status: "error"})
+      roi = roi_fixture(video)
+
+      refute Experiments.roi_locked?(roi)
+    end
+  end
+
+  describe "duplicate_roi/2" do
+    test "clona a geometria da ROI numa nova ROI não anexada a nenhum vídeo" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      video = video_fixture(exp)
+      roi = roi_fixture(video, %{name: "Centro", shape: "rectangle", x: 1, y: 2, w: 3, h: 4})
+
+      assert {:ok, copy} = Experiments.duplicate_roi(scope, roi)
+      assert copy.id != roi.id
+      assert copy.name == "Centro (copy)"
+      assert copy.shape == "rectangle"
+      assert copy.x == 1
+      assert copy.y == 2
+      assert copy.w == 3
+      assert copy.h == 4
+      assert Experiments.list_rois_for_video(video) |> Enum.map(& &1.id) == [roi.id]
+    end
+
+    test "preserva os campos de um polígono" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      video = video_fixture(exp)
+
+      roi =
+        roi_fixture(video, %{
+          name: "Zona poligonal",
+          shape: "polygon",
+          x: 0,
+          y: 0,
+          x1: 0,
+          y1: 0,
+          x2: 10,
+          y2: 0,
+          x3: 10,
+          y3: 10,
+          x4: 0,
+          y4: 10
+        })
+
+      assert {:ok, copy} = Experiments.duplicate_roi(scope, roi)
+      assert copy.shape == "polygon"
+
+      assert {copy.x1, copy.y1, copy.x2, copy.y2, copy.x3, copy.y3, copy.x4, copy.y4} ==
+               {0, 0, 10, 0, 10, 10, 0, 10}
+    end
+
+    test "usa nome incremental se \"(copy)\" já existir" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      video = video_fixture(exp)
+      roi = roi_fixture(video, %{name: "Centro"})
+
+      assert {:ok, first_copy} = Experiments.duplicate_roi(scope, roi)
+      assert first_copy.name == "Centro (copy)"
+
+      assert {:ok, second_copy} = Experiments.duplicate_roi(scope, roi)
+      assert second_copy.name == "Centro (copy 2)"
     end
   end
 

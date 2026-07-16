@@ -64,6 +64,7 @@ defmodule MouseTrackerWeb.Router do
       live "/experiments/:id", ExperimentLive.Show, :show
       live "/experiments/:id/results", ExperimentLive.Results, :results
       live "/videos/:video_id/processing", VideoLive.Processing, :show
+      live "/videos/:video_id/rois/:roi_id/edit", ExperimentLive.RoiEdit, :edit
 
       # Other sidebar destinations still to be built (placeholder screens).
       live "/datasets", ComingSoonLive, :datasets

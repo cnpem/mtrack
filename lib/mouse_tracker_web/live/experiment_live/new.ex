@@ -1052,17 +1052,18 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <span :if={@resolved} class="font-data font-medium text-[#0f1729]">{@resolved}</span>
         <span :if={!@resolved} class="font-medium text-[#b42318]">sem referência</span>
       </div>
-      <select
-        phx-change={@event}
-        phx-value-ref={@ref}
-        name="source"
-        class="mt-2 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-      >
-        <option value="" selected={@selected == nil}>— sem referência —</option>
-        <option :for={opt <- @options} value={opt.ref} selected={@selected == opt.ref}>
-          {opt.filename}
-        </option>
-      </select>
+      <form id={"inherit-#{@event}-#{@ref}"} phx-change={@event} class="mt-2">
+        <input type="hidden" name="ref" value={@ref} />
+        <select
+          name="source"
+          class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+        >
+          <option value="" selected={@selected == nil}>— sem referência —</option>
+          <option :for={opt <- @options} value={opt.ref} selected={@selected == opt.ref}>
+            {opt.filename}
+          </option>
+        </select>
+      </form>
     </div>
     """
   end

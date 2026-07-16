@@ -203,6 +203,125 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
     end
   end
 
+  describe "step 2 — reference dropdown (batch)" do
+    setup %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp_a = Path.join(System.tmp_dir!(), "wizard-a-#{System.unique_integer([:positive])}.mp4")
+      tmp_b = Path.join(System.tmp_dir!(), "wizard-b-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp_a, "video a bytes")
+      File.write!(tmp_b, "video b bytes")
+
+      video_a =
+        file_input(lv, "form", :videos, [
+          %{name: "a.mp4", content: File.read!(tmp_a), type: "video/mp4"}
+        ])
+
+      render_upload(video_a, "a.mp4")
+
+      video_b =
+        file_input(lv, "form", :videos, [
+          %{name: "b.mp4", content: File.read!(tmp_b), type: "video/mp4"}
+        ])
+
+      render_upload(video_b, "b.mp4")
+
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      ref_a = video_ref(lv, "a.mp4")
+      ref_b = video_ref(lv, "b.mp4")
+
+      # a.mp4 becomes the active video, then the calibration/ROI reference
+      lv |> element("li[phx-value-ref='#{ref_a}']") |> render_click()
+
+      lv
+      |> element("button[phx-value-ref='#{ref_a}'][phx-click='toggle_cal_ref']")
+      |> render_click()
+
+      lv
+      |> element("button[phx-value-ref='#{ref_a}'][phx-click='toggle_roi_ref']")
+      |> render_click()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm']", %{"value" => "10"})
+      |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"})
+      |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "roi_polygon",
+        "points" => [1, 2, 10, 2, 10, 20, 1, 20]
+      })
+
+      # switch the active video to b.mp4, which starts without any reference
+      lv |> element("li[phx-value-ref='#{ref_b}']") |> render_click()
+
+      %{lv: lv, ref_a: ref_a, ref_b: ref_b}
+    end
+
+    test "picking a calibration reference in the dropdown resolves inheritance and unblocks Continue",
+         %{lv: lv, ref_a: ref_a, ref_b: ref_b} do
+      html = render(lv)
+      assert html =~ "sem referência"
+      assert html =~ ~s(phx-value-step="review" disabled)
+
+      lv
+      |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> render_change()
+
+      html = render(lv)
+      assert html =~ "herda de a.mp4"
+      refute html =~ ~s(phx-value-step="review" disabled)
+    end
+
+    test "picking a ROI reference in the dropdown resolves inheritance", %{
+      lv: lv,
+      ref_a: ref_a,
+      ref_b: ref_b
+    } do
+      lv
+      |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> render_change()
+
+      html = render(lv)
+      assert html =~ "sem referência"
+
+      lv
+      |> form("form[phx-change='set_roi_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> render_change()
+
+      html = render(lv)
+      assert html =~ "herda de a.mp4"
+      refute html =~ ~s(phx-value-step="review" disabled)
+    end
+  end
+
   describe "step 3 review — subject picker" do
     setup %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")
@@ -366,6 +485,15 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [video] = Experiments.list_videos(experiment)
       assert video.subject_id == subject.id
     end
+  end
+
+  # The default active video (and the order @saved_videos ends up in) isn't
+  # guaranteed to match upload call order, so look a video's ref up by its
+  # filename in the "batch" list instead of assuming a position.
+  defp video_ref(lv, filename) do
+    html = lv |> element("li", filename) |> render()
+    [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
+    ref
   end
 
   defp stub_python_port_success do

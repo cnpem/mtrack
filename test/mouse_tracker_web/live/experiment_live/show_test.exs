@@ -66,4 +66,17 @@ defmodule MouseTrackerWeb.ExperimentLive.ShowTest do
     assert html =~ "View results"
     refute html =~ "View progress"
   end
+
+  test "shows attached ROIs with an edit link", %{
+    conn: conn,
+    experiment: experiment,
+    video: video
+  } do
+    roi = roi_fixture(video, %{name: "Zona central"})
+
+    {:ok, _lv, html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    assert html =~ "Zona central"
+    assert html =~ ~p"/videos/#{video.id}/rois/#{roi.id}/edit"
+  end
 end

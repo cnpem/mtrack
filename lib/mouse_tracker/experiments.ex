@@ -46,7 +46,7 @@ defmodule MouseTracker.Experiments do
     Repo.one!(
       from e in Experiment,
         where: e.id == ^id and e.user_id == ^user.id,
-        preload: [videos: [:subject, :tracking_result]]
+        preload: [videos: [:subject, :tracking_result, :rois]]
     )
   end
 
@@ -339,13 +339,46 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
-  def update_roi(%Roi{} = roi, attrs) do
+  @doc """
+  Clones `roi`'s geometry into a brand-new ROI owned by `scope`'s user,
+  appending " (copy)" (then " (copy 2)", etc.) to the name to satisfy the
+  `[:user_id, :name]` uniqueness constraint. The duplicate starts unattached
+  to any video, so it's always freely editable — used as the escape hatch
+  when the source ROI is `roi_locked?/1`.
+  """
+  def duplicate_roi(%Scope{user: user} = scope, %Roi{user_id: user_id} = roi)
+      when user_id == user.id do
+    attrs =
+      roi
+      |> Map.take([:shape, :x, :y, :w, :h, :radius, :x1, :y1, :x2, :y2, :x3, :y3, :x4, :y4])
+      |> Map.put(:name, unique_copy_name(scope, roi.name))
+
+    create_roi(scope, attrs)
+  end
+
+  defp unique_copy_name(scope, base_name) do
+    existing = scope |> list_rois() |> MapSet.new(& &1.name)
+    do_unique_copy_name(existing, base_name, 1)
+  end
+
+  defp do_unique_copy_name(existing, base_name, n) do
+    candidate = if n == 1, do: "#{base_name} (copy)", else: "#{base_name} (copy #{n})"
+
+    if MapSet.member?(existing, candidate),
+      do: do_unique_copy_name(existing, base_name, n + 1),
+      else: candidate
+  end
+
+  def update_roi(%Scope{user: user}, %Roi{user_id: user_id} = roi, attrs)
+      when user_id == user.id do
     roi
     |> Roi.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_roi(%Roi{} = roi), do: Repo.delete(roi)
+  def delete_roi(%Scope{user: user}, %Roi{user_id: user_id} = roi) when user_id == user.id do
+    Repo.delete(roi)
+  end
 
   def change_roi(%Roi{} = roi, attrs \\ %{}) do
     Roi.changeset(roi, attrs)
@@ -354,6 +387,22 @@ defmodule MouseTracker.Experiments do
   @doc "ROIs currently attached to the given video."
   def list_rois_for_video(%Video{} = video) do
     Repo.preload(video, :rois).rois
+  end
+
+  @doc """
+  True if `roi` is attached to at least one video whose status is `"done"` or
+  `"processing"`. Editing geometry in place at that point would change what
+  those videos' (already-produced or in-flight) results are based on, so
+  callers should block geometry edits and offer `duplicate_roi/2` instead.
+  The `name` field has no such hazard and stays editable regardless.
+  """
+  def roi_locked?(%Roi{} = roi) do
+    Repo.exists?(
+      from vr in "videos_rois",
+        join: v in Video,
+        on: v.id == vr.video_id,
+        where: vr.roi_id == ^roi.id and v.status in ["done", "processing"]
+    )
   end
 
   @doc """
