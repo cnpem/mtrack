@@ -1,5 +1,6 @@
 defmodule MouseTracker.Experiments do
   import Ecto.Query
+  require Logger
   alias MouseTracker.Repo
   alias MouseTracker.Accounts.Scope
 
@@ -110,7 +111,12 @@ defmodule MouseTracker.Experiments do
   end
 
   def delete_experiment(%Scope{}, %Experiment{} = experiment) do
-    Repo.delete(experiment)
+    experiment = Repo.preload(experiment, :videos)
+
+    with {:ok, deleted} <- Repo.delete(experiment) do
+      Enum.each(experiment.videos, &cleanup_video_files/1)
+      {:ok, deleted}
+    end
   end
 
   def change_experiment(%Experiment{} = experiment, attrs \\ %{}) do
@@ -243,7 +249,43 @@ defmodule MouseTracker.Experiments do
     |> Repo.update()
   end
 
-  def delete_video(%Video{} = video), do: Repo.delete(video)
+  def delete_video(%Video{} = video) do
+    with {:ok, deleted} <- Repo.delete(video) do
+      cleanup_video_files(video)
+      {:ok, deleted}
+    end
+  end
+
+  # The DB row is deleted first (source of truth); file removal below is
+  # best-effort and non-fatal (logged, not raised) — orphaned files here are
+  # a lesser problem than blocking the delete on a filesystem hiccup.
+  defp cleanup_video_files(video) do
+    remove_file(video.filepath)
+    remove_dir(Path.join([static_dir(), "uploads", "results", to_string(video.id)]))
+  end
+
+  defp remove_file(nil), do: :ok
+
+  defp remove_file(path) do
+    case File.rm(path) do
+      :ok ->
+        :ok
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Experiments: failed to remove #{path}: #{inspect(reason)}")
+    end
+  end
+
+  defp remove_dir(dir) do
+    File.rm_rf!(dir)
+  rescue
+    error -> Logger.warning("Experiments: failed to remove #{dir}: #{inspect(error)}")
+  end
+
+  defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")
 
   def change_video(%Video{} = video, attrs \\ %{}) do
     Video.changeset(video, attrs)

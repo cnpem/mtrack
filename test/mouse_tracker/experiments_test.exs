@@ -114,6 +114,27 @@ defmodule MouseTracker.ExperimentsTest do
         Experiments.get_experiment!(scope, exp.id)
       end
     end
+
+    test "remove do disco o arquivo de vídeo e o diretório de resultados de cada vídeo" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+
+      filepath =
+        Path.join(System.tmp_dir!(), "exp_test_#{System.unique_integer([:positive])}.mp4")
+
+      File.write!(filepath, "x")
+      video = video_fixture(exp, nil, %{filepath: filepath})
+
+      results_dir = results_dir_for(video)
+      File.mkdir_p!(results_dir)
+      File.write!(Path.join(results_dir, "heatmap.png"), "x")
+
+      assert {:ok, _} = Experiments.delete_experiment(scope, exp)
+
+      refute File.exists?(filepath)
+      refute File.exists?(results_dir)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -185,6 +206,25 @@ defmodule MouseTracker.ExperimentsTest do
 
       assert {:ok, _} = Experiments.delete_video(video)
       assert Experiments.list_videos(exp) == []
+    end
+
+    test "remove do disco o arquivo de vídeo e o diretório de resultados" do
+      exp = experiment_fixture(user_fixture())
+
+      filepath =
+        Path.join(System.tmp_dir!(), "exp_test_#{System.unique_integer([:positive])}.mp4")
+
+      File.write!(filepath, "x")
+      video = video_fixture(exp, nil, %{filepath: filepath})
+
+      results_dir = results_dir_for(video)
+      File.mkdir_p!(results_dir)
+      File.write!(Path.join(results_dir, "speed_profile.png"), "x")
+
+      assert {:ok, _} = Experiments.delete_video(video)
+
+      refute File.exists?(filepath)
+      refute File.exists?(results_dir)
     end
   end
 
@@ -390,5 +430,18 @@ defmodule MouseTracker.ExperimentsTest do
 
       assert "has already been taken" in errors_on(changeset).roi_id
     end
+  end
+
+  # Mirrors VideoProcessingWorker.output_path/2's directory formula
+  # (lib/mouse_tracker/workers/video_processing_worker.ex), so tests can
+  # verify Experiments.delete_experiment/2 and delete_video/1 clean it up.
+  defp results_dir_for(video) do
+    Path.join([
+      :code.priv_dir(:mouse_tracker),
+      "static",
+      "uploads",
+      "results",
+      to_string(video.id)
+    ])
   end
 end
