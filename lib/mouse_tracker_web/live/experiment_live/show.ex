@@ -2,10 +2,18 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Workers.VideoProcessingWorker
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     experiment = Experiments.get_experiment_with_details!(socket.assigns.current_scope, id)
+
+    if connected?(socket) do
+      Enum.each(
+        experiment.videos,
+        &Phoenix.PubSub.subscribe(MouseTracker.PubSub, VideoProcessingWorker.topic(&1.id))
+      )
+    end
 
     {:ok,
      socket
@@ -24,6 +32,21 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
        Enum.map(subjects, &if(&1.id == updated.id, do: updated, else: &1))
      end)}
   end
+
+  @impl true
+  def handle_info({:status, video_id, status}, socket) do
+    {:noreply,
+     update(socket, :experiment, fn exp ->
+       %{exp | videos: Enum.map(exp.videos, &patch_status(&1, video_id, status))}
+     end)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp patch_status(video, video_id, status) when video.id == video_id,
+    do: %{video | status: status}
+
+  defp patch_status(video, _video_id, _status), do: video
 
   @impl true
   def render(assigns) do

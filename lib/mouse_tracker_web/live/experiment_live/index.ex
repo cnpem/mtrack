@@ -2,12 +2,21 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Workers.VideoProcessingWorker
 
   @tabs [{"all", "All"}, {"done", "Done"}, {"processing", "Processing"}, {"pending", "Pending"}]
 
   @impl true
   def mount(_params, _session, socket) do
     experiments = Experiments.list_experiments_with_details(socket.assigns.current_scope)
+
+    if connected?(socket) do
+      experiments
+      |> Enum.flat_map(& &1.videos)
+      |> Enum.each(
+        &Phoenix.PubSub.subscribe(MouseTracker.PubSub, VideoProcessingWorker.topic(&1.id))
+      )
+    end
 
     {:ok,
      socket
@@ -26,6 +35,23 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
   def handle_event("filter", %{"status" => status}, socket) do
     {:noreply, socket |> assign(:status_filter, status) |> assign_filtered()}
   end
+
+  @impl true
+  def handle_info({:status, video_id, status}, socket) do
+    experiments =
+      Enum.map(socket.assigns.all_experiments, fn exp ->
+        %{exp | videos: Enum.map(exp.videos, &patch_status(&1, video_id, status))}
+      end)
+
+    {:noreply, socket |> assign(:all_experiments, experiments) |> assign_filtered()}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp patch_status(video, video_id, status) when video.id == video_id,
+    do: %{video | status: status}
+
+  defp patch_status(video, _video_id, _status), do: video
 
   defp assign_filtered(socket) do
     %{all_experiments: experiments, query: query, status_filter: status} = socket.assigns
