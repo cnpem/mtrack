@@ -41,6 +41,16 @@ if config_env() == :prod do
     # pool_count: 4,
     socket_options: maybe_ipv6
 
+  # Each video_processing job shells out to a Python/OpenCV subprocess that can
+  # use a full CPU core for the duration of the job, so the safe concurrency
+  # ceiling depends on cores free on the machine, not the Repo pool above.
+  config :mouse_tracker, Oban,
+    queues: [
+      video_processing:
+        String.to_integer(System.get_env("OBAN_VIDEO_PROCESSING_CONCURRENCY") || "4"),
+      maintenance: 1
+    ]
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want

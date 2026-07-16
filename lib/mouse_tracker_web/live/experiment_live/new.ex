@@ -13,9 +13,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   frame extracted) when entering step 2, not at create time.
 
   ROI and scale follow a *reference* model: any video can be a ROI and/or scale
-  reference; other videos inherit from one, and clicking cycles through the
-  available references. Scale must resolve for every video (the pipeline needs a
-  `valid_region` + `px_per_10cm`); ROIs are optional.
+  reference; other videos inherit from one, picked via a dropdown. Scale must
+  resolve for every video (the pipeline needs a `valid_region` + `px_per_10cm`);
+  ROIs are optional.
   """
   use MouseTrackerWeb, :live_view
 
@@ -139,12 +139,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     {:noreply, toggle_ref(socket, ref, :roi)}
   end
 
-  def handle_event("cycle_cal_source", %{"ref" => ref}, socket) do
-    {:noreply, cycle_source(socket, ref, :cal)}
+  def handle_event("set_cal_source", %{"ref" => ref, "source" => value}, socket) do
+    {:noreply, set_source(socket, ref, :cal, value)}
   end
 
-  def handle_event("cycle_roi_source", %{"ref" => ref}, socket) do
-    {:noreply, cycle_source(socket, ref, :roi)}
+  def handle_event("set_roi_source", %{"ref" => ref, "source" => value}, socket) do
+    {:noreply, set_source(socket, ref, :roi, value)}
   end
 
   def handle_event("shape_drawn", shape, socket) do
@@ -217,28 +217,38 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp save_pending_uploads(socket) do
     token = socket.assigns.upload_token
 
-    consumed =
+    # Copying the upload to disk must happen inside consume_uploaded_entries
+    # (the tmp path is only valid during the callback), but frame extraction
+    # shells out to a fresh Python interpreter per video (~seconds of startup
+    # each) and doesn't need the tmp path, so it runs afterwards, in parallel.
+    copied =
       consume_uploaded_entries(socket, :videos, fn %{path: tmp}, entry ->
         video_dir = Path.join([static_dir(), "uploads", "videos", token])
-        frame_dir = Path.join([static_dir(), "uploads", "frames", token])
         File.mkdir_p!(video_dir)
 
         filepath = Path.join(video_dir, "#{entry.ref}-#{entry.client_name}")
         File.cp!(tmp, filepath)
 
-        frame_path = Path.join(frame_dir, "#{entry.ref}.png")
-
-        frame_url =
-          frame_result(FrameExtractor.extract_first_frame(filepath, frame_path), token, entry.ref)
-
-        {:ok,
-         %{
-           ref: entry.ref,
-           filename: entry.client_name,
-           filepath: filepath,
-           frame_url: frame_url
-         }}
+        {:ok, %{ref: entry.ref, filename: entry.client_name, filepath: filepath}}
       end)
+
+    frame_dir = Path.join([static_dir(), "uploads", "frames", token])
+
+    consumed =
+      copied
+      |> Task.async_stream(
+        fn v ->
+          frame_path = Path.join(frame_dir, "#{v.ref}.png")
+
+          frame_url =
+            frame_result(FrameExtractor.extract_first_frame(v.filepath, frame_path), token, v.ref)
+
+          Map.put(v, :frame_url, frame_url)
+        end,
+        max_concurrency: System.schedulers_online(),
+        timeout: :timer.seconds(30)
+      )
+      |> Enum.map(fn {:ok, v} -> v end)
 
     saved = socket.assigns.saved_videos ++ consumed
 
@@ -791,8 +801,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           <.inherit_control
             kind="escala"
             resolved={resolve_label(@active_ref, @specs, :cal, @saved_videos)}
-            event="cycle_cal_source"
+            event="set_cal_source"
             ref={@active_ref}
+            options={source_options(assigns, :cal)}
+            selected={current_source_ref(@specs[@active_ref], :cal)}
           />
         </div>
 
@@ -843,8 +855,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           <.inherit_control
             kind="ROI"
             resolved={resolve_label(@active_ref, @specs, :roi, @saved_videos)}
-            event="cycle_roi_source"
+            event="set_roi_source"
             ref={@active_ref}
+            options={source_options(assigns, :roi)}
+            selected={current_source_ref(@specs[@active_ref], :roi)}
           />
         </div>
 
@@ -1027,6 +1041,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   attr :resolved, :string, default: nil
   attr :event, :string, required: true
   attr :ref, :string, required: true
+  attr :options, :list, required: true
+  attr :selected, :string, default: nil
 
   defp inherit_control(assigns) do
     ~H"""
@@ -1036,14 +1052,17 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <span :if={@resolved} class="font-data font-medium text-[#0f1729]">{@resolved}</span>
         <span :if={!@resolved} class="font-medium text-[#b42318]">sem referência</span>
       </div>
-      <button
-        type="button"
-        phx-click={@event}
+      <select
+        phx-change={@event}
         phx-value-ref={@ref}
-        class="mt-2 inline-flex items-center gap-1 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 text-[12px] font-medium text-[#344054] hover:border-[#CC5500]"
+        name="source"
+        class="mt-2 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
       >
-        <.icon name="hero-arrow-path-micro" class="size-3.5" /> Trocar referência
-      </button>
+        <option value="" selected={@selected == nil}>— sem referência —</option>
+        <option :for={opt <- @options} value={opt.ref} selected={@selected == opt.ref}>
+          {opt.filename}
+        </option>
+      </select>
     </div>
     """
   end
@@ -1140,20 +1159,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     end
   end
 
-  defp cycle_source(socket, ref, kind) do
+  defp set_source(socket, ref, kind, value) do
     specs = socket.assigns.specs
-    candidates = [nil | live_refs(socket.assigns, kind)]
-
-    current =
-      case source_of(specs[ref], kind) do
-        {:inherit, r} -> r
-        _ -> nil
-      end
-
-    idx = Enum.find_index(candidates, &(&1 == current)) || 0
-    next = Enum.at(candidates, rem(idx + 1, length(candidates)))
-    source = if is_nil(next), do: nil, else: {:inherit, next}
-
+    source = if value in [nil, ""], do: nil, else: {:inherit, value}
     assign(socket, :specs, Map.put(specs, ref, put_source(specs[ref], kind, source)))
   end
 
@@ -1173,6 +1181,23 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   end
 
   defp entry_refs(assigns), do: Enum.map(assigns.saved_videos, & &1.ref)
+
+  # Options for the reference dropdown: every video currently flagged as a
+  # `kind` reference, excluding the active video itself (it isn't a candidate
+  # for its own dropdown, since inherit_control only renders for non-references).
+  defp source_options(assigns, kind) do
+    Enum.map(
+      live_refs(assigns, kind),
+      &%{ref: &1, filename: ref_filename(&1, assigns.saved_videos)}
+    )
+  end
+
+  defp current_source_ref(spec, kind) do
+    case source_of(spec, kind) do
+      {:inherit, r} -> r
+      _ -> nil
+    end
+  end
 
   defp resolve_ref(ref, specs, kind) do
     spec = specs[ref]

@@ -82,7 +82,7 @@ config :phoenix, :json_library, Jason
 config :mouse_tracker, Oban,
   engine: Oban.Engines.Basic,
   repo: MouseTracker.Repo,
-  queues: [video_processing: 2, maintenance: 1],
+  queues: [video_processing: 4, maintenance: 1],
   plugins: [
     {Oban.Plugins.Cron,
      crontab: [
