@@ -3,15 +3,16 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
 
   alias MouseTracker.Experiments
 
-  # Only the per-video tab is wired to real data for now. The batch/subject
-  # aggregations depend on cohort grouping (Saline/CNO `treatment_group`) that
-  # the schema does not model yet, so they render as disabled "coming soon"
-  # tabs. See CLAUDE.md Sprint 3.
+  # The "batch" aggregation depends on cohort grouping (Saline/CNO
+  # `treatment_group`) that the schema does not model yet, so it stays a
+  # disabled "coming soon" tab. See CLAUDE.md Sprint 3.
   @tabs [
     {"video", "Por vídeo", true},
     {"batch", "Média da batch", false},
-    {"subject", "Por subject", false}
+    {"subject", "Por subject", true}
   ]
+
+  @metrics_views ["average", "per_video"]
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -22,7 +23,8 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
      socket
      |> assign(:page_title, "Results — #{experiment.name}")
      |> assign(:experiment, experiment)
-     |> assign(:done_videos, done_videos)}
+     |> assign(:done_videos, done_videos)
+     |> assign(:experiment_subjects, Experiments.experiment_subjects(experiment))}
   end
 
   @impl true
@@ -30,10 +32,80 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
     tab = if params["tab"] in ["video", "batch", "subject"], do: params["tab"], else: "video"
     selected = select_video(socket.assigns.done_videos, params["video"])
 
-    {:noreply,
-     socket
-     |> assign(:tab, tab)
-     |> assign(:selected_video, selected)}
+    socket =
+      socket
+      |> assign(:tab, tab)
+      |> assign(:selected_video, selected)
+
+    socket = if tab == "subject", do: assign_subject_tab(socket, params), else: socket
+
+    {:noreply, socket}
+  end
+
+  # Builds everything the "Por subject" tab needs: which subject is selected
+  # (defaults to the selected video's subject, else the experiment's first
+  # subject), which experiments it can be filtered to (it may have "done"
+  # videos in experiments other than this one — Subject is a reusable, shared
+  # resource, see CLAUDE.md), and the aggregated data for that selection.
+  defp assign_subject_tab(socket, params) do
+    subjects = socket.assigns.experiment_subjects
+
+    subject_id =
+      case Integer.parse(params["subject"] || "") do
+        {id, ""} -> id
+        _ -> default_subject_id(subjects, socket.assigns.selected_video)
+      end
+
+    metrics_view =
+      if params["metrics_view"] in @metrics_views, do: params["metrics_view"], else: "average"
+
+    socket =
+      socket
+      |> assign(:subject, Enum.find(subjects, &(&1.id == subject_id)))
+      |> assign(:metrics_view, metrics_view)
+
+    if socket.assigns.subject do
+      scope = socket.assigns.current_scope
+      scope_experiment_id = parse_int(params["scope_experiment"])
+
+      subject_experiments = Experiments.subject_experiments(scope, subject_id)
+      subject_videos = Experiments.subject_result_videos(scope, subject_id, scope_experiment_id)
+
+      socket
+      |> assign(:scope_experiment_id, scope_experiment_id)
+      |> assign(:subject_experiments, subject_experiments)
+      |> assign(:subject_videos, subject_videos)
+      |> assign(:calibration_groups, Experiments.group_by_calibration(subject_videos))
+      |> assign(:subject_aggregate, Experiments.subject_metric_aggregate(subject_videos))
+    else
+      socket
+      |> assign(:scope_experiment_id, nil)
+      |> assign(:subject_experiments, [])
+      |> assign(:subject_videos, [])
+      |> assign(:calibration_groups, [])
+      |> assign(:subject_aggregate, nil)
+    end
+  end
+
+  defp default_subject_id([], _selected_video), do: nil
+
+  defp default_subject_id([%{id: id} | _] = subjects, selected_video) do
+    case selected_video do
+      %{subject_id: sid} when not is_nil(sid) ->
+        if Enum.any?(subjects, &(&1.id == sid)), do: sid, else: id
+
+      _ ->
+        id
+    end
+  end
+
+  defp parse_int(nil), do: nil
+
+  defp parse_int(str) do
+    case Integer.parse(str) do
+      {id, ""} -> id
+      _ -> nil
+    end
   end
 
   # Picks the video whose results are shown: the `?video=` one if it is done,
@@ -60,6 +132,36 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
 
     {:noreply,
      push_patch(socket, to: ~p"/experiments/#{socket.assigns.experiment.id}/results?#{params}")}
+  end
+
+  def handle_event("select_subject", %{"subject" => subject_id}, socket) do
+    {:noreply, patch_subject_tab(socket, subject: subject_id, scope_experiment: "all")}
+  end
+
+  def handle_event("set_scope_experiment", %{"scope_experiment" => scope_experiment}, socket) do
+    {:noreply, patch_subject_tab(socket, scope_experiment: scope_experiment)}
+  end
+
+  def handle_event("switch_metrics_view", %{"view" => view}, socket) do
+    {:noreply, patch_subject_tab(socket, metrics_view: view)}
+  end
+
+  # Patches the URL for the "Por subject" tab, keeping the current
+  # subject/scope/metrics-view selection except for whatever `overrides`.
+  defp patch_subject_tab(socket, overrides) do
+    base = [
+      tab: "subject",
+      subject: socket.assigns.subject && socket.assigns.subject.id,
+      scope_experiment: socket.assigns.scope_experiment_id || "all",
+      metrics_view: socket.assigns.metrics_view
+    ]
+
+    params =
+      base
+      |> Keyword.merge(overrides)
+      |> Enum.reject(fn {_k, v} -> v in [nil, "all"] end)
+
+    push_patch(socket, to: ~p"/experiments/#{socket.assigns.experiment.id}/results?#{params}")
   end
 
   @impl true
@@ -126,12 +228,35 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           </p>
         </div>
 
-        <div :if={@done_videos != []} class="mt-5">
+        <div :if={@done_videos != [] and @tab == "video"} class="mt-5">
           <.video_results
             :if={@selected_video}
             video={@selected_video}
             done_videos={@done_videos}
           />
+        </div>
+
+        <div :if={@tab == "subject"} class="mt-5">
+          <.subject_results
+            :if={@subject}
+            subject={@subject}
+            experiment_subjects={@experiment_subjects}
+            subject_experiments={@subject_experiments}
+            scope_experiment_id={@scope_experiment_id}
+            subject_videos={@subject_videos}
+            calibration_groups={@calibration_groups}
+            aggregate={@subject_aggregate}
+            metrics_view={@metrics_view}
+          />
+          <div
+            :if={!@subject}
+            class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
+          >
+            <h2 class="text-[15px] font-bold text-[#0f1729]">No subject to show</h2>
+            <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
+              This experiment's videos have no subject assigned yet.
+            </p>
+          </div>
         </div>
       </div>
     </Layouts.locomo>
@@ -238,12 +363,14 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   end
 
   attr :title, :string, required: true
+  attr :sub, :string, default: nil
   attr :src, :string, default: nil
 
   defp plot_card(assigns) do
     ~H"""
     <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <div class="text-[13px] font-bold text-[#0f1729]">{@title}</div>
+      <div :if={@sub} class="text-[11.5px] text-[#8a93a3]">{@sub}</div>
       <div class="mt-3 overflow-hidden rounded-[10px] border border-[#f4f5f7] bg-[#11161f]">
         <img
           :if={@src}
@@ -259,6 +386,231 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           not available
         </div>
       </div>
+    </div>
+    """
+  end
+
+  attr :subject, :map, required: true
+  attr :experiment_subjects, :list, required: true
+  attr :subject_experiments, :list, required: true
+  attr :scope_experiment_id, :integer, default: nil
+  attr :subject_videos, :list, required: true
+  attr :calibration_groups, :list, required: true
+  attr :aggregate, :map, default: nil
+  attr :metrics_view, :string, required: true
+
+  defp subject_results(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center gap-2 rounded-[13px] border border-[#e7e9ee] bg-white p-2">
+      <span class="px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        Subject
+      </span>
+      <button
+        :for={s <- @experiment_subjects}
+        type="button"
+        phx-click="select_subject"
+        phx-value-subject={s.id}
+        class={[
+          "inline-flex items-center gap-2 rounded-[8px] px-3 py-1.5 text-[12.5px] font-medium transition-colors",
+          s.id == @subject.id && "bg-[#0f1729] text-white",
+          s.id != @subject.id && "text-[#667085] hover:bg-[#f2f4f7]"
+        ]}
+      >
+        <span class="size-2 rounded-full" style={"background:#{subject_color(s.id)}"}></span>
+        <span class="font-data">{s.name}</span>
+      </button>
+    </div>
+
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-[#e7e9ee] bg-white p-3">
+      <div class="text-[12.5px] text-[#667085]">
+        <span class="font-data font-semibold text-[#0f1729]">{length(@subject_videos)}</span>
+        analyzed video(s) for <span class="font-medium text-[#0f1729]">{@subject.name}</span>
+        across
+        <span class="font-data font-semibold text-[#0f1729]">{length(@subject_experiments)}</span>
+        experiment(s)
+      </div>
+      <form id="subject-scope-experiment" phx-change="set_scope_experiment">
+        <select
+          name="scope_experiment"
+          class="rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+        >
+          <option value="all" selected={@scope_experiment_id == nil}>All experiments</option>
+          <option
+            :for={exp <- @subject_experiments}
+            value={exp.id}
+            selected={@scope_experiment_id == exp.id}
+          >
+            {exp.name}
+          </option>
+        </select>
+      </form>
+    </div>
+
+    <div
+      :if={@subject_videos == []}
+      class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
+    >
+      <h2 class="text-[15px] font-bold text-[#0f1729]">No analyzed videos in this scope</h2>
+      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
+        Pick a different subject or widen the experiment filter.
+      </p>
+    </div>
+
+    <div :if={@subject_videos != []}>
+      <div :for={{calibration, videos} <- @calibration_groups} class="mt-4">
+        <div class="mb-2 flex items-center gap-2 text-[13px] font-bold text-[#0f1729]">
+          <.icon name="hero-squares-2x2" class="size-4 text-[#98a2b3]" />
+          {calibration_label(calibration)}
+          <span class="font-data text-[11.5px] font-normal text-[#8a93a3]">
+            {length(videos)} video(s)
+          </span>
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <.plot_card
+            :for={v <- videos}
+            title={v.filename}
+            sub={v.experiment.name}
+            src={v.tracking_result && v.tracking_result.heatmap_path}
+          />
+        </div>
+      </div>
+
+      <div class="mt-5 inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
+        <button
+          :for={{value, label} <- [{"average", "Average"}, {"per_video", "Per video"}]}
+          type="button"
+          phx-click="switch_metrics_view"
+          phx-value-view={value}
+          class={[
+            "rounded-[6px] px-3 py-1.5 text-[12.5px] font-medium transition-colors",
+            @metrics_view == value && "bg-[#0f1729] text-white",
+            @metrics_view != value && "text-[#667085] hover:text-[#0f1729]"
+          ]}
+        >
+          {label}
+        </button>
+      </div>
+
+      <.subject_average :if={@metrics_view == "average"} aggregate={@aggregate} />
+      <.subject_per_video :if={@metrics_view == "per_video"} videos={@subject_videos} />
+    </div>
+    """
+  end
+
+  attr :aggregate, :map, default: nil
+
+  defp subject_average(assigns) do
+    ~H"""
+    <div :if={@aggregate} class="mt-4">
+      <p class="font-data text-[11.5px] text-[#8a93a3]">
+        Mean ± SD across {@aggregate.n} video(s)
+      </p>
+      <div class="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <.stat_card
+          label="Distance traveled"
+          value={stat_fmt(@aggregate.metrics.distance_cm)}
+          unit="cm"
+          sub="Total path length"
+        />
+        <.stat_card
+          label="Mean speed"
+          value={stat_fmt(@aggregate.metrics.speed_mean_cm)}
+          unit="cm/s"
+          sub="Average over session"
+        />
+        <.stat_card
+          label="Median speed"
+          value={stat_fmt(@aggregate.metrics.speed_median_cm)}
+          unit="cm/s"
+          sub="Typical speed"
+        />
+        <.stat_card
+          label="Max speed"
+          value={stat_fmt(@aggregate.metrics.speed_max_cm)}
+          unit="cm/s"
+          sub="Peak instantaneous"
+        />
+        <.stat_card
+          label="Thigmotaxis"
+          value={stat_fmt(@aggregate.metrics.thigmotaxis_pct)}
+          unit="%"
+          sub="Time near the wall"
+        />
+        <.stat_card
+          label="Path tortuosity"
+          value={stat_fmt(@aggregate.metrics.path_tortuosity)}
+          sub="Path length / displacement"
+        />
+        <.stat_card
+          label="Immobility"
+          value={stat_fmt(@aggregate.metrics.immobility_pct)}
+          unit="%"
+          sub="Share of session"
+        />
+      </div>
+
+      <div
+        :if={@aggregate.roi_zones != []}
+        class="mt-4 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
+      >
+        <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
+        <div class="mt-3 grid grid-cols-[1.4fr_1fr_1fr] gap-3 border-b border-[#f4f5f7] pb-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+          <div>Zone</div>
+          <div>Avg. time</div>
+          <div>Avg. share of session</div>
+        </div>
+        <div
+          :for={zone <- @aggregate.roi_zones}
+          class="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] py-2.5 last:border-0"
+        >
+          <div class="text-[13px] font-medium text-[#0f1729]">{zone.name}</div>
+          <div class="font-data text-[12.5px] text-[#344054]">{fmt(zone.avg_seconds)} s</div>
+          <div class="font-data text-[12.5px] text-[#344054]">
+            {if zone.avg_share_pct, do: "#{fmt(zone.avg_share_pct)}%", else: "—"}
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :videos, :list, required: true
+
+  defp subject_per_video(assigns) do
+    ~H"""
+    <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+      <table class="w-full min-w-[720px] text-left text-[12.5px]">
+        <thead>
+          <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+            <th class="pb-2">Experiment</th>
+            <th class="pb-2">Video</th>
+            <th class="pb-2">Distance</th>
+            <th class="pb-2">Mean speed</th>
+            <th class="pb-2">Thigmotaxis</th>
+            <th class="pb-2">Immobility</th>
+            <th class="pb-2">Time in ROI</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={v <- @videos} class="border-b border-[#f4f5f7] last:border-0">
+            <td class="py-2.5 text-[#344054]">{v.experiment.name}</td>
+            <td class="py-2.5 font-data text-[#0f1729]">{v.filename}</td>
+            <td class="py-2.5 font-data text-[#344054]">
+              {fmt(v.tracking_result && v.tracking_result.distance_cm)} cm
+            </td>
+            <td class="py-2.5 font-data text-[#344054]">
+              {fmt(v.tracking_result && v.tracking_result.speed_mean_cm)} cm/s
+            </td>
+            <td class="py-2.5 font-data text-[#344054]">
+              {fmt(v.tracking_result && v.tracking_result.thigmotaxis_pct)}%
+            </td>
+            <td class="py-2.5 font-data text-[#344054]">{fmt(video_immobility_pct(v))}%</td>
+            <td class="py-2.5 font-data text-[#344054]">
+              {fmt(v.tracking_result && total_roi_seconds(v.tracking_result))} s
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
     """
   end
@@ -287,4 +639,19 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   defp fmt(nil), do: "—"
   defp fmt(n) when is_integer(n), do: Integer.to_string(n)
   defp fmt(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
+
+  defp calibration_label(nil), do: "No calibration assigned"
+  defp calibration_label(%{name: name}) when is_binary(name) and name != "", do: name
+  defp calibration_label(%{id: id}), do: "Calibration ##{id}"
+
+  defp stat_fmt(%{mean: nil}), do: "—"
+  defp stat_fmt(%{mean: mean, sd: nil}), do: fmt(mean)
+  defp stat_fmt(%{mean: mean, sd: sd}), do: "#{fmt(mean)} ± #{fmt(sd)}"
+
+  defp video_immobility_pct(%{duration_seconds: d, tracking_result: %{immobility_seconds: s}})
+       when is_number(d) and d > 0 and is_number(s) do
+    s / d * 100
+  end
+
+  defp video_immobility_pct(_video), do: nil
 end
