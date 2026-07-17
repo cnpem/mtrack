@@ -56,7 +56,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
         {:ok, %{frame_url: video_frame_web_path(video)}}
       else
         case FrameExtractor.extract_first_frame(video.filepath, frame_path) do
-          :ok -> {:ok, %{frame_url: video_frame_web_path(video)}}
+          {:ok, _meta} -> {:ok, %{frame_url: video_frame_web_path(video)}}
           {:error, _reason} -> {:ok, %{frame_url: nil}}
         end
       end

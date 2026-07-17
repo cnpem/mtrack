@@ -71,6 +71,12 @@ def _extract_frame(video_path, frame_num, output_path):
         print(json.dumps({"type": "error", "message": "could not open video"}), flush=True)
         sys.exit(1)
 
+    fps = analyzer.video_fps(vs)
+    frame_count = analyzer.video_length(vs)
+    width = vs.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = vs.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    duration = frame_count / fps if fps and fps > 0 else None
+
     if frame_num > 0:
         vs.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
     ok, frame = vs.read()
@@ -81,6 +87,14 @@ def _extract_frame(video_path, frame_num, output_path):
         sys.exit(1)
 
     cv2.imwrite(output_path, frame)
+    print(json.dumps({
+        "type": "video_info",
+        "fps": round(fps) if fps else None,
+        "frame_count": int(frame_count) if frame_count else None,
+        "width": int(width) if width else None,
+        "height": int(height) if height else None,
+        "duration_seconds": round(duration, 2) if duration else None,
+    }), flush=True)
     print(json.dumps({"type": "frame", "path": output_path}), flush=True)
 
 

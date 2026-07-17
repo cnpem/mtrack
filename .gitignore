@@ -58,3 +58,6 @@ Thumbs.db
 # ========================
 trash/
 examples/
+
+# Notas de estudo pessoais (não versionar)
+NOTAS-APRENDIZADO.md

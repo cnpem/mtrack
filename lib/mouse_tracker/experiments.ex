@@ -202,6 +202,12 @@ defmodule MouseTracker.Experiments do
       attrs = %{
         filename: v.filename,
         filepath: v.filepath,
+        file_size_bytes: Map.get(v, :file_size_bytes),
+        fps: Map.get(v, :fps),
+        duration_seconds: Map.get(v, :duration_seconds),
+        frame_count: Map.get(v, :frame_count),
+        width: Map.get(v, :width),
+        height: Map.get(v, :height),
         calibration_id: cal && cal.id,
         subject_id: resolve_wizard_subject_id(v.subject_ref, new_subjects)
       }
@@ -228,6 +234,48 @@ defmodule MouseTracker.Experiments do
 
   def list_videos(%Experiment{} = experiment) do
     Repo.all(from v in Video, where: v.experiment_id == ^experiment.id)
+  end
+
+  @doc """
+  All of a user's videos across every experiment they own — the Datasets
+  library. Newest-first, with `:experiment`, `:subject`, `:calibration` and
+  `tracking_result: [roi_times: :roi]` preloaded so the library can show
+  origin, subject, calibration status, a metrics preview and the "Por subject"
+  aggregate (which reuses `subject_metric_aggregate/1`) without an N+1.
+  """
+  def list_all_videos(%Scope{user: user}) do
+    Repo.all(
+      from v in Video,
+        join: e in assoc(v, :experiment),
+        where: e.user_id == ^user.id,
+        order_by: [desc: v.inserted_at, desc: v.id],
+        preload: [:experiment, :subject, :calibration, tracking_result: [roi_times: :roi]]
+    )
+  end
+
+  @doc """
+  Aggregate figures for the Datasets header stat cards, computed in memory over
+  a list of videos (as returned by `list_all_videos/1`):
+
+    * `:count` — total videos,
+    * `:recording_seconds` — summed `duration_seconds` (videos without it count 0),
+    * `:tracked` — how many are `"done"`,
+    * `:storage_bytes` — summed `file_size_bytes` (videos without it count 0).
+  """
+  def datasets_summary(videos) do
+    %{
+      count: length(videos),
+      recording_seconds: sum_field(videos, & &1.duration_seconds),
+      tracked: Enum.count(videos, &(&1.status == "done")),
+      storage_bytes: sum_field(videos, & &1.file_size_bytes)
+    }
+  end
+
+  defp sum_field(videos, fun) do
+    videos
+    |> Enum.map(fun)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sum()
   end
 
   def get_video!(id), do: Repo.get!(Video, id)

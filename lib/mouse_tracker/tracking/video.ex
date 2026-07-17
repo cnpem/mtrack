@@ -15,6 +15,7 @@ defmodule MouseTracker.Experiments.Video do
     field :frame_count, :integer
     field :width, :integer
     field :height, :integer
+    field :file_size_bytes, :integer
     field :status, :string, default: "pending"
 
     belongs_to :experiment, Experiment
@@ -37,6 +38,7 @@ defmodule MouseTracker.Experiments.Video do
       :frame_count,
       :width,
       :height,
+      :file_size_bytes,
       :status,
       :experiment_id,
       :calibration_id,

@@ -705,6 +705,81 @@ defmodule MouseTracker.ExperimentsTest do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Datasets library
+  # ---------------------------------------------------------------------------
+
+  describe "list_all_videos/1" do
+    test "retorna os vídeos do usuário atravessando experimentos, mais novos primeiro" do
+      user = user_fixture()
+      other = user_fixture()
+      scope = user_scope_fixture(user)
+
+      exp_a = experiment_fixture(user)
+      exp_b = experiment_fixture(user)
+      other_exp = experiment_fixture(other)
+
+      v1 = video_fixture(exp_a)
+      v2 = video_fixture(exp_b)
+      _other = video_fixture(other_exp)
+
+      ids = Experiments.list_all_videos(scope) |> Enum.map(& &1.id)
+
+      assert Enum.sort(ids) == Enum.sort([v1.id, v2.id])
+      # newest-first: v2 was inserted after v1
+      assert hd(ids) == v2.id
+    end
+
+    test "pré-carrega experiment, subject, calibration e tracking_result" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      cal = calibration_fixture(user)
+      subject = subject_fixture(user)
+      exp = experiment_fixture(user)
+      video = video_fixture(exp, cal, %{status: "done", subject_id: subject.id})
+      tracking_result_fixture(video)
+
+      [loaded] = Experiments.list_all_videos(scope)
+
+      assert loaded.experiment.id == exp.id
+      assert loaded.subject.id == subject.id
+      assert loaded.calibration.id == cal.id
+      assert loaded.tracking_result.video_id == video.id
+    end
+  end
+
+  describe "datasets_summary/1" do
+    test "conta vídeos, soma duração/tamanho e conta os rastreados, ignorando nils" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+
+      v1 =
+        video_fixture(exp, nil, %{status: "done", duration_seconds: 100.0, file_size_bytes: 1000})
+
+      v2 =
+        video_fixture(exp, nil, %{status: "pending", duration_seconds: 50.0, file_size_bytes: 500})
+
+      # sem duração/tamanho (vídeo antigo) — deve contar como 0 nas somas
+      v3 = video_fixture(exp, nil, %{status: "processing"})
+
+      summary = Experiments.datasets_summary([v1, v2, v3])
+
+      assert summary.count == 3
+      assert summary.recording_seconds == 150.0
+      assert summary.storage_bytes == 1500
+      assert summary.tracked == 1
+    end
+
+    test "zera as somas quando a lista está vazia" do
+      assert Experiments.datasets_summary([]) == %{
+               count: 0,
+               recording_seconds: 0,
+               tracked: 0,
+               storage_bytes: 0
+             }
+    end
+  end
+
   # Mirrors VideoProcessingWorker.output_path/2's directory formula
   # (lib/mouse_tracker/workers/video_processing_worker.ex), so tests can
   # verify Experiments.delete_experiment/2 and delete_video/1 clean it up.

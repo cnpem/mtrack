@@ -229,7 +229,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         filepath = Path.join(video_dir, "#{entry.ref}-#{entry.client_name}")
         File.cp!(tmp, filepath)
 
-        {:ok, %{ref: entry.ref, filename: entry.client_name, filepath: filepath}}
+        {:ok,
+         %{
+           ref: entry.ref,
+           filename: entry.client_name,
+           filepath: filepath,
+           file_size_bytes: File.stat!(filepath).size
+         }}
       end)
 
     frame_dir = Path.join([static_dir(), "uploads", "frames", token])
@@ -240,10 +246,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         fn v ->
           frame_path = Path.join(frame_dir, "#{v.ref}.png")
 
-          frame_url =
-            frame_result(FrameExtractor.extract_first_frame(v.filepath, frame_path), token, v.ref)
+          {frame_url, meta} =
+            case FrameExtractor.extract_first_frame(v.filepath, frame_path) do
+              {:ok, info} -> {"/uploads/frames/#{token}/#{v.ref}.png", info}
+              {:error, _} -> {nil, %{}}
+            end
 
-          Map.put(v, :frame_url, frame_url)
+          v
+          |> Map.put(:frame_url, frame_url)
+          |> Map.merge(meta)
         end,
         max_concurrency: System.schedulers_online(),
         timeout: :timer.seconds(30)
@@ -264,9 +275,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     |> assign(:specs, specs)
     |> assign(:active_ref, active)
   end
-
-  defp frame_result(:ok, token, ref), do: "/uploads/frames/#{token}/#{ref}.png"
-  defp frame_result({:error, _}, _token, _ref), do: nil
 
   defp remove_saved_video(socket, ref) do
     saved = Enum.reject(socket.assigns.saved_videos, &(&1.ref == ref))
@@ -376,6 +384,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           %{
             filename: v.filename,
             filepath: v.filepath,
+            file_size_bytes: Map.get(v, :file_size_bytes),
+            fps: Map.get(v, :fps),
+            duration_seconds: Map.get(v, :duration_seconds),
+            frame_count: Map.get(v, :frame_count),
+            width: Map.get(v, :width),
+            height: Map.get(v, :height),
             subject_ref: specs[v.ref].subject_ref,
             cal_ref: resolve_ref(v.ref, specs, :cal),
             roi_ref: resolve_ref(v.ref, specs, :roi)
