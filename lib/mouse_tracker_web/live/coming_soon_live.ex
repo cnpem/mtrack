@@ -1,13 +1,12 @@
 defmodule MouseTrackerWeb.ComingSoonLive do
   @moduledoc """
-  Placeholder inside the Locomo shell for screens not yet built (upload wizard,
-  results, datasets, analyses, pipeline settings). Keeps navigation coherent so
-  no link 404s while those parts are implemented.
+  Placeholder inside the Locomo shell for screens not yet built (analyses,
+  pipeline settings). Keeps navigation coherent so no link 404s while those
+  parts are implemented.
   """
   use MouseTrackerWeb, :live_view
 
   @screens %{
-    datasets: {:datasets, "Datasets", "The dataset library is planned for a later iteration."},
     analyses:
       {:analyses, "Analyses", "The trajectory-replay tool is planned for a later iteration."},
     settings:

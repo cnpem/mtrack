@@ -71,6 +71,12 @@ def _extract_frame(video_path, frame_num, output_path):
         print(json.dumps({"type": "error", "message": "could not open video"}), flush=True)
         sys.exit(1)
 
+    fps = analyzer.video_fps(vs)
+    frame_count = analyzer.video_length(vs)
+    width = vs.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = vs.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    duration = frame_count / fps if fps and fps > 0 else None
+
     if frame_num > 0:
         vs.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
     ok, frame = vs.read()
@@ -81,6 +87,14 @@ def _extract_frame(video_path, frame_num, output_path):
         sys.exit(1)
 
     cv2.imwrite(output_path, frame)
+    print(json.dumps({
+        "type": "video_info",
+        "fps": round(fps) if fps else None,
+        "frame_count": int(frame_count) if frame_count else None,
+        "width": int(width) if width else None,
+        "height": int(height) if height else None,
+        "duration_seconds": round(duration, 2) if duration else None,
+    }), flush=True)
     print(json.dumps({"type": "frame", "path": output_path}), flush=True)
 
 
@@ -89,8 +103,18 @@ def _run_headless(json_str):
 
     vs = cv2.VideoCapture(params["video"])
     fps = analyzer.video_fps(vs)
+
+    # The background model is built from a single "empty arena" frame. Frame 0 is
+    # the default, but the user can pick another (via the wizard) when the first
+    # frame is contaminated — e.g. a hand still placing the animal — which would
+    # otherwise leak into the heatmap and cause false motion for the whole video.
+    background_frame = int(params.get("background_frame", 0) or 0)
+    if background_frame > 0:
+        vs.set(cv2.CAP_PROP_POS_FRAMES, background_frame)
     ff = vs.read()[1]
     bg = detector.get_background(ff)
+    if background_frame > 0:
+        vs.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     valid_region = params["valid_region"]
     px_per_10cm = params.get("px_per_10cm", 1.0)

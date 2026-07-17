@@ -131,6 +131,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     {:noreply, assign(socket, :draw_mode, mode)}
   end
 
+  def handle_event("set_reference_frame", %{"ref" => ref, "frame" => frame}, socket) do
+    {:noreply, set_reference_frame(socket, ref, frame)}
+  end
+
   def handle_event("toggle_cal_ref", %{"ref" => ref}, socket) do
     {:noreply, toggle_ref(socket, ref, :cal)}
   end
@@ -229,7 +233,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         filepath = Path.join(video_dir, "#{entry.ref}-#{entry.client_name}")
         File.cp!(tmp, filepath)
 
-        {:ok, %{ref: entry.ref, filename: entry.client_name, filepath: filepath}}
+        {:ok,
+         %{
+           ref: entry.ref,
+           filename: entry.client_name,
+           filepath: filepath,
+           file_size_bytes: File.stat!(filepath).size
+         }}
       end)
 
     frame_dir = Path.join([static_dir(), "uploads", "frames", token])
@@ -240,10 +250,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         fn v ->
           frame_path = Path.join(frame_dir, "#{v.ref}.png")
 
-          frame_url =
-            frame_result(FrameExtractor.extract_first_frame(v.filepath, frame_path), token, v.ref)
+          {frame_url, meta} =
+            case FrameExtractor.extract_first_frame(v.filepath, frame_path) do
+              {:ok, info} -> {"/uploads/frames/#{token}/#{v.ref}.png", info}
+              {:error, _} -> {nil, %{}}
+            end
 
-          Map.put(v, :frame_url, frame_url)
+          v
+          |> Map.put(:frame_url, frame_url)
+          |> Map.merge(meta)
         end,
         max_concurrency: System.schedulers_online(),
         timeout: :timer.seconds(30)
@@ -265,8 +280,49 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     |> assign(:active_ref, active)
   end
 
-  defp frame_result(:ok, token, ref), do: "/uploads/frames/#{token}/#{ref}.png"
-  defp frame_result({:error, _}, _token, _ref), do: nil
+  # Re-extracts the reference frame (used as the tracking background model and
+  # the heatmap underlay) for one video and stores its index. Lets the user pick
+  # a clean frame when the first one is contaminated (e.g. a hand still in the
+  # arena). ROI/scale geometry is in native pixels, so it stays valid — only the
+  # displayed frame image changes; the RoiCanvas hook reloads it on src change.
+  defp set_reference_frame(socket, ref, frame_str) do
+    video = Enum.find(socket.assigns.saved_videos, &(&1.ref == ref))
+
+    with %{filepath: filepath} <- video,
+         {n, _} <- Integer.parse(to_string(frame_str)) do
+      n = clamp_frame(n, video)
+      token = socket.assigns.upload_token
+      frame_path = Path.join([static_dir(), "uploads", "frames", token, "#{ref}-#{n}.png"])
+
+      case FrameExtractor.extract_first_frame(filepath, frame_path, n) do
+        {:ok, _meta} ->
+          url = "/uploads/frames/#{token}/#{ref}-#{n}.png"
+
+          update_saved_video(socket, ref, fn v ->
+            v |> Map.put(:frame_url, url) |> Map.put(:background_frame, n)
+          end)
+
+        {:error, _} ->
+          put_flash(socket, :error, "Não foi possível extrair o frame #{n} deste vídeo.")
+      end
+    else
+      _ -> socket
+    end
+  end
+
+  # Clamp to [0, frame_count - 1] when the frame count is known, else just floor
+  # at 0 (an out-of-range seek simply reads nothing and falls to the error path).
+  defp clamp_frame(n, video) do
+    case Map.get(video, :frame_count) do
+      count when is_integer(count) and count > 0 -> n |> max(0) |> min(count - 1)
+      _ -> max(n, 0)
+    end
+  end
+
+  defp update_saved_video(socket, ref, fun) do
+    saved = Enum.map(socket.assigns.saved_videos, &if(&1.ref == ref, do: fun.(&1), else: &1))
+    assign(socket, :saved_videos, saved)
+  end
 
   defp remove_saved_video(socket, ref) do
     saved = Enum.reject(socket.assigns.saved_videos, &(&1.ref == ref))
@@ -376,6 +432,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           %{
             filename: v.filename,
             filepath: v.filepath,
+            background_frame: Map.get(v, :background_frame, 0),
+            file_size_bytes: Map.get(v, :file_size_bytes),
+            fps: Map.get(v, :fps),
+            duration_seconds: Map.get(v, :duration_seconds),
+            frame_count: Map.get(v, :frame_count),
+            width: Map.get(v, :width),
+            height: Map.get(v, :height),
             subject_ref: specs[v.ref].subject_ref,
             cal_ref: resolve_ref(v.ref, specs, :cal),
             roi_ref: resolve_ref(v.ref, specs, :roi)
@@ -690,6 +753,41 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           class="flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
         >
           Could not extract a frame from this video.
+        </div>
+
+        <div :if={@active_video && @active_video.frame_url} class="mt-3">
+          <form
+            id={"ref-frame-#{@active_ref}"}
+            phx-submit="set_reference_frame"
+            class="flex flex-wrap items-end gap-2"
+          >
+            <input type="hidden" name="ref" value={@active_ref} />
+            <label class="block">
+              <span class="text-[11px] text-[#667085]">Frame de referência (fundo)</span>
+              <input
+                type="number"
+                name="frame"
+                min="0"
+                value={Map.get(@active_video, :background_frame, 0)}
+                class="mt-1 w-28 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+              />
+            </label>
+            <button
+              type="submit"
+              class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
+            >
+              Carregar frame
+            </button>
+            <span
+              :if={Map.get(@active_video, :frame_count)}
+              class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
+            >
+              de {@active_video.frame_count} frames
+            </span>
+          </form>
+          <p class="mt-1 text-[11px] text-[#8a93a3]">
+            Troque o frame se o primeiro tiver uma mão ou obstrução na arena — ele é usado como fundo da detecção e do heatmap.
+          </p>
         </div>
 
         <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">

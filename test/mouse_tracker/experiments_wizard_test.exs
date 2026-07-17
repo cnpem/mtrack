@@ -78,6 +78,37 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert length(Experiments.list_subjects(scope)) == 2
     end
 
+    test "persists the chosen background_frame per video, defaulting to 0", %{scope: scope} do
+      payload = %{
+        name: "BG batch",
+        calibrations: %{"r1" => cal_params()},
+        rois: %{},
+        videos: [
+          %{
+            filename: "hand.mp4",
+            filepath: "/tmp/hand.mp4",
+            subject_ref: nil,
+            cal_ref: "r1",
+            roi_ref: nil,
+            background_frame: 45
+          },
+          %{
+            filename: "clean.mp4",
+            filepath: "/tmp/clean.mp4",
+            subject_ref: nil,
+            cal_ref: "r1",
+            roi_ref: nil
+          }
+        ]
+      }
+
+      assert {:ok, {_experiment, [v1, v2]}} =
+               Experiments.create_experiment_with_videos(scope, payload)
+
+      assert v1.background_frame == 45
+      assert v2.background_frame == 0
+    end
+
     test "stores a polygon ROI with its four vertices", %{scope: scope} do
       poly = %{
         "name" => "Quad",
