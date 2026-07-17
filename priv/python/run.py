@@ -103,8 +103,18 @@ def _run_headless(json_str):
 
     vs = cv2.VideoCapture(params["video"])
     fps = analyzer.video_fps(vs)
+
+    # The background model is built from a single "empty arena" frame. Frame 0 is
+    # the default, but the user can pick another (via the wizard) when the first
+    # frame is contaminated — e.g. a hand still placing the animal — which would
+    # otherwise leak into the heatmap and cause false motion for the whole video.
+    background_frame = int(params.get("background_frame", 0) or 0)
+    if background_frame > 0:
+        vs.set(cv2.CAP_PROP_POS_FRAMES, background_frame)
     ff = vs.read()[1]
     bg = detector.get_background(ff)
+    if background_frame > 0:
+        vs.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     valid_region = params["valid_region"]
     px_per_10cm = params.get("px_per_10cm", 1.0)

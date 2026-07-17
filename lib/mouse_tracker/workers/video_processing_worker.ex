@@ -56,6 +56,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
       "threshold" => cal.threshold,
       "min_area" => cal.min_area,
       "px_per_10cm" => cal.px_per_10cm,
+      "background_frame" => video.background_frame || 0,
       "rois" => Enum.map(video.rois, &roi_to_list/1),
       "heatmap" => output_path(video, "heatmap.png"),
       "speed_profile" => output_path(video, "speed_profile.png")

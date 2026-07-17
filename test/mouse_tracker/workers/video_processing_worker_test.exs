@@ -35,11 +35,15 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
          %{video: video} do
       Phoenix.PubSub.subscribe(MouseTracker.PubSub, "video:#{video.id}")
 
+      # Non-default reference frame must reach the Python params.
+      video |> Video.changeset(%{background_frame: 12}) |> Repo.update!()
+
       PythonPortMock
       |> expect(:run, fn params, on_progress ->
         assert params["video"] == video.filepath
         assert is_list(params["valid_region"])
         assert params["rois"] == [[10, 10, 100, 100]]
+        assert params["background_frame"] == 12
         assert is_function(on_progress, 1)
 
         {:ok,
