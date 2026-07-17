@@ -317,6 +317,32 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       />
     </div>
 
+    <div :if={@result} class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <.stat_card
+        label="Max speed"
+        value={fmt(@result.speed_max_cm)}
+        unit="cm/s"
+        sub="Peak instantaneous"
+      />
+      <.stat_card
+        label="Thigmotaxis"
+        value={fmt(@result.thigmotaxis_pct)}
+        unit="%"
+        sub="Time near the wall"
+      />
+      <.stat_card
+        label="Path tortuosity"
+        value={fmt(@result.path_tortuosity)}
+        sub="Path length / displacement"
+      />
+      <.stat_card
+        label="Immobility"
+        value={fmt(@result.immobility_seconds)}
+        unit="s"
+        sub="Speed < 2 cm/s"
+      />
+    </div>
+
     <div :if={@result} class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <.plot_card title="Occupancy heatmap" src={@result.heatmap_path} />
       <.plot_card title="Speed profile" src={@result.speed_profile_path} />
@@ -543,9 +569,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         />
         <.stat_card
           label="Immobility"
-          value={stat_fmt(@aggregate.metrics.immobility_pct)}
-          unit="%"
-          sub="Share of session"
+          value={stat_fmt(@aggregate.metrics.immobility_seconds)}
+          unit="s"
+          sub="Speed < 2 cm/s"
         />
       </div>
 
@@ -579,7 +605,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   defp subject_per_video(assigns) do
     ~H"""
     <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-      <table class="w-full min-w-[720px] text-left text-[12.5px]">
+      <table class="w-full min-w-[800px] text-left text-[12.5px]">
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="pb-2">Experiment</th>
@@ -587,6 +613,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             <th class="pb-2">Distance</th>
             <th class="pb-2">Mean speed</th>
             <th class="pb-2">Thigmotaxis</th>
+            <th class="pb-2">Tortuosity</th>
             <th class="pb-2">Immobility</th>
             <th class="pb-2">Time in ROI</th>
           </tr>
@@ -604,7 +631,12 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && v.tracking_result.thigmotaxis_pct)}%
             </td>
-            <td class="py-2.5 font-data text-[#344054]">{fmt(video_immobility_pct(v))}%</td>
+            <td class="py-2.5 font-data text-[#344054]">
+              {fmt(v.tracking_result && v.tracking_result.path_tortuosity)}
+            </td>
+            <td class="py-2.5 font-data text-[#344054]">
+              {fmt(v.tracking_result && v.tracking_result.immobility_seconds)} s
+            </td>
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && total_roi_seconds(v.tracking_result))} s
             </td>
@@ -647,11 +679,4 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   defp stat_fmt(%{mean: nil}), do: "—"
   defp stat_fmt(%{mean: mean, sd: nil}), do: fmt(mean)
   defp stat_fmt(%{mean: mean, sd: sd}), do: "#{fmt(mean)} ± #{fmt(sd)}"
-
-  defp video_immobility_pct(%{duration_seconds: d, tracking_result: %{immobility_seconds: s}})
-       when is_number(d) and d > 0 and is_number(s) do
-    s / d * 100
-  end
-
-  defp video_immobility_pct(_video), do: nil
 end

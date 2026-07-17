@@ -529,10 +529,11 @@ defmodule MouseTracker.Experiments do
   have `:tracking_result` preloaded, per `subject_result_videos/3`). Returns
   `%{n: total, metrics: %{key => %{mean:, sd:, n:}}, roi_zones: [%{name:, avg_seconds:, avg_share_pct:, n:}]}`.
 
-  Videos without a `tracking_result` are skipped. Immobility is expressed as
-  `immobility_pct` (share of session), not raw seconds, so videos of
-  different duration/fps combine fairly — the same reasoning already used for
-  "share of session" in the per-video tab.
+  Videos without a `tracking_result` are skipped. Immobility is aggregated in
+  raw seconds (`immobility_seconds`), the value Python always emits and the
+  worker always persists — the video's `duration_seconds` is not reliably
+  populated by the upload wizard, so a "share of session" percentage would be
+  `nil` for real recordings.
   """
   def subject_metric_aggregate(videos) do
     videos_with_results = Enum.filter(videos, &(&1.tracking_result != nil))
@@ -545,18 +546,11 @@ defmodule MouseTracker.Experiments do
       speed_max_cm: stat(results, & &1.speed_max_cm),
       thigmotaxis_pct: stat(results, & &1.thigmotaxis_pct),
       path_tortuosity: stat(results, & &1.path_tortuosity),
-      immobility_pct: stat(videos_with_results, &immobility_pct/1)
+      immobility_seconds: stat(results, & &1.immobility_seconds)
     }
 
     %{n: length(results), metrics: metrics, roi_zones: roi_zone_aggregate(videos_with_results)}
   end
-
-  defp immobility_pct(%Video{duration_seconds: d, tracking_result: %{immobility_seconds: s}})
-       when is_number(d) and d > 0 and is_number(s) do
-    s / d * 100
-  end
-
-  defp immobility_pct(_video), do: nil
 
   defp stat(list, fun) do
     values = list |> Enum.map(fun) |> Enum.reject(&is_nil/1)

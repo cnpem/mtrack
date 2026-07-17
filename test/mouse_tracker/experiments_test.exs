@@ -678,8 +678,8 @@ defmodule MouseTracker.ExperimentsTest do
       assert aggregate.n == 2
       assert aggregate.metrics.distance_cm.mean == 150.0
       assert_in_delta aggregate.metrics.distance_cm.sd, 70.71, 0.01
-      # (10/100*100 + 40/200*100) / 2 = (10 + 20) / 2
-      assert aggregate.metrics.immobility_pct.mean == 15.0
+      # imobilidade em segundos brutos: (10 + 40) / 2
+      assert aggregate.metrics.immobility_seconds.mean == 25.0
     end
 
     test "agrega tempo em zona por roi_id, com share médio de sessão" do
