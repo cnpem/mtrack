@@ -91,4 +91,58 @@ defmodule MouseTrackerWeb.LocomoComponents do
   end
 
   def subject_color(_), do: "#98a2b3"
+
+  @doc """
+  Hand-rolled inline-SVG line+dot chart for a single metric's trend across
+  chronological sessions. No JS — hover tooltips use a native SVG `<title>`
+  per point. `points` must already be sorted chronologically (x-ascending)
+  and pre-filtered for nil values.
+  """
+  attr :points, :list, required: true
+  attr :unit, :string, default: nil
+  attr :color, :string, default: "#CC5500"
+  attr :width, :integer, default: 720
+  attr :height, :integer, default: 220
+
+  def trend_chart(assigns) do
+    assigns =
+      assign(assigns, :coords, chart_coords(assigns.points, assigns.width, assigns.height))
+
+    ~H"""
+    <svg viewBox={"0 0 #{@width} #{@height}"} class="w-full" role="img">
+      <polyline
+        :if={length(@coords) > 1}
+        points={Enum.map_join(@coords, " ", fn c -> "#{c.x},#{c.y}" end)}
+        fill="none"
+        stroke={@color}
+        stroke-width="2"
+      />
+      <g :for={{c, p} <- Enum.zip(@coords, @points)}>
+        <circle cx={c.x} cy={c.y} r="4" fill={@color}>
+          <title>{p.label}: {p.value}{@unit && " #{@unit}"}</title>
+        </circle>
+      </g>
+    </svg>
+    """
+  end
+
+  defp chart_coords([], _w, _h), do: []
+
+  defp chart_coords(points, w, h) do
+    values = Enum.map(points, & &1.value)
+    {min_v, max_v} = Enum.min_max(values)
+    # Flat series (or a single point) would divide by zero — draw a
+    # mid-height line instead.
+    range = if max_v == min_v, do: 1, else: max_v - min_v
+    pad = 24
+    n = length(points)
+
+    points
+    |> Enum.with_index()
+    |> Enum.map(fn {p, i} ->
+      x = if n == 1, do: w / 2, else: pad + i / (n - 1) * (w - 2 * pad)
+      y = h - pad - (p.value - min_v) / range * (h - 2 * pad)
+      %{x: Float.round(x, 1), y: Float.round(y, 1)}
+    end)
+  end
 end
