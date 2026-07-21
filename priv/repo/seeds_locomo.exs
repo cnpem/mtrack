@@ -19,16 +19,13 @@ demo_password = "locomo-demo-123!"
 user =
   case Accounts.get_user_by_email(demo_email) do
     nil ->
-      {:ok, user} = Accounts.register_user(%{email: demo_email})
-
-      # Confirm the account by exercising the magic-link flow, then set a password
-      # so it can be used with the password login form.
-      {:ok, captured} =
-        Accounts.deliver_login_instructions(user, &"[TOKEN]#{&1}[TOKEN]")
-
-      [_, token | _] = String.split(captured.text_body, "[TOKEN]")
-      {:ok, {user, _}} = Accounts.login_user_by_magic_link(token)
-      {:ok, {user, _}} = Accounts.update_user_password(user, %{password: demo_password})
+      {:ok, user} =
+        Accounts.register_user(%{
+          email: demo_email,
+          name: "Demo User",
+          institution: "Locomo Labs",
+          password: demo_password
+        })
 
       IO.puts("Created demo user #{demo_email} / #{demo_password}")
       user

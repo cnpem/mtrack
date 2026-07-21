@@ -63,11 +63,16 @@ defmodule MouseTracker.Accounts do
   ## User registration
 
   @doc """
-  Registers a user.
+  Registers a user with name, email and password.
+
+  The account is confirmed immediately (`confirmed_at` is set on insert),
+  since the user has already proven control of the credentials by choosing a
+  password. This avoids ever having an unconfirmed user with a password set,
+  a state `login_user_by_magic_link/1` explicitly refuses to handle.
 
   ## Examples
 
-      iex> register_user(%{field: value})
+      iex> register_user(%{name: "Jane", email: "jane@example.com", password: "..."})
       {:ok, %User{}}
 
       iex> register_user(%{field: bad_value})
@@ -76,8 +81,35 @@ defmodule MouseTracker.Accounts do
   """
   def register_user(attrs) do
     %User{}
-    |> User.email_changeset(attrs)
+    |> User.registration_changeset(attrs)
+    |> Ecto.Changeset.put_change(:confirmed_at, DateTime.utc_now(:second))
     |> Repo.insert()
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for registering a user.
+
+  See `MouseTracker.Accounts.User.registration_changeset/3` for a list of
+  supported options.
+  """
+  def change_user_registration(user, attrs \\ %{}, opts \\ []) do
+    User.registration_changeset(user, attrs, opts)
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for changing the user profile (name/institution).
+  """
+  def change_user_profile(user, attrs \\ %{}) do
+    User.profile_changeset(user, attrs)
+  end
+
+  @doc """
+  Updates the user profile (name/institution).
+  """
+  def update_user_profile(user, attrs) do
+    user
+    |> User.profile_changeset(attrs)
+    |> Repo.update()
   end
 
   ## Settings

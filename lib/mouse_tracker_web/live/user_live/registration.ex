@@ -22,7 +22,29 @@ defmodule MouseTrackerWeb.UserLive.Registration do
           </.header>
         </div>
 
-        <.form for={@form} id="registration_form" phx-submit="save" phx-change="validate">
+        <.form
+          for={@form}
+          id="registration_form"
+          action={~p"/users/log-in"}
+          method="post"
+          phx-trigger-action={@trigger_submit}
+          phx-submit="save"
+          phx-change="validate"
+        >
+          <.input
+            field={@form[:name]}
+            type="text"
+            label="Full name"
+            autocomplete="name"
+            required
+            phx-mounted={JS.focus()}
+          />
+          <.input
+            field={@form[:institution]}
+            type="text"
+            label="Institution / Lab (optional)"
+            autocomplete="organization"
+          />
           <.input
             field={@form[:email]}
             type="email"
@@ -30,7 +52,19 @@ defmodule MouseTrackerWeb.UserLive.Registration do
             autocomplete="username"
             spellcheck="false"
             required
-            phx-mounted={JS.focus()}
+          />
+          <.input
+            field={@form[:password]}
+            type="password"
+            label="Password"
+            autocomplete="new-password"
+            required
+          />
+          <.input
+            field={@form[:password_confirmation]}
+            type="password"
+            label="Confirm password"
+            autocomplete="new-password"
           />
           <.button phx-disable-with="Creating account..." class="btn btn-primary w-full">
             Create an account
@@ -48,28 +82,20 @@ defmodule MouseTrackerWeb.UserLive.Registration do
   end
 
   def mount(_params, _session, socket) do
-    changeset = Accounts.change_user_email(%User{}, %{}, validate_unique: false)
+    changeset =
+      Accounts.change_user_registration(%User{}, %{},
+        validate_unique: false,
+        hash_password: false
+      )
 
-    {:ok, assign_form(socket, changeset), temporary_assigns: [form: nil]}
+    {:ok, socket |> assign_form(changeset) |> assign(trigger_submit: false)}
   end
 
   @impl true
   def handle_event("save", %{"user" => user_params}, socket) do
     case Accounts.register_user(user_params) do
-      {:ok, user} ->
-        {:ok, _} =
-          Accounts.deliver_login_instructions(
-            user,
-            &url(~p"/users/log-in/#{&1}")
-          )
-
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "An email was sent to #{user.email}, please access it to confirm your account."
-         )
-         |> push_navigate(to: ~p"/users/log-in")}
+      {:ok, _user} ->
+        {:noreply, assign(socket, trigger_submit: true)}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
@@ -77,7 +103,12 @@ defmodule MouseTrackerWeb.UserLive.Registration do
   end
 
   def handle_event("validate", %{"user" => user_params}, socket) do
-    changeset = Accounts.change_user_email(%User{}, user_params, validate_unique: false)
+    changeset =
+      Accounts.change_user_registration(%User{}, user_params,
+        validate_unique: false,
+        hash_password: false
+      )
+
     {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
   end
 
