@@ -43,12 +43,20 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:draw_mode, "roi_polygon")
      |> assign(:experiment_name, "")
      |> assign(:existing_subjects, Experiments.list_subjects(socket.assigns.current_scope))
-     |> allow_upload(:videos,
-       accept: ~w(.mp4 .avi .mov),
-       max_entries: 20,
-       max_file_size: 4_000_000_000,
-       auto_upload: true
-     )}
+     |> allow_upload(:videos, upload_opts(:batch))}
+  end
+
+  # `max_entries` drives `<.live_file_input>`'s `multiple` HTML attribute, so
+  # reconfiguring it on mode switch is what actually stops the native file
+  # picker from allowing more than one file in single mode (not just a
+  # server-side cap enforced after the fact).
+  defp upload_opts(mode) do
+    [
+      accept: ~w(.mp4 .avi .mov),
+      max_entries: if(mode == :single, do: 1, else: 20),
+      max_file_size: 4_000_000_000,
+      auto_upload: true
+    ]
   end
 
   @impl true
@@ -98,6 +106,17 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           _ ->
             socket
         end
+      else
+        socket
+      end
+
+    # `allow_upload/3` raises if any entry (done or in-progress) is still
+    # present, so only reconfigure `max_entries` once the upload is clear —
+    # this always holds before the user has picked any file yet (the
+    # reported bug), which is the case this fixes.
+    socket =
+      if socket.assigns.uploads.videos.entries == [] do
+        allow_upload(socket, :videos, upload_opts(mode))
       else
         socket
       end
@@ -580,12 +599,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         >
           <.icon name="hero-chevron-left-micro" class="size-4" /> Experiments
         </.link>
-
+        
         <div class="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#CC5500]">
           New experiment · Step {step_number(@step)} of 3
         </div>
+        
         <h1 class="mt-1 text-[23px] font-bold text-[#0f1729]">{step_title(@step)}</h1>
-
+        
         <div class="mt-6">
           <.upload_step :if={@step == :upload} {assigns} />
           <.roi_step :if={@step == :roi} {assigns} />
@@ -624,13 +644,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <div class="flex size-11 items-center justify-center rounded-full bg-[#fbeee4] text-[#CC5500]">
           <.icon name="hero-arrow-up-tray" class="size-5" />
         </div>
+        
         <div class="mt-3 text-[13.5px] text-[#344054]">
           Arraste vídeos aqui, ou <span class="font-semibold text-[#CC5500]">navegue</span>
         </div>
+        
         <div class="mt-1 font-data text-[11.5px] text-[#98a2b3]">
           MP4 · AVI · MOV — até 4 GB — 30–60 fps
         </div>
-        <.live_file_input upload={@uploads.videos} class="sr-only" />
+         <.live_file_input upload={@uploads.videos} class="sr-only" />
       </label>
     </form>
 
@@ -646,12 +668,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <div class="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-[#11161f] text-white/80">
           <.icon name="hero-play-solid" class="size-4" />
         </div>
+        
         <div class="min-w-0 flex-1 truncate font-data text-[12.5px] font-medium text-[#0f1729]">
           {v.filename}
         </div>
+        
         <span class="inline-flex items-center gap-1 rounded-[6px] bg-[#fbeee4] px-2 py-0.5 text-[10.5px] font-semibold text-[#b34a00]">
           <.icon name="hero-check-micro" class="size-3.5" /> saved
         </span>
+        
         <button
           type="button"
           phx-click="remove_saved"
@@ -662,7 +687,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           <.icon name="hero-x-mark" class="size-4" />
         </button>
       </div>
-
+      
       <div
         :for={entry <- @uploads.videos.entries}
         class="flex items-center gap-3 rounded-[10px] border border-[#e7e9ee] bg-white p-3"
@@ -670,16 +695,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <div class="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-[#11161f] text-white/80">
           <.icon name="hero-play-solid" class="size-4" />
         </div>
+        
         <div class="min-w-0 flex-1">
           <div class="truncate font-data text-[12.5px] font-medium text-[#0f1729]">
             {entry.client_name}
           </div>
+          
           <div class="mt-1 flex items-center gap-2">
             <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#f2f4f7]">
               <div class="h-full rounded-full bg-[#CC5500]" style={"width:#{entry.progress}%"}></div>
             </div>
-            <span class="font-data text-[10.5px] text-[#98a2b3]">{entry.progress}%</span>
+             <span class="font-data text-[10.5px] text-[#98a2b3]">{entry.progress}%</span>
           </div>
+          
           <div
             :for={err <- upload_errors(@uploads.videos, entry)}
             class="mt-1 text-[11px] text-[#b42318]"
@@ -687,6 +715,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             {upload_error_to_string(err)}
           </div>
         </div>
+        
         <button
           type="button"
           phx-click="cancel_upload"
@@ -706,6 +735,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       >
         Cancel
       </.link>
+      
       <button
         type="button"
         phx-click="goto"
@@ -748,13 +778,14 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           <img data-role="frame" src={@active_video.frame_url} class="block w-full select-none" />
           <canvas data-role="overlay" class="absolute inset-0 h-full w-full cursor-crosshair"></canvas>
         </div>
+        
         <div
           :if={@active_video && !@active_video.frame_url}
           class="flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
         >
           Could not extract a frame from this video.
         </div>
-
+        
         <div :if={@active_video && @active_video.frame_url} class="mt-3">
           <form
             id={"ref-frame-#{@active_ref}"}
@@ -772,12 +803,14 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
                 class="mt-1 w-28 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
               />
             </label>
+            
             <button
               type="submit"
               class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
             >
               Carregar frame
             </button>
+            
             <span
               :if={Map.get(@active_video, :frame_count)}
               class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
@@ -785,11 +818,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               de {@active_video.frame_count} frames
             </span>
           </form>
+          
           <p class="mt-1 text-[11px] text-[#8a93a3]">
             Troque o frame se o primeiro tiver uma mão ou obstrução na arena — ele é usado como fundo da detecção e do heatmap.
           </p>
         </div>
-
+        
         <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
@@ -797,34 +831,37 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             phx-value-ref={@active_ref}
             class={ref_toggle_class(@active_spec.cal_ref?)}
           >
-            <.icon name="hero-star-micro" class="size-4" />
-            {if @active_spec.cal_ref?,
+            <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
               do: "★ referência de escala",
               else: "usar como referência de escala"}
           </button>
+          
           <button
             type="button"
             phx-click="toggle_roi_ref"
             phx-value-ref={@active_ref}
             class={ref_toggle_class(@active_spec.roi_ref?)}
           >
-            <.icon name="hero-star-micro" class="size-4" />
-            {if @active_spec.roi_ref?, do: "★ referência de ROI", else: "usar como referência de ROI"}
+            <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
+              do: "★ referência de ROI",
+              else: "usar como referência de ROI"}
           </button>
         </div>
       </div>
-
+      
       <div class="space-y-4">
         <div
           :if={@active_spec && @active_spec.cal_ref?}
           class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
         >
           <div class="text-[12px] font-bold text-[#0f1729]">Escala & região válida</div>
+          
           <div class="mt-2 flex flex-wrap gap-1.5">
             <.mode_button current={@draw_mode} mode="valid_region" label="Região válida" />
             <.mode_button current={@draw_mode} mode="scale" label="Escala 1 (2 pts)" />
             <.mode_button current={@draw_mode} mode="scale2" label="Escala 2 (2 pts)" />
           </div>
+          
           <form
             id={"scale-cm-#{@active_ref}"}
             phx-change="set_scale_cm"
@@ -841,6 +878,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
             />
           </form>
+          
           <form
             id={"scale-cm2-#{@active_ref}"}
             phx-change="set_scale_cm2"
@@ -857,9 +895,11 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
             />
           </form>
+          
           <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
             {scale_status(@calibrations, @active_ref)}
           </div>
+          
           <div
             :if={@scale_summary && @scale_summary.divergence_pct > divergence_warning_pct()}
             class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
@@ -868,6 +908,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               As duas medidas de escala divergem {@scale_summary.divergence_pct}% (esperado ≤{divergence_warning_pct()}%). Confira os pontos clicados em cada segmento.
             </div>
           </div>
+          
           <form
             id={"cal-setting-#{@active_ref}"}
             phx-change="cal_setting"
@@ -883,6 +924,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
                 class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
               />
             </label>
+            
             <label class="block">
               <span class="text-[11px] text-[#667085]">Min area</span>
               <input
@@ -894,7 +936,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             </label>
           </form>
         </div>
-
+        
         <div :if={@active_spec && not @active_spec.cal_ref?}>
           <.inherit_control
             kind="escala"
@@ -905,16 +947,18 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             selected={current_source_ref(@specs[@active_ref], :cal)}
           />
         </div>
-
+        
         <div
           :if={@active_spec && @active_spec.roi_ref?}
           class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
         >
           <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zonas)</div>
+          
           <div class="mt-2 flex flex-wrap gap-1.5">
             <.mode_button current={@draw_mode} mode="roi_polygon" label="Polígono (4 pts)" />
             <.mode_button current={@draw_mode} mode="roi_circle" label="Círculo" />
           </div>
+          
           <ul class="mt-3 space-y-2">
             <li :for={{roi, idx} <- Enum.with_index(@active_rois)} class="flex items-center gap-2">
               <span class="font-data text-[10.5px] uppercase text-[#98a2b3]">{roi.shape}</span>
@@ -933,6 +977,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
                   class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
                 />
               </form>
+              
               <button
                 type="button"
                 phx-click="remove_roi"
@@ -944,11 +989,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               </button>
             </li>
           </ul>
+          
           <div :if={@active_rois == []} class="mt-2 text-[11.5px] text-[#98a2b3]">
             Escolha um modo acima e desenhe no frame para adicionar zonas.
           </div>
         </div>
-
+        
         <div :if={@active_spec && not @active_spec.roi_ref?}>
           <.inherit_control
             kind="ROI"
@@ -959,11 +1005,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             selected={current_source_ref(@specs[@active_ref], :roi)}
           />
         </div>
-
+        
         <div>
           <div class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             Vídeos deste batch
           </div>
+          
           <ul class="mt-2 space-y-1.5">
             <li
               :for={v <- @saved_videos}
@@ -978,6 +1025,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               <div class="truncate font-data text-[12px] font-medium text-[#0f1729]">
                 {v.filename}
               </div>
+              
               <div class="mt-1 flex flex-wrap gap-1.5">
                 <.resource_badge
                   label="Escala"
@@ -1002,6 +1050,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       <div class="text-[11.5px] font-semibold text-[#b42318]">
         Falta para continuar:
       </div>
+      
       <ul class="mt-1 list-disc pl-4 text-[11.5px] text-[#b42318]">
         <li :for={msg <- step2_missing_reasons(assigns)}>{msg}</li>
       </ul>
@@ -1016,6 +1065,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       >
         ← Back
       </button>
+      
       <button
         type="button"
         phx-click="goto"
@@ -1037,6 +1087,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       <label class="block text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
         Experiment name
       </label>
+      
       <input
         type="text"
         name="experiment_name"
@@ -1044,25 +1095,30 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         placeholder={default_name_placeholder(@saved_videos)}
         class="mt-2 w-full rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2.5 text-[14px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
       />
-
       <div class="mt-5 overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white">
         <div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-3 border-b border-[#f4f5f7] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
           <div>Vídeo</div>
+          
           <div>Subject</div>
+          
           <div>ROI</div>
+          
           <div>Escala</div>
         </div>
+        
         <div
           :for={v <- @saved_videos}
           class="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] px-4 py-3 last:border-0"
         >
           <div class="truncate font-data text-[12.5px] text-[#0f1729]">{v.filename}</div>
+          
           <div class="space-y-1.5">
             <select
               name={"subject[#{v.ref}]"}
               class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
             >
               <option value="" selected={@specs[v.ref].subject_ref == nil}>— No subject —</option>
+              
               <option
                 :for={s <- @existing_subjects}
                 value={s.id}
@@ -1070,10 +1126,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               >
                 {s.name}
               </option>
+              
               <option value="new" selected={match?({:new, _}, @specs[v.ref].subject_ref)}>
                 + New subject
               </option>
             </select>
+            
             <input
               :if={match?({:new, _}, @specs[v.ref].subject_ref)}
               type="text"
@@ -1083,15 +1141,17 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
             />
           </div>
+          
           <div class="font-data text-[12px] text-[#667085]">
             {resolve_label(v.ref, @specs, :roi, @saved_videos) || "—"}
           </div>
+          
           <div class="font-data text-[12px] text-[#667085]">
             {resolve_label(v.ref, @specs, :cal, @saved_videos) || "—"}
           </div>
         </div>
       </div>
-
+      
       <div class="mt-6 flex items-center justify-between">
         <button
           type="button"
@@ -1101,6 +1161,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         >
           ← Back
         </button>
+        
         <button
           type="submit"
           class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
@@ -1150,6 +1211,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <span :if={@resolved} class="font-data font-medium text-[#0f1729]">{@resolved}</span>
         <span :if={!@resolved} class="font-medium text-[#b42318]">sem referência</span>
       </div>
+      
       <form id={"inherit-#{@event}-#{@ref}"} phx-change={@event} class="mt-2">
         <input type="hidden" name="ref" value={@ref} />
         <select
@@ -1157,6 +1219,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
         >
           <option value="" selected={@selected == nil}>— sem referência —</option>
+          
           <option :for={opt <- @options} value={opt.ref} selected={@selected == opt.ref}>
             {opt.filename}
           </option>

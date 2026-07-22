@@ -24,6 +24,20 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
              live(conn, ~p"/experiments/new/roi")
   end
 
+  test "single mode drops the native picker's multiple attribute, batch restores it", %{
+    conn: conn
+  } do
+    {:ok, lv, html} = live(conn, ~p"/experiments/new")
+
+    assert html =~ ~s(multiple)
+
+    html = lv |> element("button", "Single video") |> render_click()
+    refute html =~ ~s(multiple)
+
+    html = lv |> element("button", "Batch") |> render_click()
+    assert html =~ ~s(multiple)
+  end
+
   describe "step 2 -> review" do
     setup %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")

@@ -34,7 +34,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       conn: conn,
       subject: subject
     } do
-      {:ok, _lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
 
       assert html =~ subject.name
       assert html =~ "No analyzed sessions in this scope"
@@ -66,7 +66,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       tracking_result_fixture(v1, %{distance_cm: 100.0})
       tracking_result_fixture(v2, %{distance_cm: 300.0})
 
-      {:ok, _lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
 
       assert html =~ "<svg"
       assert html =~ "100.0"
@@ -90,13 +90,77 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
 
       tracking_result_fixture(v1, %{distance_cm: 42.0})
 
-      {:ok, _lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
 
       assert html =~ "<svg"
       assert html =~ "Only one session so far"
     end
 
-    test "switching subject via chip swaps which subject's data is shown", %{
+    test "toggling another subject's chip adds it to the comparison instead of replacing",
+         %{
+           conn: conn,
+           user: user,
+           subject: subject,
+           cal: cal,
+           experiment: experiment
+         } do
+      other_subject = subject_fixture(user, %{name: "M-02"})
+
+      v1 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: subject.id,
+          filename: "a.mp4"
+        })
+
+      v2 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: other_subject.id,
+          filename: "b.mp4"
+        })
+
+      tracking_result_fixture(v1, %{})
+      tracking_result_fixture(v2, %{})
+
+      {:ok, lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
+      assert html =~ "a.mp4"
+      refute html =~ "b.mp4"
+
+      html =
+        lv
+        |> element("button[phx-value-subject='#{other_subject.id}']")
+        |> render_click()
+
+      # toggling ON: both subjects are now selected, so both sessions show
+      assert html =~ "a.mp4"
+      assert html =~ "b.mp4"
+
+      html =
+        lv
+        |> element("button[phx-value-subject='#{subject.id}']")
+        |> render_click()
+
+      # toggling the first one back OFF leaves only the second selected
+      assert html =~ "b.mp4"
+      refute html =~ "a.mp4"
+    end
+
+    test "deselecting the last subject shows the empty-selection state", %{
+      conn: conn,
+      subject: subject
+    } do
+      {:ok, lv, _html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
+
+      html =
+        lv
+        |> element("button[phx-value-subject='#{subject.id}']")
+        |> render_click()
+
+      assert html =~ "No subject selected"
+    end
+
+    test "comparing two subjects overlays both series and lists both subjects' sessions", %{
       conn: conn,
       user: user,
       subject: subject,
@@ -119,20 +183,58 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
           filename: "b.mp4"
         })
 
-      tracking_result_fixture(v1, %{})
-      tracking_result_fixture(v2, %{})
+      tracking_result_fixture(v1, %{distance_cm: 100.0})
+      tracking_result_fixture(v2, %{distance_cm: 200.0})
 
-      {:ok, lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, _lv, html} = live(conn, "/analyses?subjects=#{subject.id},#{other_subject.id}")
+
       assert html =~ "a.mp4"
-      refute html =~ "b.mp4"
-
-      html =
-        lv
-        |> element("button[phx-value-subject='#{other_subject.id}']")
-        |> render_click()
-
       assert html =~ "b.mp4"
-      refute html =~ "a.mp4"
+      # each series' tooltip is prefixed with its subject's name
+      assert html =~ "M-01 — "
+      assert html =~ "M-02 — "
+    end
+
+    test "a comparison keeps working when the subjects have a different number of sessions", %{
+      conn: conn,
+      user: user,
+      subject: subject,
+      cal: cal,
+      experiment: experiment
+    } do
+      other_subject = subject_fixture(user, %{name: "M-02"})
+
+      v1 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: subject.id,
+          filename: "a1.mp4"
+        })
+
+      v2 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: subject.id,
+          filename: "a2.mp4"
+        })
+
+      v3 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: other_subject.id,
+          filename: "b1.mp4"
+        })
+
+      tracking_result_fixture(v1, %{distance_cm: 10.0})
+      tracking_result_fixture(v2, %{distance_cm: 20.0})
+      tracking_result_fixture(v3, %{distance_cm: 30.0})
+
+      {:ok, _lv, html} = live(conn, "/analyses?subjects=#{subject.id},#{other_subject.id}")
+
+      assert html =~ "<svg"
+      assert html =~ "a1.mp4"
+      assert html =~ "a2.mp4"
+      assert html =~ "b1.mp4"
     end
 
     test "the experiment scope filter narrows sessions to one experiment", %{
@@ -161,7 +263,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       tracking_result_fixture(v1, %{})
       tracking_result_fixture(v2, %{})
 
-      {:ok, lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
       assert html =~ "a.mp4"
       assert html =~ "b.mp4"
 
@@ -191,7 +293,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
 
       tracking_result_fixture(v1, %{distance_cm: 111.0, speed_mean_cm: 7.5})
 
-      {:ok, lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
       assert html =~ "Distance traveled over time"
 
       html =
@@ -229,7 +331,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       tracking_result_fixture(v1, %{})
       tracking_result_fixture(v2, %{thigmotaxis_pct: 55.0})
 
-      {:ok, lv, html} = live(conn, ~p"/analyses?subject=#{subject.id}")
+      {:ok, lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
       # both rows always show in the table regardless of the charted metric
       assert html =~ "a.mp4"
       assert html =~ "b.mp4"
@@ -255,7 +357,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
     {:ok, _lv, html} = live(conn, ~p"/analyses")
     refute html =~ "Not mine"
 
-    {:ok, _lv, html} = live(conn, ~p"/analyses?subject=#{other_subject.id}")
+    {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{other_subject.id}")
     refute html =~ "Not mine"
     assert html =~ "No subjects yet"
   end

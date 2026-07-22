@@ -28,7 +28,12 @@ import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
-  longPollFallbackMs: 2500,
+  // Phoenix's default (2500) is too aggressive on a busy dev machine: the
+  // WebSocket connect+ping health-check can miss that window under load,
+  // permanently downgrading the tab to long-polling (memorized in
+  // sessionStorage) — which then can't keep up with large video uploads and
+  // aborts. A more generous threshold avoids false-positive fallbacks.
+  longPollFallbackMs: 15000,
   params: {_csrf_token: csrfToken},
   hooks: {...colocatedHooks, RoiCanvas},
 })

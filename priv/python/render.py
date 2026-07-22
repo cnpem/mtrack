@@ -7,8 +7,6 @@ Responsible for: all visual output.
 
 import cv2
 import numpy as np
-from matplotlib import pyplot as plt
-import seaborn as sns
 
 from .metrics import distance
 
@@ -159,6 +157,8 @@ def calibrate(frame, cage_side_cm):
 
 def plot_heatmap(heatmap, fps, background, max_time, fn_plot):
     """Save an occupancy heatmap overlaid on the background image."""
+    from matplotlib import pyplot as plt # Lazy import 
+
     plt.figure()
     heatmap[0, 0] = max_time
     plt.imshow(background, cmap="gray")
@@ -173,6 +173,9 @@ def plot_heatmap(heatmap, fps, background, max_time, fn_plot):
 
 def plot_speed_profile(speeds_cm, speed_mean_cm, speed_median_cm, max_speed, fn_plot):
     """Save a speed-over-time line plot with mean/median reference lines."""
+    from matplotlib import pyplot as plt
+    import seaborn as sns
+
     sns.set_style("darkgrid")
     plt.figure()
     plt.plot(speeds_cm)
@@ -199,6 +202,9 @@ def plot_speed_profile(speeds_cm, speed_mean_cm, speed_median_cm, max_speed, fn_
 
 def plot_speed_distribution(speeds_cm, max_speed, fn_plot):
     """Save a histogram of speed values."""
+    from matplotlib import pyplot as plt
+    import seaborn as sns
+
     plt.figure()
     sns.histplot(speeds_cm, bins=20)
     plt.title("Speed Distribution")
