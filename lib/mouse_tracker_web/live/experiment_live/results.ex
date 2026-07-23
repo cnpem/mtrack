@@ -4,8 +4,8 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   alias MouseTracker.Experiments
 
   @tabs [
-    {"video", "Por vídeo", true},
-    {"subject", "Por subject", true}
+    {"video", "Per video", true},
+    {"subject", "Per subject", true}
   ]
 
   @metrics_views ["average", "per_video"]

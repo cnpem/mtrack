@@ -300,7 +300,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           end)
 
         {:error, _} ->
-          put_flash(socket, :error, "Não foi possível extrair o frame #{n} deste vídeo.")
+          put_flash(socket, :error, "Could not extract frame #{n} from this video.")
       end
     else
       _ -> socket
@@ -609,11 +609,11 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         </div>
 
         <div class="mt-3 text-[13.5px] text-[#344054]">
-          Arraste vídeos aqui, ou <span class="font-semibold text-[#CC5500]">navegue</span>
+          Drag videos here, or <span class="font-semibold text-[#CC5500]">browse</span>
         </div>
 
         <div class="mt-1 font-data text-[11.5px] text-[#98a2b3]">
-          MP4 · AVI · MOV — até 4 GB — 30–60 fps
+          MP4 · AVI · MOV — up to 4 GB — 30–60 fps
         </div>
         <.live_file_input upload={@uploads.videos} class="sr-only" />
       </label>
@@ -760,7 +760,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           >
             <input type="hidden" name="ref" value={@active_ref} />
             <label class="block">
-              <span class="text-[11px] text-[#667085]">Frame de referência (fundo)</span>
+              <span class="text-[11px] text-[#667085]">Reference frame (background)</span>
               <input
                 type="number"
                 name="frame"
@@ -774,19 +774,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               type="submit"
               class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
             >
-              Carregar frame
+              Load frame
             </button>
 
             <span
               :if={Map.get(@active_video, :frame_count)}
               class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
             >
-              de {@active_video.frame_count} frames
+              of {@active_video.frame_count} frames
             </span>
           </form>
 
           <p class="mt-1 text-[11px] text-[#8a93a3]">
-            Troque o frame se o primeiro tiver uma mão ou obstrução na arena — ele é usado como fundo da detecção e do heatmap.
+            Switch the frame if the first one has a hand or obstruction in the arena — it's used as the background for detection and the heatmap.
           </p>
         </div>
 
@@ -798,8 +798,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             class={ref_toggle_class(@active_spec.cal_ref?)}
           >
             <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
-              do: "★ referência de escala",
-              else: "usar como referência de escala"}
+              do: "★ scale reference",
+              else: "use as scale reference"}
           </button>
 
           <button
@@ -809,8 +809,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             class={ref_toggle_class(@active_spec.roi_ref?)}
           >
             <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
-              do: "★ referência de ROI",
-              else: "usar como referência de ROI"}
+              do: "★ ROI reference",
+              else: "use as ROI reference"}
           </button>
         </div>
       </div>
@@ -820,12 +820,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           :if={@active_spec && @active_spec.cal_ref?}
           class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
         >
-          <div class="text-[12px] font-bold text-[#0f1729]">Escala & região válida</div>
+          <div class="text-[12px] font-bold text-[#0f1729]">Scale & valid region</div>
 
           <div class="mt-2 flex flex-wrap gap-1.5">
-            <.mode_button current={@draw_mode} mode="valid_region" label="Região válida" />
-            <.mode_button current={@draw_mode} mode="scale" label="Escala 1 (2 pts)" />
-            <.mode_button current={@draw_mode} mode="scale2" label="Escala 2 (2 pts)" />
+            <.mode_button current={@draw_mode} mode="valid_region" label="Valid region" />
+            <.mode_button current={@draw_mode} mode="scale" label="Scale 1 (2 pts)" />
+            <.mode_button current={@draw_mode} mode="scale2" label="Scale 2 (2 pts)" />
           </div>
 
           <form
@@ -834,7 +834,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             phx-submit="set_scale_cm"
             class="mt-3"
           >
-            <label class="text-[11px] text-[#667085]">Medida real da referência 1 (cm)</label>
+            <label class="text-[11px] text-[#667085]">Real-world measure of reference 1 (cm)</label>
             <input
               type="number"
               step="any"
@@ -851,7 +851,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             phx-submit="set_scale_cm2"
             class="mt-3"
           >
-            <label class="text-[11px] text-[#667085]">Medida real da referência 2 (cm)</label>
+            <label class="text-[11px] text-[#667085]">Real-world measure of reference 2 (cm)</label>
             <input
               type="number"
               step="any"
@@ -871,7 +871,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
           >
             <div class="text-[11.5px] font-semibold text-[#92400e]">
-              As duas medidas de escala divergem {@scale_summary.divergence_pct}% (esperado ≤{divergence_warning_pct()}%). Confira os pontos clicados em cada segmento.
+              The two scale measurements diverge by {@scale_summary.divergence_pct}% (expected ≤{divergence_warning_pct()}%). Double-check the points clicked on each segment.
             </div>
           </div>
 
@@ -905,7 +905,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
         <div :if={@active_spec && not @active_spec.cal_ref?}>
           <.inherit_control
-            kind="escala"
+            kind="scale"
             resolved={resolve_label(@active_ref, @specs, :cal, @saved_videos)}
             event="set_cal_source"
             ref={@active_ref}
@@ -918,11 +918,11 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           :if={@active_spec && @active_spec.roi_ref?}
           class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
         >
-          <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zonas)</div>
+          <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zones)</div>
 
           <div class="mt-2 flex flex-wrap gap-1.5">
-            <.mode_button current={@draw_mode} mode="roi_polygon" label="Polígono (4 pts)" />
-            <.mode_button current={@draw_mode} mode="roi_circle" label="Círculo" />
+            <.mode_button current={@draw_mode} mode="roi_polygon" label="Polygon (4 pts)" />
+            <.mode_button current={@draw_mode} mode="roi_circle" label="Circle" />
           </div>
 
           <ul class="mt-3 space-y-2">
@@ -957,7 +957,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           </ul>
 
           <div :if={@active_rois == []} class="mt-2 text-[11.5px] text-[#98a2b3]">
-            Escolha um modo acima e desenhe no frame para adicionar zonas.
+            Choose a mode above and draw on the frame to add zones.
           </div>
         </div>
 
@@ -974,7 +974,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
         <div>
           <div class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-            Vídeos deste batch
+            Videos in this batch
           </div>
 
           <ul class="mt-2 space-y-1.5">
@@ -994,7 +994,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
               <div class="mt-1 flex flex-wrap gap-1.5">
                 <.resource_badge
-                  label="Escala"
+                  label="Scale"
                   tag={resolve_label(v.ref, @specs, :cal, @saved_videos)}
                 />
                 <.resource_badge
@@ -1014,7 +1014,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       class="mt-4 rounded-[10px] border border-[#fdecec] bg-[#fff9f8] p-3"
     >
       <div class="text-[11.5px] font-semibold text-[#b42318]">
-        Falta para continuar:
+        Missing to continue:
       </div>
 
       <ul class="mt-1 list-disc pl-4 text-[11.5px] text-[#b42318]">
@@ -1063,13 +1063,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       />
       <div class="mt-5 overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white">
         <div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-3 border-b border-[#f4f5f7] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-          <div>Vídeo</div>
+          <div>Video</div>
 
           <div>Subject</div>
 
           <div>ROI</div>
 
-          <div>Escala</div>
+          <div>Scale</div>
         </div>
 
         <div
@@ -1132,7 +1132,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           type="submit"
           class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
         >
-          Criar experimento ✓
+          Create experiment ✓
         </button>
       </div>
     </form>
@@ -1173,9 +1173,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     ~H"""
     <div class="rounded-[10px] border border-[#f4f5f7] bg-[#fafbfc] p-3">
       <div class="text-[12px] text-[#667085]">
-        Referência de {@kind}:
+        {@kind} reference:
         <span :if={@resolved} class="font-data font-medium text-[#0f1729]">{@resolved}</span>
-        <span :if={!@resolved} class="font-medium text-[#b42318]">sem referência</span>
+        <span :if={!@resolved} class="font-medium text-[#b42318]">no reference</span>
       </div>
 
       <form id={"inherit-#{@event}-#{@ref}"} phx-change={@event} class="mt-2">
@@ -1184,7 +1184,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           name="source"
           class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
         >
-          <option value="" selected={@selected == nil}>— sem referência —</option>
+          <option value="" selected={@selected == nil}>— no reference —</option>
 
           <option :for={opt <- @options} value={opt.ref} selected={@selected == opt.ref}>
             {opt.filename}
@@ -1350,8 +1350,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp resolve_label(ref, specs, kind, videos) do
     case resolve_ref(ref, specs, kind) do
       nil -> nil
-      ^ref -> "★ referência"
-      other -> "herda de #{ref_filename(other, videos)}"
+      ^ref -> "★ reference"
+      other -> "inherits from #{ref_filename(other, videos)}"
     end
   end
 
@@ -1373,9 +1373,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     case Map.get(calibrations, ref) do
       %{valid_region: vr, scale: s1, scale2: s2} = cal ->
         parts = [
-          if(vr, do: "região ✓", else: "região —"),
-          if(s1, do: "escala 1 ✓", else: "escala 1 —"),
-          if(s2, do: "escala 2 ✓", else: "escala 2 —")
+          if(vr, do: "region ✓", else: "region —"),
+          if(s1, do: "scale 1 ✓", else: "scale 1 —"),
+          if(s2, do: "scale 2 ✓", else: "scale 2 —")
         ]
 
         px =
@@ -1387,7 +1387,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         Enum.join(parts, " · ") <> px
 
       _ ->
-        "região — · escala 1 — · escala 2 —"
+        "region — · scale 1 — · scale 2 —"
     end
   end
 
@@ -1430,21 +1430,21 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       for r <- refs,
           cal_ref = resolve_ref(r, assigns.specs, :cal),
           is_nil(cal_ref) or not cal_complete?(assigns.calibrations[cal_ref]) do
-        "#{ref_filename(r, videos)}: escala/região válida incompleta"
+        "#{ref_filename(r, videos)}: scale/valid region incomplete"
       end
 
     roi_name_msgs =
       for r <- roi_refs,
           roi <- Map.get(assigns.rois, r, []),
           not present?(roi.name) do
-        "#{ref_filename(r, videos)}: uma zona ROI está sem nome"
+        "#{ref_filename(r, videos)}: one ROI zone is missing a name"
       end
 
     roi_names = for r <- roi_refs, roi <- Map.get(assigns.rois, r, []), do: roi.name
 
     dup_msgs =
       if length(roi_names) != length(Enum.uniq(roi_names)) do
-        ["Duas zonas ROI têm o mesmo nome — nomes precisam ser únicos"]
+        ["Two ROI zones share the same name — names must be unique"]
       else
         []
       end
