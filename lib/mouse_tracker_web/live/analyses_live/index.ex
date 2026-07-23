@@ -360,7 +360,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               </div>
 
               <div :if={@series != []} class="mt-4">
-                <.trend_chart series={@series} unit={metric_unit(@metric)} />
+                <.trend_chart id="analyses-trend-chart" series={@series} unit={metric_unit(@metric)} />
                 <p
                   :if={length(@selected_subjects) == 1 and match?([%{points: [_]}], @series)}
                   class="mt-2 text-[11.5px] text-[#8a93a3]"
