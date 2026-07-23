@@ -102,7 +102,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               phx-blur="update_subject_notes"
               phx-value-subject-id={subject.id}
               rows="2"
-              placeholder="Observações (ex: manqueira, problema de visão)"
+              placeholder="Notes (e.g. limping, vision issue)"
               class="w-full resize-none rounded-[6px] border border-[#e7e9ee] bg-[#fafbfc] px-2 py-1.5 font-data text-[11.5px] text-[#344054] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
             >{subject.notes}</textarea>
           </div>
@@ -160,13 +160,6 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
             <.video_action experiment={@experiment} video={video} />
           </li>
         </ul>
-
-        <div class="mt-6 rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-8 text-center">
-          <p class="text-[13px] font-medium text-[#667085]">Add more videos to this experiment</p>
-          <p class="mt-1 text-[11.5px] text-[#98a2b3]">
-            Uploading into an existing experiment is coming with the upload wizard.
-          </p>
-        </div>
       </div>
     </Layouts.locomo>
     """

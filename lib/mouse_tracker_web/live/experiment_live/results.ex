@@ -4,8 +4,8 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   alias MouseTracker.Experiments
 
   @tabs [
-    {"video", "Por vídeo", true},
-    {"subject", "Por subject", true}
+    {"video", "Per video", true},
+    {"subject", "Per subject", true}
   ]
 
   @metrics_views ["average", "per_video"]
@@ -177,10 +177,10 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         >
           <.icon name="hero-chevron-left-micro" class="size-4" /> {@experiment.name}
         </.link>
-        
+
         <div class="mt-3 flex items-center gap-3">
           <h1 class="text-[23px] font-bold text-[#0f1729]">Results</h1>
-          
+
           <span
             :if={@done_videos != []}
             class="inline-flex items-center gap-1.5 rounded-[20px] bg-[#fbeee4] px-2.5 py-1 text-[11.5px] font-semibold text-[#b34a00]"
@@ -188,11 +188,11 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             <span class="size-1.5 rounded-full bg-[#CC5500]"></span> Analysis complete
           </span>
         </div>
-        
+
         <p class="mt-1 font-data text-[12px] text-[#8a93a3]">
           {length(@done_videos)} of {length(@experiment.videos)} videos analyzed
         </p>
-        
+
         <div class="mt-5 inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
           <button
             :for={{value, label, enabled} <- tabs()}
@@ -211,7 +211,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             {label} <span :if={not enabled} class="ml-1 text-[10px] text-[#c3c9d2]">soon</span>
           </button>
         </div>
-        
+
         <div
           :if={@done_videos == []}
           class="mt-5 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
@@ -219,14 +219,14 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
             <.icon name="hero-chart-bar" class="size-6" />
           </div>
-          
+
           <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">No analyzed videos yet</h2>
-          
+
           <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
             Results appear here once a video finishes processing.
           </p>
         </div>
-        
+
         <div :if={@done_videos != [] and @tab == "video"} class="mt-5">
           <.video_results
             :if={@selected_video}
@@ -234,7 +234,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             done_videos={@done_videos}
           />
         </div>
-        
+
         <div :if={@tab == "subject"} class="mt-5">
           <.subject_results
             :if={@subject}
@@ -252,7 +252,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
           >
             <h2 class="text-[15px] font-bold text-[#0f1729]">No subject to show</h2>
-            
+
             <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
               This experiment's videos have no subject assigned yet.
             </p>
@@ -274,7 +274,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       <span class="px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
         Video
       </span>
-      
+
       <button
         :for={v <- @done_videos}
         type="button"
@@ -355,28 +355,28 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
     >
       <div class="flex items-center justify-between">
         <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
-        
+
         <div class="font-data text-[11.5px] text-[#8a93a3]">
           total {fmt(total_roi_seconds(@result))} s
         </div>
       </div>
-      
+
       <div class="mt-3 grid grid-cols-[1.4fr_1fr_1.6fr] gap-3 border-b border-[#f4f5f7] pb-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
         <div>Zone</div>
-        
+
         <div>Time</div>
-        
+
         <div>Share of session</div>
       </div>
-      
+
       <div
         :for={rt <- @result.roi_times}
         class="grid grid-cols-[1.4fr_1fr_1.6fr] items-center gap-3 border-b border-[#f4f5f7] py-2.5 last:border-0"
       >
         <div class="text-[13px] font-medium text-[#0f1729]">{rt.roi.name}</div>
-        
+
         <div class="font-data text-[12.5px] text-[#344054]">{fmt(rt.seconds)} s</div>
-        
+
         <div class="flex items-center gap-2">
           <div class="h-2 flex-1 overflow-hidden rounded-full bg-[#f2f4f7]">
             <div
@@ -385,7 +385,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             >
             </div>
           </div>
-          
+
           <span class="w-12 shrink-0 text-right font-data text-[11.5px] text-[#667085]">
             {share_label(rt.seconds, @video)}
           </span>
@@ -403,9 +403,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
     ~H"""
     <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <div class="text-[13px] font-bold text-[#0f1729]">{@title}</div>
-      
+
       <div :if={@sub} class="text-[11.5px] text-[#8a93a3]">{@sub}</div>
-      
+
       <div class="mt-3 overflow-hidden rounded-[10px] border border-[#f4f5f7] bg-[#11161f]">
         <img
           :if={@src}
@@ -440,7 +440,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       <span class="px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
         Subject
       </span>
-      
+
       <button
         :for={s <- @experiment_subjects}
         type="button"
@@ -465,14 +465,14 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         <span class="font-data font-semibold text-[#0f1729]">{length(@subject_experiments)}</span>
         experiment(s)
       </div>
-      
+
       <form id="subject-scope-experiment" phx-change="set_scope_experiment">
         <select
           name="scope_experiment"
           class="rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
         >
           <option value="all" selected={@scope_experiment_id == nil}>All experiments</option>
-          
+
           <option
             :for={exp <- @subject_experiments}
             value={exp.id}
@@ -489,33 +489,35 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
     >
       <h2 class="text-[15px] font-bold text-[#0f1729]">No analyzed videos in this scope</h2>
-      
+
       <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
         Pick a different subject or widen the experiment filter.
       </p>
     </div>
 
     <div :if={@subject_videos != []}>
-      <div :for={{calibration, videos} <- @calibration_groups} class="mt-4">
-        <div class="mb-2 flex items-center gap-2 text-[13px] font-bold text-[#0f1729]">
-          <.icon name="hero-squares-2x2" class="size-4 text-[#98a2b3]" /> {calibration_label(
-            calibration
-          )}
-          <span class="font-data text-[11.5px] font-normal text-[#8a93a3]">
-            {length(videos)} video(s)
-          </span>
-        </div>
-        
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <.plot_card
-            :for={v <- videos}
-            title={v.filename}
-            sub={v.experiment.name}
-            src={v.tracking_result && v.tracking_result.heatmap_path}
-          />
+      <div class="mt-4 flex flex-wrap gap-6">
+        <div :for={{calibration, videos} <- @calibration_groups} class="w-full sm:w-[380px]">
+          <div class="mb-2 flex items-center gap-2 text-[13px] font-bold text-[#0f1729]">
+            <.icon name="hero-squares-2x2" class="size-4 text-[#98a2b3]" /> {calibration_label(
+              calibration
+            )}
+            <span class="font-data text-[11.5px] font-normal text-[#8a93a3]">
+              {length(videos)} video(s)
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4">
+            <.plot_card
+              :for={v <- videos}
+              title={v.filename}
+              sub={v.experiment.name}
+              src={v.tracking_result && v.tracking_result.heatmap_path}
+            />
+          </div>
         </div>
       </div>
-      
+
       <div class="mt-5 inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
         <button
           :for={{value, label} <- [{"average", "Average"}, {"per_video", "Per video"}]}
@@ -531,7 +533,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           {label}
         </button>
       </div>
-       <.subject_average :if={@metrics_view == "average"} aggregate={@aggregate} />
+      <.subject_average :if={@metrics_view == "average"} aggregate={@aggregate} />
       <.subject_per_video :if={@metrics_view == "per_video"} videos={@subject_videos} />
     </div>
     """
@@ -545,7 +547,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       <p class="font-data text-[11.5px] text-[#8a93a3]">
         Mean ± SD across {@aggregate.n} video(s)
       </p>
-      
+
       <div class="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <.stat_card
           label="Distance traveled"
@@ -589,29 +591,29 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           sub="Speed < 2 cm/s"
         />
       </div>
-      
+
       <div
         :if={@aggregate.roi_zones != []}
         class="mt-4 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
       >
         <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
-        
+
         <div class="mt-3 grid grid-cols-[1.4fr_1fr_1fr] gap-3 border-b border-[#f4f5f7] pb-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
           <div>Zone</div>
-          
+
           <div>Avg. time</div>
-          
+
           <div>Avg. share of session</div>
         </div>
-        
+
         <div
           :for={zone <- @aggregate.roi_zones}
           class="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] py-2.5 last:border-0"
         >
           <div class="text-[13px] font-medium text-[#0f1729]">{zone.name}</div>
-          
+
           <div class="font-data text-[12.5px] text-[#344054]">{fmt(zone.avg_seconds)} s</div>
-          
+
           <div class="font-data text-[12.5px] text-[#344054]">
             {if zone.avg_share_pct, do: "#{fmt(zone.avg_share_pct)}%", else: "—"}
           </div>
@@ -630,49 +632,49 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="pb-2">Experiment</th>
-            
+
             <th class="pb-2">Video</th>
-            
+
             <th class="pb-2">Distance</th>
-            
+
             <th class="pb-2">Mean speed</th>
-            
+
             <th class="pb-2">Thigmotaxis</th>
-            
+
             <th class="pb-2">Tortuosity</th>
-            
+
             <th class="pb-2">Immobility</th>
-            
+
             <th class="pb-2">Time in ROI</th>
           </tr>
         </thead>
-        
+
         <tbody>
           <tr :for={v <- @videos} class="border-b border-[#f4f5f7] last:border-0">
             <td class="py-2.5 text-[#344054]">{v.experiment.name}</td>
-            
+
             <td class="py-2.5 font-data text-[#0f1729]">{v.filename}</td>
-            
+
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && v.tracking_result.distance_cm)} cm
             </td>
-            
+
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && v.tracking_result.speed_mean_cm)} cm/s
             </td>
-            
+
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && v.tracking_result.thigmotaxis_pct)}%
             </td>
-            
+
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && v.tracking_result.path_tortuosity)}
             </td>
-            
+
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && v.tracking_result.immobility_seconds)} s
             </td>
-            
+
             <td class="py-2.5 font-data text-[#344054]">
               {fmt(v.tracking_result && total_roi_seconds(v.tracking_result))} s
             </td>

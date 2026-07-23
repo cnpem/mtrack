@@ -111,6 +111,14 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     )
   end
 
+  def handle_event("update_subject_sex", %{"subject_id" => id, "value" => sex}, socket) do
+    update_subject_field(socket, id, %{sex: normalize_blank(sex)})
+  end
+
+  def handle_event("update_subject_genotype", %{"id" => id, "value" => genotype}, socket) do
+    update_subject_field(socket, id, %{genotype: normalize_blank(genotype)})
+  end
+
   def handle_event("delete_calibration", %{"id" => id}, socket) do
     delete(
       socket,
@@ -214,6 +222,22 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   defp replace(list, %{id: id} = updated),
     do: Enum.map(list, &if(&1.id == id, do: updated, else: &1))
+
+  defp update_subject_field(socket, id, attrs) do
+    scope = socket.assigns.current_scope
+    subject = Experiments.get_subject!(scope, id)
+
+    case Experiments.update_subject(scope, subject, attrs) do
+      {:ok, updated} ->
+        {:noreply, socket |> update(:subjects, &replace(&1, updated)) |> assign_derived()}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Could not update subject.")}
+    end
+  end
+
+  defp normalize_blank(""), do: nil
+  defp normalize_blank(value), do: value
 
   defp rename_error(changeset) do
     case changeset.errors[:name] do
@@ -503,8 +527,16 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-[18px] py-3">
               <.rename_input event="rename_subject" id={subject.id} name={subject.name} />
             </td>
-            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{subject.sex || "—"}</td>
-            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{subject.genotype || "—"}</td>
+            <td class="px-3 py-3">
+              <.sex_select id={subject.id} value={subject.sex} />
+            </td>
+            <td class="px-3 py-3">
+              <.text_field_input
+                event="update_subject_genotype"
+                id={subject.id}
+                value={subject.genotype}
+              />
+            </td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {usage_label(usage_count(@usage, subject.id))}
             </td>
@@ -537,6 +569,43 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       phx-value-id={@id}
       class="w-full min-w-[140px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12.5px] font-medium text-[#0f1729] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
     />
+    """
+  end
+
+  attr :event, :string, required: true
+  attr :id, :integer, required: true
+  attr :value, :string, default: nil
+
+  defp text_field_input(assigns) do
+    ~H"""
+    <input
+      type="text"
+      name="value"
+      value={@value}
+      phx-blur={@event}
+      phx-value-id={@id}
+      placeholder="—"
+      class="w-full min-w-[110px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12px] text-[#344054] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
+    />
+    """
+  end
+
+  attr :id, :integer, required: true
+  attr :value, :string, default: nil
+
+  defp sex_select(assigns) do
+    ~H"""
+    <form id={"subject-sex-#{@id}"} phx-change="update_subject_sex">
+      <input type="hidden" name="subject_id" value={@id} />
+      <select
+        name="value"
+        class="w-full min-w-[64px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12px] text-[#344054] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
+      >
+        <option value="" selected={@value in [nil, ""]}>—</option>
+        <option value="M" selected={@value == "M"}>M</option>
+        <option value="F" selected={@value == "F"}>F</option>
+      </select>
+    </form>
     """
   end
 

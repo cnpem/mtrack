@@ -16,26 +16,12 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
     assert html =~ "New experiment · Step 1 of 3"
     assert html =~ "Upload videos"
-    assert html =~ "Batch"
+    assert html =~ ~s(multiple)
   end
 
   test "guards later steps back to upload when there are no files", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/experiments/new"}}} =
              live(conn, ~p"/experiments/new/roi")
-  end
-
-  test "single mode drops the native picker's multiple attribute, batch restores it", %{
-    conn: conn
-  } do
-    {:ok, lv, html} = live(conn, ~p"/experiments/new")
-
-    assert html =~ ~s(multiple)
-
-    html = lv |> element("button", "Single video") |> render_click()
-    refute html =~ ~s(multiple)
-
-    html = lv |> element("button", "Batch") |> render_click()
-    assert html =~ ~s(multiple)
   end
 
   describe "step 2 prefills threshold/min_area from the user's pipeline defaults" do
@@ -194,7 +180,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       html = render(lv)
 
       assert html =~ ~s(phx-value-step="review" disabled)
-      assert html =~ "sem nome"
+      assert html =~ "missing a name"
       refute ref == nil
     end
 
@@ -219,13 +205,13 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html = render(lv)
 
-      assert html =~ "As duas medidas de escala divergem"
+      assert html =~ "The two scale measurements diverge"
     end
 
     test "does not show a divergence warning when the two segments agree within 8%", %{lv: lv} do
       html = render(lv)
 
-      refute html =~ "As duas medidas de escala divergem"
+      refute html =~ "The two scale measurements diverge"
     end
   end
 
@@ -366,7 +352,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
     test "picking a calibration reference in the dropdown resolves inheritance and unblocks Continue",
          %{lv: lv, ref_a: ref_a, ref_b: ref_b} do
       html = render(lv)
-      assert html =~ "sem referência"
+      assert html =~ "no reference"
       assert html =~ ~s(phx-value-step="review" disabled)
 
       lv
@@ -374,7 +360,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       |> render_change()
 
       html = render(lv)
-      assert html =~ "herda de a.mp4"
+      assert html =~ "inherits from a.mp4"
       refute html =~ ~s(phx-value-step="review" disabled)
     end
 
@@ -388,14 +374,14 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       |> render_change()
 
       html = render(lv)
-      assert html =~ "sem referência"
+      assert html =~ "no reference"
 
       lv
       |> form("form[phx-change='set_roi_source']", %{"ref" => ref_b, "source" => ref_a})
       |> render_change()
 
       html = render(lv)
-      assert html =~ "herda de a.mp4"
+      assert html =~ "inherits from a.mp4"
       refute html =~ ~s(phx-value-step="review" disabled)
     end
   end
