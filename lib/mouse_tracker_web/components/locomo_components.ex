@@ -60,10 +60,12 @@ defmodule MouseTrackerWeb.LocomoComponents do
       <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a93a3]">
         {@label}
       </div>
+      
       <div class="mt-2 flex items-baseline gap-1">
         <span class="font-data text-[32px] font-semibold leading-none text-[#0f1729]">{@value}</span>
         <span :if={@unit} class="font-data text-[13px] text-[#98a2b3]">{@unit}</span>
       </div>
+      
       <div :if={@sub} class="mt-1.5 text-[11.5px] text-[#8a93a3]">{@sub}</div>
     </div>
     """
@@ -91,4 +93,71 @@ defmodule MouseTrackerWeb.LocomoComponents do
   end
 
   def subject_color(_), do: "#98a2b3"
+
+  @doc """
+  Hand-rolled inline-SVG line+dot chart overlaying one or more metric trend
+  series across chronological sessions. No JS — hover tooltips use a native
+  SVG `<title>` per point. Each series is `%{label:, color:, points:}`, with
+  `points` already sorted chronologically (x-ascending) and pre-filtered for
+  nil values.
+
+  The X axis aligns by *index within each series* (1st session next to 1st
+  session, 2nd next to 2nd...), not by calendar date — series may have
+  different lengths (e.g. comparing subjects with a different number of
+  sessions); a shorter series' polyline simply stops early instead of
+  stretching to fill the width, which would misalign it against the others.
+  """
+  attr :series, :list, required: true
+  attr :unit, :string, default: nil
+  attr :width, :integer, default: 720
+  attr :height, :integer, default: 220
+
+  def trend_chart(assigns) do
+    assigns =
+      assign(assigns, :plotted, chart_series(assigns.series, assigns.width, assigns.height))
+
+    ~H"""
+    <svg viewBox={"0 0 #{@width} #{@height}"} class="w-full" role="img">
+      <g :for={s <- @plotted}>
+        <polyline
+          :if={length(s.coords) > 1}
+          points={Enum.map_join(s.coords, " ", fn c -> "#{c.x},#{c.y}" end)}
+          fill="none"
+          stroke={s.color}
+          stroke-width="2"
+        />
+        <circle :for={{c, p} <- Enum.zip(s.coords, s.points)} cx={c.x} cy={c.y} r="4" fill={s.color}>
+          <title>{s.label} — {p.label}: {p.value}{@unit && " #{@unit}"}</title>
+        </circle>
+      </g>
+    </svg>
+    """
+  end
+
+  defp chart_series(series, w, h) do
+    all_values = series |> Enum.flat_map(& &1.points) |> Enum.map(& &1.value)
+    {min_v, max_v} = if all_values == [], do: {0, 1}, else: Enum.min_max(all_values)
+    # Flat values (or a single point) would divide by zero — draw a
+    # mid-height line instead.
+    range = if max_v == min_v, do: 1, else: max_v - min_v
+    pad = 24
+    # Every series shares the same X divisor (the longest one) so session
+    # index `i` lands at the same X regardless of which series it belongs
+    # to — using each series' own point count would misalign them whenever
+    # they have different lengths.
+    n_max = series |> Enum.map(&length(&1.points)) |> Enum.max(fn -> 1 end)
+
+    Enum.map(series, fn s ->
+      coords =
+        s.points
+        |> Enum.with_index()
+        |> Enum.map(fn {p, i} ->
+          x = if n_max == 1, do: w / 2, else: pad + i / (n_max - 1) * (w - 2 * pad)
+          y = h - pad - (p.value - min_v) / range * (h - 2 * pad)
+          %{x: Float.round(x, 1), y: Float.round(y, 1)}
+        end)
+
+      Map.put(s, :coords, coords)
+    end)
+  end
 end

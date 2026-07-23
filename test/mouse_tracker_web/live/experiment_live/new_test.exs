@@ -24,6 +24,84 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
              live(conn, ~p"/experiments/new/roi")
   end
 
+  test "single mode drops the native picker's multiple attribute, batch restores it", %{
+    conn: conn
+  } do
+    {:ok, lv, html} = live(conn, ~p"/experiments/new")
+
+    assert html =~ ~s(multiple)
+
+    html = lv |> element("button", "Single video") |> render_click()
+    refute html =~ ~s(multiple)
+
+    html = lv |> element("button", "Batch") |> render_click()
+    assert html =~ ~s(multiple)
+  end
+
+  describe "step 2 prefills threshold/min_area from the user's pipeline defaults" do
+    setup %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp = Path.join(System.tmp_dir!(), "wizard-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp, "not a real video, just bytes for the upload input")
+
+      video =
+        file_input(lv, "form", :videos, [
+          %{name: "a.mp4", content: File.read!(tmp), type: "video/mp4"}
+        ])
+
+      render_upload(video, "a.mp4")
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+      [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
+
+      html =
+        lv
+        |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+        |> render_click()
+
+      %{html: html}
+    end
+
+    test "uses the built-in 80/250 when the user has no custom defaults", %{html: html} do
+      assert html =~ ~s(name="threshold" value="80")
+      assert html =~ ~s(name="min_area" value="250")
+    end
+
+    test "uses the user's saved defaults instead", %{conn: conn, user: user} do
+      {:ok, _user} =
+        MouseTracker.Accounts.update_user_pipeline_defaults(user, %{
+          default_threshold: 60,
+          default_min_area: 400
+        })
+
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp = Path.join(System.tmp_dir!(), "wizard-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp, "not a real video, just bytes for the upload input")
+
+      video =
+        file_input(lv, "form", :videos, [
+          %{name: "b.mp4", content: File.read!(tmp), type: "video/mp4"}
+        ])
+
+      render_upload(video, "b.mp4")
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+      [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
+
+      html =
+        lv
+        |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+        |> render_click()
+
+      assert html =~ ~s(name="threshold" value="60")
+      assert html =~ ~s(name="min_area" value="400")
+    end
+  end
+
   describe "step 2 -> review" do
     setup %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")

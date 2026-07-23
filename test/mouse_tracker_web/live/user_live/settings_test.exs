@@ -37,6 +37,37 @@ defmodule MouseTrackerWeb.UserLive.SettingsTest do
     end
   end
 
+  describe "update profile form" do
+    setup %{conn: conn} do
+      user = user_fixture()
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    test "updates name and institution", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      result =
+        lv
+        |> form("#profile_form", %{
+          "user" => %{"name" => "New Name", "institution" => "MIT"}
+        })
+        |> render_submit()
+
+      assert result =~ "Profile updated successfully"
+    end
+
+    test "renders errors with invalid data (phx-submit)", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/users/settings")
+
+      result =
+        lv
+        |> form("#profile_form", %{"user" => %{"name" => ""}})
+        |> render_submit()
+
+      assert result =~ "can&#39;t be blank"
+    end
+  end
+
   describe "update email form" do
     setup %{conn: conn} do
       user = user_fixture()

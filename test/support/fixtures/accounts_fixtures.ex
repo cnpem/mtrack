@@ -8,21 +8,35 @@ defmodule MouseTracker.AccountsFixtures do
 
   alias MouseTracker.Accounts
   alias MouseTracker.Accounts.Scope
+  alias MouseTracker.Accounts.User
+  alias MouseTracker.Repo
 
   def unique_user_email, do: "user#{System.unique_integer()}@example.com"
   def valid_user_password, do: "hello world!"
 
   def valid_user_attributes(attrs \\ %{}) do
     Enum.into(attrs, %{
-      email: unique_user_email()
+      email: unique_user_email(),
+      name: "Test User",
+      password: valid_user_password(),
+      password_confirmation: valid_user_password()
     })
   end
 
+  @doc """
+  Inserts a user that has never been confirmed and has no password set,
+  bypassing `Accounts.register_user/1` (which always requires a password and
+  auto-confirms on insert). Mirrors the state a pre-registration-redesign
+  user would be in, for tests exercising unconfirmed-user edge cases (e.g.
+  `login_user_by_magic_link/1`, the confirmation LiveView).
+  """
   def unconfirmed_user_fixture(attrs \\ %{}) do
+    attrs = Enum.into(attrs, %{email: unique_user_email()})
+
     {:ok, user} =
-      attrs
-      |> valid_user_attributes()
-      |> Accounts.register_user()
+      %User{}
+      |> User.email_changeset(attrs)
+      |> Repo.insert()
 
     user
   end

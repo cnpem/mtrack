@@ -67,9 +67,8 @@ defmodule MouseTrackerWeb.Router do
       live "/videos/:video_id/rois/:roi_id/edit", ExperimentLive.RoiEdit, :edit
       live "/datasets", DatasetLive.Index, :index
 
-      # Other sidebar destinations still to be built (placeholder screens).
-      live "/analyses", ComingSoonLive, :analyses
-      live "/pipeline-settings", ComingSoonLive, :settings
+      live "/analyses", AnalysesLive.Index, :index
+      live "/pipeline-settings", PipelineSettingsLive.Index, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password

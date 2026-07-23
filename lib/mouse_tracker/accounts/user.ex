@@ -4,6 +4,10 @@ defmodule MouseTracker.Accounts.User do
 
   schema "users" do
     field :email, :string
+    field :name, :string
+    field :institution, :string
+    field :default_threshold, :integer
+    field :default_min_area, :integer
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
@@ -54,6 +58,54 @@ defmodule MouseTracker.Accounts.User do
     else
       changeset
     end
+  end
+
+  @doc """
+  A user changeset for registering with a name, email and password.
+
+  ## Options
+
+    * `:validate_unique` - passed through to email validation, set to false
+      to skip the uniqueness check (useful for live validations).
+    * `:hash_password` - passed through to password validation, set to false
+      to skip hashing (useful for live validations).
+  """
+  def registration_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:name, :institution, :email, :password])
+    |> validate_required([:name, :email])
+    |> validate_length(:name, min: 1, max: 160)
+    |> validate_length(:institution, max: 160)
+    |> validate_email(opts)
+    |> validate_confirmation(:password, message: "does not match password")
+    |> validate_password(opts)
+  end
+
+  @doc """
+  A user changeset for changing profile data (name/institution).
+  """
+  def profile_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:name, :institution])
+    |> validate_required([:name])
+    |> validate_length(:name, min: 1, max: 160)
+    |> validate_length(:institution, max: 160)
+  end
+
+  @doc """
+  A user changeset for changing pipeline processing defaults (threshold/min_area).
+
+  Both fields are optional — leaving one blank clears it back to `nil`, which
+  means the built-in default (80/250) is used instead.
+  """
+  def pipeline_defaults_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:default_threshold, :default_min_area])
+    |> validate_number(:default_threshold,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 255
+    )
+    |> validate_number(:default_min_area, greater_than: 0)
   end
 
   @doc """
