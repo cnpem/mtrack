@@ -496,26 +496,28 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
     </div>
 
     <div :if={@subject_videos != []}>
-      <div :for={{calibration, videos} <- @calibration_groups} class="mt-4">
-        <div class="mb-2 flex items-center gap-2 text-[13px] font-bold text-[#0f1729]">
-          <.icon name="hero-squares-2x2" class="size-4 text-[#98a2b3]" /> {calibration_label(
-            calibration
-          )}
-          <span class="font-data text-[11.5px] font-normal text-[#8a93a3]">
-            {length(videos)} video(s)
-          </span>
-        </div>
-        
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <.plot_card
-            :for={v <- videos}
-            title={v.filename}
-            sub={v.experiment.name}
-            src={v.tracking_result && v.tracking_result.heatmap_path}
-          />
+      <div class="mt-4 flex flex-wrap gap-6">
+        <div :for={{calibration, videos} <- @calibration_groups} class="w-full sm:w-[380px]">
+          <div class="mb-2 flex items-center gap-2 text-[13px] font-bold text-[#0f1729]">
+            <.icon name="hero-squares-2x2" class="size-4 text-[#98a2b3]" /> {calibration_label(
+              calibration
+            )}
+            <span class="font-data text-[11.5px] font-normal text-[#8a93a3]">
+              {length(videos)} video(s)
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4">
+            <.plot_card
+              :for={v <- videos}
+              title={v.filename}
+              sub={v.experiment.name}
+              src={v.tracking_result && v.tracking_result.heatmap_path}
+            />
+          </div>
         </div>
       </div>
-      
+
       <div class="mt-5 inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
         <button
           :for={{value, label} <- [{"average", "Average"}, {"per_video", "Per video"}]}
