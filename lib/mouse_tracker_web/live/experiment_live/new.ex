@@ -699,15 +699,18 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         Cancel
       </.link>
 
-      <button
-        type="button"
-        phx-click="goto"
-        phx-value-step="roi"
-        disabled={not step1_valid?(assigns)}
-        class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00] disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        Continue → ROI & scale
-      </button>
+      <div class="flex flex-col items-end gap-1">
+        <button
+          type="button"
+          phx-click="goto"
+          phx-value-step="roi"
+          disabled={not step1_valid?(assigns)}
+          class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Continue → ROI & scale
+        </button>
+        <span class="text-[11px] text-[#98a2b3]">This may take a while — extracting a frame from each video.</span>
+      </div>
     </div>
     """
   end
