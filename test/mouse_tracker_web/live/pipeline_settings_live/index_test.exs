@@ -137,7 +137,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     user: user,
     subject: subject
   } do
-    {:ok, subject} = Experiments.update_subject(Accounts.Scope.for_user(user), subject, %{sex: "M"})
+    {:ok, subject} =
+      Experiments.update_subject(Accounts.Scope.for_user(user), subject, %{sex: "M"})
+
     {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
 
     lv
@@ -152,9 +154,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
 
     html =
       lv
-      |> element(
-        "input[phx-value-id='#{subject.id}'][phx-blur='update_subject_genotype']"
-      )
+      |> element("input[phx-value-id='#{subject.id}'][phx-blur='update_subject_genotype']")
       |> render_blur(%{"value" => "C57BL/6J"})
 
     assert html =~ "C57BL/6J"
