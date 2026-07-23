@@ -68,9 +68,7 @@ defmodule MouseTrackerWeb.Router do
       live "/datasets", DatasetLive.Index, :index
 
       live "/analyses", AnalysesLive.Index, :index
-
-      # Other sidebar destinations still to be built (placeholder screens).
-      live "/pipeline-settings", ComingSoonLive, :settings
+      live "/pipeline-settings", PipelineSettingsLive.Index, :index
     end
 
     post "/users/update-password", UserSessionController, :update_password

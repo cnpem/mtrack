@@ -232,37 +232,77 @@ defmodule MouseTracker.ExperimentsTest do
   # Calibrations
   # ---------------------------------------------------------------------------
 
-  describe "update_calibration/2" do
+  describe "update_calibration/3" do
     test "atualiza threshold da calibração" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       cal = calibration_fixture(user)
 
-      assert {:ok, updated} = Experiments.update_calibration(cal, %{threshold: 120})
+      assert {:ok, updated} = Experiments.update_calibration(scope, cal, %{threshold: 120})
       assert updated.threshold == 120
 
       assert Experiments.get_calibration!(scope, cal.id).threshold == 120
     end
 
     test "retorna erro com cage_side_cm <= 0" do
-      cal = calibration_fixture(user_fixture())
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      cal = calibration_fixture(user)
 
-      assert {:error, changeset} = Experiments.update_calibration(cal, %{cage_side_cm: -1.0})
+      assert {:error, changeset} =
+               Experiments.update_calibration(scope, cal, %{cage_side_cm: -1.0})
+
       assert errors_on(changeset).cage_side_cm != []
+    end
+
+    test "levanta erro se a calibração pertencer a outro usuário" do
+      cal = calibration_fixture(user_fixture())
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.update_calibration(other_scope, cal, %{threshold: 100})
+      end
     end
   end
 
-  describe "delete_calibration/1" do
+  describe "delete_calibration/2" do
     test "remove a calibração do banco" do
       user = user_fixture()
       scope = user_scope_fixture(user)
       cal = calibration_fixture(user)
 
-      assert {:ok, _} = Experiments.delete_calibration(cal)
+      assert {:ok, _} = Experiments.delete_calibration(scope, cal)
 
       assert_raise Ecto.NoResultsError, fn ->
         Experiments.get_calibration!(scope, cal.id)
       end
+    end
+
+    test "levanta erro se a calibração pertencer a outro usuário" do
+      cal = calibration_fixture(user_fixture())
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.delete_calibration(other_scope, cal)
+      end
+    end
+  end
+
+  describe "count_videos_using_calibration/1" do
+    test "0 quando nenhum vídeo usa a calibração" do
+      cal = calibration_fixture(user_fixture())
+      assert Experiments.count_videos_using_calibration(cal) == 0
+    end
+
+    test "conta vídeos apontando para a calibração, de qualquer status" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      cal = calibration_fixture(user)
+      video_fixture(exp, cal, %{status: "pending"})
+      video_fixture(exp, cal, %{status: "done"})
+      _other = video_fixture(exp)
+
+      assert Experiments.count_videos_using_calibration(cal) == 2
     end
   end
 
@@ -489,6 +529,26 @@ defmodule MouseTracker.ExperimentsTest do
     end
   end
 
+  describe "count_videos_using_roi/1" do
+    test "0 quando a ROI não está anexada a nenhum vídeo" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp)
+      roi = roi_fixture(video)
+      Experiments.detach_roi_from_video(video, roi)
+
+      assert Experiments.count_videos_using_roi(roi) == 0
+    end
+
+    test "conta vídeos anexados, mesmo com status pending (diferente de roi_locked?/1)" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp, nil, %{status: "pending"})
+      roi = roi_fixture(video)
+
+      assert Experiments.count_videos_using_roi(roi) == 1
+      refute Experiments.roi_locked?(roi)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # RoiTimes
   # ---------------------------------------------------------------------------
@@ -551,6 +611,81 @@ defmodule MouseTracker.ExperimentsTest do
                Experiments.create_roi_time(roi, result, %{frame_count: 10, seconds: 0.5})
 
       assert "has already been taken" in errors_on(changeset).roi_id
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Subjects
+  # ---------------------------------------------------------------------------
+
+  describe "update_subject/3" do
+    test "atualiza o nome do subject" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      subject = subject_fixture(user)
+
+      assert {:ok, updated} = Experiments.update_subject(scope, subject, %{name: "M-02"})
+      assert updated.name == "M-02"
+    end
+
+    test "retorna erro com nome duplicado para o mesmo usuário" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      subject_fixture(user, %{name: "M-01"})
+      other = subject_fixture(user, %{name: "M-02"})
+
+      assert {:error, changeset} = Experiments.update_subject(scope, other, %{name: "M-01"})
+      assert "has already been taken" in errors_on(changeset).name
+    end
+
+    test "levanta erro se o subject pertencer a outro usuário" do
+      subject = subject_fixture(user_fixture())
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.update_subject(other_scope, subject, %{name: "M-02"})
+      end
+    end
+  end
+
+  describe "delete_subject/2" do
+    test "remove o subject do banco" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      subject = subject_fixture(user)
+
+      assert {:ok, _} = Experiments.delete_subject(scope, subject)
+
+      assert_raise Ecto.NoResultsError, fn ->
+        Experiments.get_subject!(scope, subject.id)
+      end
+    end
+
+    test "levanta erro se o subject pertencer a outro usuário" do
+      subject = subject_fixture(user_fixture())
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.delete_subject(other_scope, subject)
+      end
+    end
+  end
+
+  describe "count_videos_using_subject/1" do
+    test "0 quando nenhum vídeo usa o subject" do
+      subject = subject_fixture(user_fixture())
+      assert Experiments.count_videos_using_subject(subject) == 0
+    end
+
+    test "conta vídeos apontando para o subject, de qualquer status" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      subject = subject_fixture(user)
+      video_fixture(exp, nil, %{status: "pending", subject_id: subject.id})
+      video_fixture(exp, nil, %{status: "done", subject_id: subject.id})
+      _other = video_fixture(exp)
+
+      assert Experiments.count_videos_using_subject(subject) == 2
     end
   end
 

@@ -112,6 +112,22 @@ defmodule MouseTracker.Accounts do
     |> Repo.update()
   end
 
+  @doc """
+  Returns an `%Ecto.Changeset{}` for changing pipeline processing defaults.
+  """
+  def change_user_pipeline_defaults(user, attrs \\ %{}) do
+    User.pipeline_defaults_changeset(user, attrs)
+  end
+
+  @doc """
+  Updates the user's pipeline processing defaults (threshold/min_area).
+  """
+  def update_user_pipeline_defaults(user, attrs) do
+    user
+    |> User.pipeline_defaults_changeset(attrs)
+    |> Repo.update()
+  end
+
   ## Settings
 
   @doc """

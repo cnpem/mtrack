@@ -6,6 +6,8 @@ defmodule MouseTracker.Accounts.User do
     field :email, :string
     field :name, :string
     field :institution, :string
+    field :default_threshold, :integer
+    field :default_min_area, :integer
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
@@ -88,6 +90,22 @@ defmodule MouseTracker.Accounts.User do
     |> validate_required([:name])
     |> validate_length(:name, min: 1, max: 160)
     |> validate_length(:institution, max: 160)
+  end
+
+  @doc """
+  A user changeset for changing pipeline processing defaults (threshold/min_area).
+
+  Both fields are optional — leaving one blank clears it back to `nil`, which
+  means the built-in default (80/250) is used instead.
+  """
+  def pipeline_defaults_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:default_threshold, :default_min_area])
+    |> validate_number(:default_threshold,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 255
+    )
+    |> validate_number(:default_min_area, greater_than: 0)
   end
 
   @doc """

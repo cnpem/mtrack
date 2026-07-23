@@ -120,6 +120,47 @@ defmodule MouseTracker.AccountsTest do
     end
   end
 
+  describe "update_user_pipeline_defaults/2" do
+    test "updates default_threshold and default_min_area" do
+      user = user_fixture()
+
+      {:ok, updated} =
+        Accounts.update_user_pipeline_defaults(user, %{
+          default_threshold: 60,
+          default_min_area: 400
+        })
+
+      assert updated.default_threshold == 60
+      assert updated.default_min_area == 400
+    end
+
+    test "blank fields clear back to nil (falls back to the built-in default)" do
+      user = user_fixture()
+      {:ok, user} = Accounts.update_user_pipeline_defaults(user, %{default_threshold: 60})
+
+      {:ok, updated} = Accounts.update_user_pipeline_defaults(user, %{default_threshold: ""})
+
+      assert is_nil(updated.default_threshold)
+    end
+
+    test "rejects threshold out of the 0..255 range" do
+      user = user_fixture()
+
+      {:error, changeset} =
+        Accounts.update_user_pipeline_defaults(user, %{default_threshold: 300})
+
+      assert errors_on(changeset).default_threshold != []
+    end
+
+    test "rejects min_area <= 0" do
+      user = user_fixture()
+
+      {:error, changeset} = Accounts.update_user_pipeline_defaults(user, %{default_min_area: 0})
+
+      assert errors_on(changeset).default_min_area != []
+    end
+  end
+
   describe "sudo_mode?/2" do
     test "validates the authenticated_at time" do
       now = DateTime.utc_now()

@@ -356,16 +356,25 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
-  def update_calibration(%Calibration{} = calibration, attrs) do
+  def update_calibration(%Scope{user: user}, %Calibration{user_id: user_id} = calibration, attrs)
+      when user_id == user.id do
     calibration
     |> Calibration.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_calibration(%Calibration{} = calibration), do: Repo.delete(calibration)
+  def delete_calibration(%Scope{user: user}, %Calibration{user_id: user_id} = calibration)
+      when user_id == user.id do
+    Repo.delete(calibration)
+  end
 
   def change_calibration(%Calibration{} = calibration, attrs \\ %{}) do
     Calibration.changeset(calibration, attrs)
+  end
+
+  @doc "Number of videos currently pointing at this calibration."
+  def count_videos_using_calibration(%Calibration{} = calibration) do
+    Repo.aggregate(from(v in Video, where: v.calibration_id == ^calibration.id), :count)
   end
 
   # --- ROIs ---
@@ -455,6 +464,19 @@ defmodule MouseTracker.Experiments do
   end
 
   @doc """
+  Number of videos this ROI is attached to, regardless of status. Unlike
+  `roi_locked?/1` (which only cares about done/processing videos, to freeze
+  geometry edits), this is used to guard outright deletion — deleting a ROI
+  still attached to a pending video would silently drop that video's setup.
+  """
+  def count_videos_using_roi(%Roi{} = roi) do
+    Repo.aggregate(
+      from(vr in "videos_rois", where: vr.roi_id == ^roi.id),
+      :count
+    )
+  end
+
+  @doc """
   Attaches an existing ROI to a video (idempotent — a duplicate link is ignored).
   """
   def attach_roi_to_video(%Video{} = video, %Roi{} = roi) do
@@ -509,16 +531,25 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
-  def update_subject(%Subject{} = subject, attrs) do
+  def update_subject(%Scope{user: user}, %Subject{user_id: user_id} = subject, attrs)
+      when user_id == user.id do
     subject
     |> Subject.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_subject(%Subject{} = subject), do: Repo.delete(subject)
+  def delete_subject(%Scope{user: user}, %Subject{user_id: user_id} = subject)
+      when user_id == user.id do
+    Repo.delete(subject)
+  end
 
   def change_subject(%Subject{} = subject, attrs \\ %{}) do
     Subject.changeset(subject, attrs)
+  end
+
+  @doc "Number of videos currently pointing at this subject."
+  def count_videos_using_subject(%Subject{} = subject) do
+    Repo.aggregate(from(v in Video, where: v.subject_id == ^subject.id), :count)
   end
 
   # --- Subject results aggregation (Results "Por subject" tab) ---
