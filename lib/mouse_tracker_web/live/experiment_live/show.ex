@@ -160,13 +160,6 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
             <.video_action experiment={@experiment} video={video} />
           </li>
         </ul>
-
-        <div class="mt-6 rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-8 text-center">
-          <p class="text-[13px] font-medium text-[#667085]">Add more videos to this experiment</p>
-          <p class="mt-1 text-[11.5px] text-[#98a2b3]">
-            Uploading into an existing experiment is coming with the upload wizard.
-          </p>
-        </div>
       </div>
     </Layouts.locomo>
     """
