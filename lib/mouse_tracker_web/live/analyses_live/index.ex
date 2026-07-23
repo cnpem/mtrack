@@ -131,6 +131,11 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     Enum.filter(subjects, &(&1.id in ids))
   end
 
+  defp unselected_subjects(subjects, selected_subjects) do
+    selected_ids = MapSet.new(selected_subjects, & &1.id)
+    Enum.reject(subjects, &MapSet.member?(selected_ids, &1.id))
+  end
+
   defp parse_int(nil), do: nil
 
   defp parse_int(str) do
@@ -165,6 +170,8 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   end
 
   @impl true
+  def handle_event("toggle_subject", %{"subject" => ""}, socket), do: {:noreply, socket}
+
   def handle_event("toggle_subject", %{"subject" => subject_id}, socket) do
     id = String.to_integer(subject_id)
     current_ids = Enum.map(socket.assigns.selected_subjects, & &1.id)
@@ -210,12 +217,12 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     >
       <div class="mx-auto max-w-[1000px]">
         <h1 class="text-[23px] font-bold text-[#0f1729]">Analyses</h1>
-        
+
         <p class="mt-1 text-[13px] text-[#667085]">
           How subjects' tracked metrics change across their recording sessions over time. Select
           more than one subject to overlay their trends.
         </p>
-        
+
         <div
           :if={@subjects == []}
           class="mt-5 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
@@ -223,48 +230,60 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
             <.icon name="hero-chart-bar" class="size-6" />
           </div>
-          
+
           <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">No subjects yet</h2>
-          
+
           <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
             Trends appear here once you have tracked videos for at least one subject.
           </p>
         </div>
-        
+
         <div :if={@subjects != []} class="mt-5">
           <div class="flex flex-wrap items-center gap-2 rounded-[13px] border border-[#e7e9ee] bg-white p-2">
             <span class="px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
               Subjects
             </span>
-            
+
+            <form
+              :if={unselected_subjects(@subjects, @selected_subjects) != []}
+              id="analyses-subject-picker"
+              phx-change="toggle_subject"
+            >
+              <select
+                name="subject"
+                class="rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[#667085] focus:border-[#CC5500] focus:outline-none"
+              >
+                <option value="" selected>+ Add subject…</option>
+                <option :for={s <- unselected_subjects(@subjects, @selected_subjects)} value={s.id}>
+                  {s.name}
+                </option>
+              </select>
+            </form>
+
             <button
-              :for={s <- @subjects}
+              :for={s <- @selected_subjects}
               type="button"
               phx-click="toggle_subject"
               phx-value-subject={s.id}
-              class={[
-                "inline-flex items-center gap-2 rounded-[8px] px-3 py-1.5 text-[12.5px] font-medium transition-colors",
-                s.id in Enum.map(@selected_subjects, & &1.id) && "bg-[#0f1729] text-white",
-                s.id not in Enum.map(@selected_subjects, & &1.id) &&
-                  "text-[#667085] hover:bg-[#f2f4f7]"
-              ]}
+              class="inline-flex items-center gap-2 rounded-[8px] bg-[#0f1729] px-3 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-[#1e293f]"
             >
               <span class="size-2 rounded-full" style={"background:#{subject_color(s.id)}"}></span>
               <span class="font-data">{s.name}</span>
+              <.icon name="hero-x-mark-micro" class="size-3.5 text-white/70" />
             </button>
           </div>
-          
+
           <div
             :if={@selected_subjects == []}
             class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
           >
             <h2 class="text-[15px] font-bold text-[#0f1729]">No subject selected</h2>
-            
+
             <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
               Pick at least one subject above to see its trend.
             </p>
           </div>
-          
+
           <div
             :if={@selected_subjects != []}
             class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-[#e7e9ee] bg-white p-3"
@@ -279,14 +298,14 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               <span class="font-data font-semibold text-[#0f1729]">{length(@all_experiments)}</span>
               experiment(s)
             </div>
-            
+
             <form id="analyses-scope-experiment" phx-change="set_scope_experiment">
               <select
                 name="scope_experiment"
                 class="rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
               >
                 <option value="all" selected={@scope_experiment_id == nil}>All experiments</option>
-                
+
                 <option
                   :for={exp <- @all_experiments}
                   value={exp.id}
@@ -297,18 +316,18 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               </select>
             </form>
           </div>
-          
+
           <div
             :if={@selected_subjects != [] and @table_rows == []}
             class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
           >
             <h2 class="text-[15px] font-bold text-[#0f1729]">No analyzed sessions in this scope</h2>
-            
+
             <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
               Pick different subjects or widen the experiment filter.
             </p>
           </div>
-          
+
           <div :if={@selected_subjects != [] and @table_rows != []} class="mt-4">
             <div class="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
               <button
@@ -325,12 +344,12 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 {label}
               </button>
             </div>
-            
+
             <div class="mt-3 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
               <div class="text-[13px] font-bold text-[#0f1729]">
                 {metric_label(@metric)} over time
               </div>
-              
+
               <div
                 :if={@series == []}
                 class="mt-6 flex flex-col items-center rounded-[10px] border border-dashed border-[#d4d8df] py-10 text-center"
@@ -339,7 +358,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                   No analyzed sessions have a value for this metric yet.
                 </p>
               </div>
-              
+
               <div :if={@series != []} class="mt-4">
                 <.trend_chart series={@series} unit={metric_unit(@metric)} />
                 <p
@@ -350,31 +369,31 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 </p>
               </div>
             </div>
-            
+
             <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
               <table class="w-full min-w-[860px] text-left text-[12.5px]">
                 <thead>
                   <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
                     <th class="pb-2">Subject</th>
-                    
+
                     <th class="pb-2">Date</th>
-                    
+
                     <th class="pb-2">Experiment</th>
-                    
+
                     <th class="pb-2">Video</th>
-                    
+
                     <th class="pb-2">Distance</th>
-                    
+
                     <th class="pb-2">Mean speed</th>
-                    
+
                     <th class="pb-2">Thigmotaxis</th>
-                    
+
                     <th class="pb-2">Tortuosity</th>
-                    
+
                     <th class="pb-2">Immobility</th>
                   </tr>
                 </thead>
-                
+
                 <tbody>
                   <tr :for={{s, v} <- @table_rows} class="border-b border-[#f4f5f7] last:border-0">
                     <td class="py-2.5">
@@ -385,31 +404,31 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                         ></span> <span class="font-data text-[#0f1729]">{s.name}</span>
                       </span>
                     </td>
-                    
+
                     <td class="py-2.5 font-data text-[#344054]">
                       {Calendar.strftime(v.inserted_at, "%Y-%m-%d")}
                     </td>
-                    
+
                     <td class="py-2.5 text-[#344054]">{v.experiment.name}</td>
-                    
+
                     <td class="py-2.5 font-data text-[#0f1729]">{v.filename}</td>
-                    
+
                     <td class="py-2.5 font-data text-[#344054]">
                       {fmt(v.tracking_result && v.tracking_result.distance_cm)} cm
                     </td>
-                    
+
                     <td class="py-2.5 font-data text-[#344054]">
                       {fmt(v.tracking_result && v.tracking_result.speed_mean_cm)} cm/s
                     </td>
-                    
+
                     <td class="py-2.5 font-data text-[#344054]">
                       {fmt(v.tracking_result && v.tracking_result.thigmotaxis_pct)}%
                     </td>
-                    
+
                     <td class="py-2.5 font-data text-[#344054]">
                       {fmt(v.tracking_result && v.tracking_result.path_tortuosity)}
                     </td>
-                    
+
                     <td class="py-2.5 font-data text-[#344054]">
                       {fmt(v.tracking_result && v.tracking_result.immobility_seconds)} s
                     </td>

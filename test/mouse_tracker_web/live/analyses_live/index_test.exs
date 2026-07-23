@@ -129,8 +129,8 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
 
       html =
         lv
-        |> element("button[phx-value-subject='#{other_subject.id}']")
-        |> render_click()
+        |> form("#analyses-subject-picker", %{"subject" => other_subject.id})
+        |> render_change()
 
       # toggling ON: both subjects are now selected, so both sessions show
       assert html =~ "a.mp4"
