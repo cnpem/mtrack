@@ -16,26 +16,12 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
     assert html =~ "New experiment · Step 1 of 3"
     assert html =~ "Upload videos"
-    assert html =~ "Batch"
+    assert html =~ ~s(multiple)
   end
 
   test "guards later steps back to upload when there are no files", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/experiments/new"}}} =
              live(conn, ~p"/experiments/new/roi")
-  end
-
-  test "single mode drops the native picker's multiple attribute, batch restores it", %{
-    conn: conn
-  } do
-    {:ok, lv, html} = live(conn, ~p"/experiments/new")
-
-    assert html =~ ~s(multiple)
-
-    html = lv |> element("button", "Single video") |> render_click()
-    refute html =~ ~s(multiple)
-
-    html = lv |> element("button", "Batch") |> render_click()
-    assert html =~ ~s(multiple)
   end
 
   describe "step 2 prefills threshold/min_area from the user's pipeline defaults" do

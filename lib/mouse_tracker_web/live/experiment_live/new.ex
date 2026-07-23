@@ -40,7 +40,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      socket
      |> assign(:page_title, "New experiment")
      |> assign(:step, :upload)
-     |> assign(:mode, :batch)
      |> assign(:upload_token, Ecto.UUID.generate())
      |> assign(:saved_videos, [])
      |> assign(:specs, %{})
@@ -51,17 +50,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:experiment_name, "")
      |> assign(:pipeline_defaults, pipeline_defaults)
      |> assign(:existing_subjects, Experiments.list_subjects(socket.assigns.current_scope))
-     |> allow_upload(:videos, upload_opts(:batch))}
+     |> allow_upload(:videos, upload_opts())}
   end
 
-  # `max_entries` drives `<.live_file_input>`'s `multiple` HTML attribute, so
-  # reconfiguring it on mode switch is what actually stops the native file
-  # picker from allowing more than one file in single mode (not just a
-  # server-side cap enforced after the fact).
-  defp upload_opts(mode) do
+  defp upload_opts do
     [
       accept: ~w(.mp4 .avi .mov),
-      max_entries: if(mode == :single, do: 1, else: 20),
+      max_entries: 20,
       max_file_size: 4_000_000_000,
       auto_upload: true
     ]
@@ -100,36 +95,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   def handle_event("remove_saved", %{"ref" => ref}, socket) do
     {:noreply, remove_saved_video(socket, ref)}
-  end
-
-  def handle_event("set_mode", %{"mode" => mode}, socket) do
-    mode = String.to_existing_atom(mode)
-
-    socket =
-      if mode == :single do
-        case socket.assigns.uploads.videos.entries do
-          [_keep | rest] ->
-            Enum.reduce(rest, socket, fn e, s -> cancel_upload(s, :videos, e.ref) end)
-
-          _ ->
-            socket
-        end
-      else
-        socket
-      end
-
-    # `allow_upload/3` raises if any entry (done or in-progress) is still
-    # present, so only reconfigure `max_entries` once the upload is clear —
-    # this always holds before the user has picked any file yet (the
-    # reported bug), which is the case this fixes.
-    socket =
-      if socket.assigns.uploads.videos.entries == [] do
-        allow_upload(socket, :videos, upload_opts(mode))
-      else
-        socket
-      end
-
-    {:noreply, assign(socket, :mode, mode)}
   end
 
   # Continue → save completed uploads (video file + first-frame PNG), then patch.
@@ -634,23 +599,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   defp upload_step(assigns) do
     ~H"""
-    <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
-      <button
-        :for={{value, label} <- [{:single, "Single video"}, {:batch, "Batch"}]}
-        type="button"
-        phx-click="set_mode"
-        phx-value-mode={value}
-        class={[
-          "rounded-[6px] px-3 py-1.5 text-[12.5px] font-medium transition-colors",
-          @mode == value && "bg-[#1a212e] text-white",
-          @mode != value && "text-[#667085] hover:text-[#0f1729]"
-        ]}
-      >
-        {label}
-      </button>
-    </div>
-
-    <form phx-change="validate_upload" phx-submit="validate_upload" class="mt-4">
+    <form phx-change="validate_upload" phx-submit="validate_upload">
       <label
         phx-drop-target={@uploads.videos.ref}
         class="flex cursor-pointer flex-col items-center justify-center rounded-[13px] border-2 border-dashed border-[#cdd2da] bg-white px-6 py-12 text-center transition-colors hover:border-[#CC5500] hover:bg-[#fdf6f0]"
