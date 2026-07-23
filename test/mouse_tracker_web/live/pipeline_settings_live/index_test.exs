@@ -4,6 +4,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
   import Phoenix.LiveViewTest
   import MouseTracker.ExperimentsFixtures
 
+  alias MouseTracker.Accounts
   alias MouseTracker.Experiments
   alias MouseTracker.Repo
 
@@ -119,6 +120,45 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
 
     assert render(lv) =~ "has already been taken"
     assert Repo.get!(Experiments.Subject, subject.id).name == subject.name
+  end
+
+  test "sets a subject's sex via the select", %{conn: conn, subject: subject} do
+    {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    lv
+    |> form("#subject-sex-#{subject.id}", %{"value" => "F"})
+    |> render_change()
+
+    assert Repo.get!(Experiments.Subject, subject.id).sex == "F"
+  end
+
+  test "clearing a subject's sex back to blank sets it to nil", %{
+    conn: conn,
+    user: user,
+    subject: subject
+  } do
+    {:ok, subject} = Experiments.update_subject(Accounts.Scope.for_user(user), subject, %{sex: "M"})
+    {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    lv
+    |> form("#subject-sex-#{subject.id}", %{"value" => ""})
+    |> render_change()
+
+    assert Repo.get!(Experiments.Subject, subject.id).sex == nil
+  end
+
+  test "edits a subject's genotype on blur", %{conn: conn, subject: subject} do
+    {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    html =
+      lv
+      |> element(
+        "input[phx-value-id='#{subject.id}'][phx-blur='update_subject_genotype']"
+      )
+      |> render_blur(%{"value" => "C57BL/6J"})
+
+    assert html =~ "C57BL/6J"
+    assert Repo.get!(Experiments.Subject, subject.id).genotype == "C57BL/6J"
   end
 
   test "deletes a calibration that is not attached to any video", %{conn: conn, cal: cal} do
