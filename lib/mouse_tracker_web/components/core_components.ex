@@ -438,6 +438,74 @@ defmodule MouseTrackerWeb.CoreComponents do
   end
 
   @doc """
+  Dashed empty-state box used by list-like screens (no results after a
+  search/filter, or nothing to show yet). Pass `title`/`subtitle`, an
+  optional `icon` (rendered inside a circle above the title), and any CTA
+  markup as the default slot.
+
+  ## Examples
+
+      <.empty_state icon="hero-beaker" title="No experiments yet" subtitle="..." />
+
+      <.empty_state :if={@videos == []} class="mt-6" title="No videos yet">
+        <.link navigate={~p"/experiments/new"}>Upload a video</.link>
+      </.empty_state>
+  """
+  attr :icon, :string, default: nil
+  attr :title, :string, required: true
+  attr :subtitle, :string, default: nil
+  attr :class, :any, default: nil
+  slot :inner_block
+
+  def empty_state(assigns) do
+    ~H"""
+    <div class={[
+      "flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center",
+      @class
+    ]}>
+      <div
+        :if={@icon}
+        class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]"
+      >
+        <.icon name={@icon} class="size-6" />
+      </div>
+      <h2 class={["text-[15px] font-bold text-[#0f1729]", @icon && "mt-4"]}>{@title}</h2>
+      <p :if={@subtitle} class="mt-1 max-w-sm text-[13px] text-[#667085]">{@subtitle}</p>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  Search box (`phx-change="search"`, submitting a `query` param) used by list
+  screens (Experiments, Datasets, Pipeline Settings).
+  """
+  attr :id, :string, default: nil
+  attr :query, :string, required: true
+  attr :placeholder, :string, default: "Search"
+  attr :class, :any, default: "relative w-full max-w-[320px]"
+
+  def search_input(assigns) do
+    ~H"""
+    <form id={@id} phx-change="search" class={@class}>
+      <.icon
+        name="hero-magnifying-glass-micro"
+        class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#98a2b3]"
+      />
+      <input
+        type="text"
+        name="query"
+        value={@query}
+        phx-debounce="200"
+        placeholder={@placeholder}
+        autocomplete="off"
+        class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+      />
+    </form>
+    """
+  end
+
+  @doc """
   Renders a [Heroicon](https://heroicons.com).
 
   Heroicons come in three styles – outline, solid, and mini.

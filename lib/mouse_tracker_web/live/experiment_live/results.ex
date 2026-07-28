@@ -95,15 +95,6 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
     end
   end
 
-  defp parse_int(nil), do: nil
-
-  defp parse_int(str) do
-    case Integer.parse(str) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
   # Picks the video whose results are shown: the `?video=` one if it is done,
   # otherwise the first done video (or nil when the experiment has none).
   defp select_video(done_videos, video_param) do
@@ -152,10 +143,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       metrics_view: socket.assigns.metrics_view
     ]
 
-    params =
-      base
-      |> Keyword.merge(overrides)
-      |> Enum.reject(fn {_k, v} -> v in [nil, "all"] end)
+    params = patch_params(base, overrides)
 
     push_patch(socket, to: ~p"/experiments/#{socket.assigns.experiment.id}/results?#{params}")
   end
@@ -212,20 +200,13 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           </button>
         </div>
 
-        <div
+        <.empty_state
           :if={@done_videos == []}
-          class="mt-5 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-        >
-          <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-            <.icon name="hero-chart-bar" class="size-6" />
-          </div>
-
-          <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">No analyzed videos yet</h2>
-
-          <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-            Results appear here once a video finishes processing.
-          </p>
-        </div>
+          class="mt-5"
+          icon="hero-chart-bar"
+          title="No analyzed videos yet"
+          subtitle="Results appear here once a video finishes processing."
+        />
 
         <div :if={@done_videos != [] and @tab == "video"} class="mt-5">
           <.video_results
@@ -247,16 +228,11 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             aggregate={@subject_aggregate}
             metrics_view={@metrics_view}
           />
-          <div
+          <.empty_state
             :if={!@subject}
-            class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-          >
-            <h2 class="text-[15px] font-bold text-[#0f1729]">No subject to show</h2>
-
-            <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-              This experiment's videos have no subject assigned yet.
-            </p>
-          </div>
+            title="No subject to show"
+            subtitle="This experiment's videos have no subject assigned yet."
+          />
         </div>
       </div>
     </Layouts.locomo>
@@ -484,16 +460,12 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       </form>
     </div>
 
-    <div
+    <.empty_state
       :if={@subject_videos == []}
-      class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-    >
-      <h2 class="text-[15px] font-bold text-[#0f1729]">No analyzed videos in this scope</h2>
-
-      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-        Pick a different subject or widen the experiment filter.
-      </p>
-    </div>
+      class="mt-4"
+      title="No analyzed videos in this scope"
+      subtitle="Pick a different subject or widen the experiment filter."
+    />
 
     <div :if={@subject_videos != []}>
       <div class="mt-4 flex flex-wrap gap-6">
@@ -706,15 +678,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   defp share_label(_seconds, %{duration_seconds: d}) when d in [nil, 0, 0.0], do: "—"
   defp share_label(seconds, video), do: "#{fmt(share_pct(seconds, video))}%"
 
-  defp fmt(nil), do: "—"
-  defp fmt(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
-
   defp calibration_label(nil), do: "No calibration assigned"
   defp calibration_label(%{name: name}) when is_binary(name) and name != "", do: name
   defp calibration_label(%{id: id}), do: "Calibration ##{id}"
-
-  defp stat_fmt(%{mean: nil}), do: "—"
-  defp stat_fmt(%{mean: mean, sd: nil}), do: fmt(mean)
-  defp stat_fmt(%{mean: mean, sd: sd}), do: "#{fmt(mean)} ± #{fmt(sd)}"
 end

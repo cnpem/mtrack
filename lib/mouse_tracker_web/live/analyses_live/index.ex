@@ -136,15 +136,6 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     Enum.reject(subjects, &MapSet.member?(selected_ids, &1.id))
   end
 
-  defp parse_int(nil), do: nil
-
-  defp parse_int(str) do
-    case Integer.parse(str) do
-      {id, ""} -> id
-      _ -> nil
-    end
-  end
-
   # `subject_result_videos/3` orders newest-first; reverse to chronological
   # (oldest-first) for a left-to-right trend, skip videos with no tracking
   # result at all, then skip points whose specific metric is nil (some
@@ -197,10 +188,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
       metric: socket.assigns.metric
     ]
 
-    params =
-      base
-      |> Keyword.merge(overrides)
-      |> Enum.reject(fn {_k, v} -> v in [nil, "all"] end)
+    params = patch_params(base, overrides)
 
     push_patch(socket, to: ~p"/analyses?#{params}")
   end
@@ -223,20 +211,13 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           more than one subject to overlay their trends.
         </p>
 
-        <div
+        <.empty_state
           :if={@subjects == []}
-          class="mt-5 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-        >
-          <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-            <.icon name="hero-chart-bar" class="size-6" />
-          </div>
-
-          <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">No subjects yet</h2>
-
-          <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-            Trends appear here once you have tracked videos for at least one subject.
-          </p>
-        </div>
+          class="mt-5"
+          icon="hero-chart-bar"
+          title="No subjects yet"
+          subtitle="Trends appear here once you have tracked videos for at least one subject."
+        />
 
         <div :if={@subjects != []} class="mt-5">
           <div class="flex flex-wrap items-center gap-2 rounded-[13px] border border-[#e7e9ee] bg-white p-2">
@@ -273,16 +254,12 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
             </button>
           </div>
 
-          <div
+          <.empty_state
             :if={@selected_subjects == []}
-            class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-          >
-            <h2 class="text-[15px] font-bold text-[#0f1729]">No subject selected</h2>
-
-            <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-              Pick at least one subject above to see its trend.
-            </p>
-          </div>
+            class="mt-4"
+            title="No subject selected"
+            subtitle="Pick at least one subject above to see its trend."
+          />
 
           <div
             :if={@selected_subjects != []}
@@ -317,16 +294,12 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
             </form>
           </div>
 
-          <div
+          <.empty_state
             :if={@selected_subjects != [] and @table_rows == []}
-            class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-          >
-            <h2 class="text-[15px] font-bold text-[#0f1729]">No analyzed sessions in this scope</h2>
-
-            <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-              Pick different subjects or widen the experiment filter.
-            </p>
-          </div>
+            class="mt-4"
+            title="No analyzed sessions in this scope"
+            subtitle="Pick different subjects or widen the experiment filter."
+          />
 
           <div :if={@selected_subjects != [] and @table_rows != []} class="mt-4">
             <div class="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
@@ -449,8 +422,4 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
 
   defp metric_label(key), do: metrics() |> Enum.find(&(elem(&1, 0) == key)) |> elem(1)
   defp metric_unit(key), do: metrics() |> Enum.find(&(elem(&1, 0) == key)) |> elem(2)
-
-  defp fmt(nil), do: "—"
-  defp fmt(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
 end

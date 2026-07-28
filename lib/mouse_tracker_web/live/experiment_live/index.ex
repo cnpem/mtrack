@@ -2,7 +2,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
-  alias MouseTracker.Workers.VideoProcessingWorker
+  alias MouseTrackerWeb.VideoStatusSync
 
   @tabs [{"all", "All"}, {"done", "Done"}, {"processing", "Processing"}, {"pending", "Pending"}]
 
@@ -11,11 +11,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
     experiments = Experiments.list_experiments_with_details(socket.assigns.current_scope)
 
     if connected?(socket) do
-      experiments
-      |> Enum.flat_map(& &1.videos)
-      |> Enum.each(
-        &Phoenix.PubSub.subscribe(MouseTracker.PubSub, VideoProcessingWorker.topic(&1.id))
-      )
+      VideoStatusSync.subscribe_all(Enum.flat_map(experiments, & &1.videos))
     end
 
     {:ok,
@@ -40,18 +36,13 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
   def handle_info({:status, video_id, status}, socket) do
     experiments =
       Enum.map(socket.assigns.all_experiments, fn exp ->
-        %{exp | videos: Enum.map(exp.videos, &patch_status(&1, video_id, status))}
+        %{exp | videos: Enum.map(exp.videos, &VideoStatusSync.patch_status(&1, video_id, status))}
       end)
 
     {:noreply, socket |> assign(:all_experiments, experiments) |> assign_filtered()}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
-
-  defp patch_status(video, video_id, status) when video.id == video_id,
-    do: %{video | status: status}
-
-  defp patch_status(video, _video_id, _status), do: video
 
   defp assign_filtered(socket) do
     %{all_experiments: experiments, query: query, status_filter: status} = socket.assigns
@@ -103,21 +94,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
         </div>
 
         <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <form phx-change="search" class="relative w-full max-w-[320px]">
-            <.icon
-              name="hero-magnifying-glass-micro"
-              class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#98a2b3]"
-            />
-            <input
-              type="text"
-              name="query"
-              value={@query}
-              phx-debounce="200"
-              placeholder="Search by name or subject"
-              autocomplete="off"
-              class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
+          <.search_input query={@query} placeholder="Search by name or subject" />
 
           <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
             <button
@@ -136,9 +113,29 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
           </div>
         </div>
 
-        <div :if={@experiments == []} class="mt-6">
-          <.empty_state active_filter={@query != "" or @status_filter != "all"} />
-        </div>
+        <.empty_state
+          :if={@experiments == []}
+          class="mt-6"
+          icon="hero-beaker"
+          title={
+            if @query != "" or @status_filter != "all",
+              do: "No matching experiments",
+              else: "No experiments yet"
+          }
+          subtitle={
+            if @query != "" or @status_filter != "all",
+              do: "Try a different search or status filter.",
+              else: "Upload locomotion videos to run the tracking pipeline and review metrics."
+          }
+        >
+          <.link
+            :if={@query == "" and @status_filter == "all"}
+            navigate={~p"/experiments/new"}
+            class="mt-5 inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
+          >
+            <.icon name="hero-plus-micro" class="size-4" /> Create your first experiment
+          </.link>
+        </.empty_state>
 
         <ul :if={@experiments != []} class="mt-4 space-y-2.5">
           <li :for={exp <- @experiments}>
@@ -173,33 +170,6 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
         </ul>
       </div>
     </Layouts.locomo>
-    """
-  end
-
-  attr :active_filter, :boolean, required: true
-
-  defp empty_state(assigns) do
-    ~H"""
-    <div class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center">
-      <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-        <.icon name="hero-beaker" class="size-6" />
-      </div>
-      <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">
-        {if @active_filter, do: "No matching experiments", else: "No experiments yet"}
-      </h2>
-      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-        {if @active_filter,
-          do: "Try a different search or status filter.",
-          else: "Upload locomotion videos to run the tracking pipeline and review metrics."}
-      </p>
-      <.link
-        :if={!@active_filter}
-        navigate={~p"/experiments/new"}
-        class="mt-5 inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-      >
-        <.icon name="hero-plus-micro" class="size-4" /> Create your first experiment
-      </.link>
-    </div>
     """
   end
 

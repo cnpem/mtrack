@@ -13,7 +13,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
-  alias MouseTracker.Workers.VideoProcessingWorker
+  alias MouseTrackerWeb.VideoStatusSync
 
   @tabs [{"all", "All"}, {"done", "Done"}, {"processing", "Processing"}, {"pending", "Pending"}]
 
@@ -22,10 +22,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     videos = Experiments.list_all_videos(socket.assigns.current_scope)
 
     if connected?(socket) do
-      Enum.each(
-        videos,
-        &Phoenix.PubSub.subscribe(MouseTracker.PubSub, VideoProcessingWorker.topic(&1.id))
-      )
+      VideoStatusSync.subscribe_all(videos)
     end
 
     {:ok,
@@ -54,16 +51,13 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
 
   @impl true
   def handle_info({:status, video_id, status}, socket) do
-    videos = Enum.map(socket.assigns.all_videos, &patch_status(&1, video_id, status))
+    videos =
+      Enum.map(socket.assigns.all_videos, &VideoStatusSync.patch_status(&1, video_id, status))
+
     {:noreply, socket |> assign(:all_videos, videos) |> assign_derived()}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
-
-  defp patch_status(video, video_id, status) when video.id == video_id,
-    do: %{video | status: status}
-
-  defp patch_status(video, _video_id, _status), do: video
 
   # Header stat cards are computed over *all* videos; the list/groups reflect
   # the active search + status filter.
@@ -220,21 +214,11 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
           </div>
 
           <div class="flex flex-wrap items-center gap-3">
-            <form id="dataset-search" phx-change="search" class="relative w-full max-w-[320px]">
-              <.icon
-                name="hero-magnifying-glass-micro"
-                class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#98a2b3]"
-              />
-              <input
-                type="text"
-                name="query"
-                value={@query}
-                phx-debounce="200"
-                placeholder="Search by file, subject or experiment"
-                autocomplete="off"
-                class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
-              />
-            </form>
+            <.search_input
+              id="dataset-search"
+              query={@query}
+              placeholder="Search by file, subject or experiment"
+            />
 
             <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
               <button
@@ -254,9 +238,29 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
           </div>
         </div>
 
-        <div :if={@videos == []} class="mt-6">
-          <.empty_state active_filter={@query != "" or @status_filter != "all"} />
-        </div>
+        <.empty_state
+          :if={@videos == []}
+          class="mt-6"
+          icon="hero-film"
+          title={
+            if @query != "" or @status_filter != "all",
+              do: "No matching videos",
+              else: "No videos yet"
+          }
+          subtitle={
+            if @query != "" or @status_filter != "all",
+              do: "Try a different search or status filter.",
+              else: "Upload locomotion videos through an experiment to build your library."
+          }
+        >
+          <.link
+            :if={@query == "" and @status_filter == "all"}
+            navigate={~p"/experiments/new"}
+            class="mt-5 inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
+          >
+            <.icon name="hero-arrow-up-tray-micro" class="size-4" /> Upload your first video
+          </.link>
+        </.empty_state>
 
         <div :if={@videos != [] and @view == "video"} class="mt-4">
           <.video_table videos={@videos} thumbnails={@thumbnails} />
@@ -436,33 +440,6 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     """
   end
 
-  attr :active_filter, :boolean, required: true
-
-  defp empty_state(assigns) do
-    ~H"""
-    <div class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center">
-      <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-        <.icon name="hero-film" class="size-6" />
-      </div>
-      <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">
-        {if @active_filter, do: "No matching videos", else: "No videos yet"}
-      </h2>
-      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-        {if @active_filter,
-          do: "Try a different search or status filter.",
-          else: "Upload locomotion videos through an experiment to build your library."}
-      </p>
-      <.link
-        :if={!@active_filter}
-        navigate={~p"/experiments/new"}
-        class="mt-5 inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-      >
-        <.icon name="hero-arrow-up-tray-micro" class="size-4" /> Upload your first video
-      </.link>
-    </div>
-    """
-  end
-
   attr :bytes, :integer, required: true
 
   # Storage card with a proportion bar toward an informational 200 GB reference.
@@ -542,12 +519,4 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     do: :erlang.float_to_binary(bytes / (1024 * 1024 * 1024), decimals: 1)
 
   defp format_gb(_), do: "0.0"
-
-  defp fmt(nil), do: "—"
-  defp fmt(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
-
-  defp stat_fmt(%{mean: nil}), do: "—"
-  defp stat_fmt(%{mean: mean, sd: nil}), do: fmt(mean)
-  defp stat_fmt(%{mean: mean, sd: sd}), do: "#{fmt(mean)} ± #{fmt(sd)}"
 end

@@ -88,6 +88,10 @@ defmodule MouseTrackerWeb do
       import MouseTrackerWeb.CoreComponents
       # Locomo domain UI components (status pills, stat cards, ...)
       import MouseTrackerWeb.LocomoComponents
+      # Shared metric/number formatting helpers (fmt/1, stat_fmt/1, parse_int/1)
+      import MouseTrackerWeb.Formatters
+      # Shared LiveView param-patching helpers
+      import MouseTrackerWeb.LiveHelpers
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

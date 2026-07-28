@@ -283,6 +283,54 @@ Fase 2 — parte 15: migração completa de DaisyUI para Tailwind puro (`mix pre
 - [x] **Menu de navegação genérico removido de `root.html.heex`** (`<ul class="menu menu-horizontal">` com email/Settings/Log out ou Register/Log in, renderizado acima de toda página) — duplicava nav que a sidebar Locomo (email + Sign out no rodapé) e as telas de auth já cobrem; não foi substituído por nada.
 - [x] `assets/vendor/daisyui.js`/`daisyui-theme.js` apagados (mortos desde a remoção do `@plugin` em `app.css`).
 
+## Refatoração clean code — lado Elixir (5 sprints)
+
+Depois de ~15 partes de crescimento orgânico (Fase 2 acima), o lado Elixir acumulou
+duplicação entre LiveViews (o mesmo helper reescrito do zero em 3-4 arquivos) e um
+context module (`experiments.ex`) cobrindo responsabilidades demais. Plano de 5
+sprints, do menor risco pro mais estrutural — cada sprint termina com `mix precommit`
+limpo antes do próximo. Python fica fora de escopo por decisão explícita (item
+separado, ver seção "Frontend"/roadmap Python se/quando entrar).
+
+Sprint 1 — feito (extração mecânica, sem mudança de comportamento, `mix compile
+--force` limpo, 344 testes passando):
+- [x] **`MouseTrackerWeb.Formatters`** (`lib/mouse_tracker_web/formatters.ex`, importado
+  globalmente via `MouseTrackerWeb.html_helpers/0` — mesmo padrão de
+  `CoreComponents`/`LocomoComponents`): `fmt/1`, `stat_fmt/1`, `parse_int/1`, antes
+  copiados quase idênticos em `results.ex`, `dataset_live/index.ex`,
+  `analyses_live/index.ex` (e `fmt_num/1` em `pipeline_settings_live/index.ex`, mesma
+  lógica com outro nome).
+- [x] **`MouseTrackerWeb.LiveHelpers.patch_params/2`** (`lib/mouse_tracker_web/live_helpers.ex`,
+  também importado globalmente): o padrão "merge params base + overrides, descarta
+  `nil`/`"all"`" que `results.ex`'s `patch_subject_tab/2` e `analyses_live/index.ex`'s
+  `patch/2` implementavam cada um do zero (a única parte realmente idêntica entre os
+  dois — a URL/rota de destino de cada `push_patch` continua específica de cada tela).
+- [x] **`MouseTrackerWeb.VideoStatusSync`** (`lib/mouse_tracker_web/live/video_status_sync.ex`):
+  `subscribe_all/1` + `patch_status/3` — o bloco "assina o tópico PubSub de cada vídeo
+  no mount, aplica `{:status,...}` só no vídeo certo" estava **byte a byte idêntico**
+  em `experiment_live/index.ex`, `experiment_live/show.ex` e `dataset_live/index.ex`.
+- [x] **`<.empty_state>`/`<.search_input>`** novos em `core_components.ex`: a caixa
+  tracejada de "nada encontrado" (ícone opcional em círculo + título + subtítulo +
+  slot livre pra CTA) estava duplicada em 10+ lugares entre `experiment_live/index.ex`,
+  `dataset_live/index.ex`, `pipeline_settings_live/index.ex` (`empty_library/1`),
+  `results.ex` e `analyses_live/index.ex`; a busca (`phx-change="search"`, param
+  `query`) era idêntica nas 3 telas de listagem (Experiments/Datasets/Pipeline
+  Settings), só o placeholder mudava.
+- Fora de escopo deste sprint (decisão explícita, não esquecimento): a
+  segmented-control/tab-bar (6+ lugares) e o chip/pill picker (3 lugares) **não**
+  foram componentizados — cada handler usa uma chave `phx-value-*` diferente
+  (`status`/`view`/`tab`/`metric`), então unificar exigiria renomear essas chaves em
+  vários `handle_event`, o que é mais risco do que "extração pura" deveria ser para um
+  primeiro sprint. Revisitar só se as chaves forem normalizadas por outro motivo.
+
+Sprint 2 (fix de ownership-guard + dedupe do guard) até Sprint 5 (split de
+`experiments.ex`, empurrar lógica de LiveView pra `Experiments.Reporting`, quebrar as
+maiores funções): planejados, ainda não iniciados. Plano detalhado salvo em
+`C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`. Achado notável do
+levantamento (Sprint 2 vai corrigir): `update_experiment/3`/`delete_experiment/2`
+aceitam `%Scope{}` mas nunca checam `experiment.user_id == user.id` — todo recurso
+irmão (Calibration/Roi/Subject) já faz essa checagem, Experiment não.
+
 ## Completed Features
 
 ### Métricas de rastreamento (Python)

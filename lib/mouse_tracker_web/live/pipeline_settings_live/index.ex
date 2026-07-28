@@ -305,30 +305,21 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             </button>
           </div>
 
-          <form
-            id="pipeline-settings-search"
-            phx-change="search"
-            class="relative w-full max-w-[320px]"
-          >
-            <.icon
-              name="hero-magnifying-glass-micro"
-              class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#98a2b3]"
-            />
-            <input
-              type="text"
-              name="query"
-              value={@query}
-              phx-debounce="200"
-              placeholder="Search by name"
-              autocomplete="off"
-              class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
+          <.search_input id="pipeline-settings-search" query={@query} placeholder="Search by name" />
         </div>
 
-        <div :if={@visible == []} class="mt-4">
-          <.empty_library tab={@tab} has_query={@query != ""} />
-        </div>
+        <.empty_state
+          :if={@visible == []}
+          class="mt-4"
+          icon="hero-archive-box"
+          title={if @query != "", do: "No matches", else: "No #{empty_noun(@tab)} yet"}
+          subtitle={
+            if @query != "",
+              do: "Try a different search.",
+              else:
+                "Created from the upload wizard's step 2 (ROI & scale) and step 3 (review) — reuse them across experiments."
+          }
+        />
 
         <.calibration_table
           :if={@tab == "calibrations" and @visible != []}
@@ -433,7 +424,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-[18px] py-3">
               <.rename_input event="rename_calibration" id={cal.id} name={cal.name} />
             </td>
-            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt_num(cal.px_per_10cm)}</td>
+            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.px_per_10cm)}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.threshold}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.min_area}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
@@ -634,28 +625,6 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     """
   end
 
-  attr :tab, :string, required: true
-  attr :has_query, :boolean, required: true
-
-  defp empty_library(assigns) do
-    ~H"""
-    <div class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center">
-      <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-        <.icon name="hero-archive-box" class="size-6" />
-      </div>
-      <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">
-        {if @has_query, do: "No matches", else: "No #{empty_noun(@tab)} yet"}
-      </h2>
-      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-        {if @has_query,
-          do: "Try a different search.",
-          else:
-            "Created from the upload wizard's step 2 (ROI & scale) and step 3 (review) — reuse them across experiments."}
-      </p>
-    </div>
-    """
-  end
-
   defp empty_noun("calibrations"), do: "calibrations"
   defp empty_noun("rois"), do: "ROIs"
   defp empty_noun("subjects"), do: "subjects"
@@ -667,10 +636,6 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   defp usage_label(0), do: "—"
   defp usage_label(1), do: "1 video"
   defp usage_label(n), do: "#{n} videos"
-
-  defp fmt_num(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
-  defp fmt_num(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt_num(_), do: "—"
 
   defp field_error(%Phoenix.HTML.FormField{} = field) do
     if Phoenix.Component.used_input?(field) and field.errors != [] do
