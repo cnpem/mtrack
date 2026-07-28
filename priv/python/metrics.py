@@ -119,3 +119,46 @@ def compute_thigmotaxis_pct(nframe_peripheral, nframe_detected):
     if nframe_detected == 0:
         return 0.0
     return round(100.0 * nframe_peripheral / nframe_detected, 2)
+
+
+def compute_all(
+    dist_px,
+    speeds_px,
+    initial_pos,
+    final_pos,
+    nframe_peripheral,
+    nframe_detected,
+    px_per_10cm,
+    immobility_threshold_cm=2.0,
+):
+    """
+    Derive every per-run metric from the raw outputs of `analyzer.process/9`.
+    Used by both the headless (--json) and interactive entry points in run.py
+    so the px->cm conversion and each derived stat has exactly one definition.
+    """
+    conv = 10.0 / px_per_10cm
+    speeds_cm = [s * conv for s in speeds_px]
+
+    speed_mean_cm, speed_median_cm = compute_speed_stats(speeds_cm)
+    speed_mean_px, speed_median_px = compute_speed_stats(speeds_px)
+    tortuosity = (
+        compute_tortuosity(dist_px, initial_pos, final_pos)
+        if initial_pos and final_pos
+        else 0.0
+    )
+
+    return {
+        "distance_px": dist_px,
+        "distance_cm": dist_px * conv,
+        "speed_mean_px": speed_mean_px,
+        "speed_mean_cm": speed_mean_cm,
+        "speed_median_px": speed_median_px,
+        "speed_median_cm": speed_median_cm,
+        "speed_max_px": compute_speed_max(speeds_px),
+        "speed_max_cm": compute_speed_max(speeds_cm),
+        "immobility_seconds": compute_immobility_seconds(speeds_cm, immobility_threshold_cm),
+        "path_tortuosity": tortuosity,
+        "thigmotaxis_pct": compute_thigmotaxis_pct(nframe_peripheral, nframe_detected),
+        "speeds_cm": speeds_cm,
+        "conv": conv,
+    }

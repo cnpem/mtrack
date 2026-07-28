@@ -549,3 +549,20 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
 | `immobility_seconds` | Segundos totais com velocidade < 2 cm/s |
 | `path_tortuosity` | Distância total / deslocamento em linha reta |
 | `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea |
+
+### Limpeza de código — lado Python (item pontual, fora dos 6 sprints do lado Elixir)
+
+- [x] **Dedupe de `priv/python/run.py`**: `_run_headless` (modo `--json`, usado pelo
+  Phoenix) e `_run_interactive` (modo CLI com janelas OpenCV) recomputavam,
+  independentemente, o mesmo bloco de ~15 linhas — conversão px→cm e cada métrica
+  derivada (`speed_mean`/`median`/`max`, `immobility_seconds`, `path_tortuosity`,
+  `thigmotaxis_pct`). Extraído para `metrics.compute_all/8` (`priv/python/metrics.py`),
+  que recebe os outputs brutos de `analyzer.process/9` (`dist_px`, `speeds_px`,
+  `initial_pos`, `final_pos`, `nframe_peripheral`, `nframe_detected`, `px_per_10cm`,
+  `immobility_threshold_cm` opcional) e devolve um dict com todas as variantes
+  px/cm + `speeds_cm`/`conv` (usados depois para os plots). Cada entry point só
+  formata a saída (JSON vs. `print`) de forma diferente agora; nenhuma métrica mudou
+  de valor — smoke-testado manualmente (`metrics.compute_all` chamado direto) e via
+  `py_compile` dos dois arquivos, já que o projeto não tem `pytest` como dependência
+  declarada (`priv/python/tests/test_equivalence.py` existe mas compara só
+  `priv/mouse_tracker.py` (deprecated) com `detector.py`/`metrics.py`, não `run.py`).

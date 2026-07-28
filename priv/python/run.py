@@ -140,39 +140,33 @@ def _run_headless(json_str):
         headless=True, progress_every=progress_every, thigmotaxis_zone=central_zone,
     )
 
-    conv = 10.0 / px_per_10cm
-    distance_cm = dist_px * conv
-    speeds_cm = [s * conv for s in speeds_px]
-    speed_mean_cm, speed_median_cm = metrics.compute_speed_stats(speeds_cm)
-    speed_mean_px, speed_median_px = metrics.compute_speed_stats(speeds_px)
-
     immobility_threshold = params.get("immobility_threshold_cm", 2.0)
-    speed_max_px = metrics.compute_speed_max(speeds_px)
-    speed_max_cm = metrics.compute_speed_max(speeds_cm)
-    immobility_sec = metrics.compute_immobility_seconds(speeds_cm, immobility_threshold)
-    tortuosity = metrics.compute_tortuosity(dist_px, initial_pos, final_pos) if initial_pos and final_pos else 0.0
-    thigmotaxis_pct = metrics.compute_thigmotaxis_pct(nframe_peripheral, nframe_detected)
+    m = metrics.compute_all(
+        dist_px, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected,
+        px_per_10cm, immobility_threshold,
+    )
 
     print(json.dumps({
         "type":               "result",
-        "distance_px":        round(dist_px, 2),
-        "distance_cm":        round(distance_cm, 2),
-        "speed_mean_px":      round(speed_mean_px, 2),
-        "speed_mean_cm":      round(speed_mean_cm, 2),
-        "speed_median_px":    round(speed_median_px, 2),
-        "speed_median_cm":    round(speed_median_cm, 2),
-        "speed_max_px":       round(speed_max_px, 2),
-        "speed_max_cm":       round(speed_max_cm, 2),
-        "immobility_seconds": round(immobility_sec, 2),
-        "path_tortuosity":    round(tortuosity, 4),
-        "thigmotaxis_pct":    thigmotaxis_pct,
+        "distance_px":        round(m["distance_px"], 2),
+        "distance_cm":        round(m["distance_cm"], 2),
+        "speed_mean_px":      round(m["speed_mean_px"], 2),
+        "speed_mean_cm":      round(m["speed_mean_cm"], 2),
+        "speed_median_px":    round(m["speed_median_px"], 2),
+        "speed_median_cm":    round(m["speed_median_cm"], 2),
+        "speed_max_px":       round(m["speed_max_px"], 2),
+        "speed_max_cm":       round(m["speed_max_cm"], 2),
+        "immobility_seconds": round(m["immobility_seconds"], 2),
+        "path_tortuosity":    round(m["path_tortuosity"], 4),
+        "thigmotaxis_pct":    m["thigmotaxis_pct"],
         "frames_into_roi":    list(frames_into_roi),
         "time_into_roi_s":    [round(f / fps, 2) for f in frames_into_roi],
     }), flush=True)
 
-    max_speed = 300 * conv if speeds_cm else 300
+    speeds_cm = m["speeds_cm"]
+    max_speed = 300 * m["conv"] if speeds_cm else 300
     if params.get("speed_profile"):
-        render.plot_speed_profile(speeds_cm, speed_mean_cm, speed_median_cm, max_speed, params["speed_profile"])
+        render.plot_speed_profile(speeds_cm, m["speed_mean_cm"], m["speed_median_cm"], max_speed, params["speed_profile"])
     if params.get("speed_distribution"):
         render.plot_speed_distribution(speeds_cm, max_speed, params["speed_distribution"])
     if params.get("heatmap"):
@@ -213,37 +207,31 @@ def _run_interactive(args):
         thigmotaxis_zone=central_zone,
     )
 
-    # 7. Convert pixels to metric scale (cm)
-    conv = 10.0 / px_per_10cm
-    distance_cm = dist_px * conv
-    speeds_cm = [s * conv for s in speeds_px]
-
-    speed_mean_cm, speed_median_cm = metrics.compute_speed_stats(speeds_cm)
-    speed_mean_px, speed_median_px = metrics.compute_speed_stats(speeds_px)
-    speed_max_px = metrics.compute_speed_max(speeds_px)
-    speed_max_cm = metrics.compute_speed_max(speeds_cm)
-    immobility_sec = metrics.compute_immobility_seconds(speeds_cm)
-    tortuosity = metrics.compute_tortuosity(dist_px, initial_pos, final_pos) if initial_pos and final_pos else 0.0
-    thigmotaxis_pct = metrics.compute_thigmotaxis_pct(nframe_peripheral, nframe_detected)
+    # 7. Convert pixels to metric scale (cm) and derive every stat
+    m = metrics.compute_all(
+        dist_px, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected,
+        px_per_10cm,
+    )
 
     # 8. Print report
-    print("Distance: {:.2f} px ({:.2f} cm)".format(dist_px, distance_cm))
-    print("Speed mean: {:.2f} px/s ({:.2f} cm/s)".format(speed_mean_px, speed_mean_cm))
-    print("Speed median: {:.2f} px/s ({:.2f} cm/s)".format(speed_median_px, speed_median_cm))
-    print("Speed max: {:.2f} px/s ({:.2f} cm/s)".format(speed_max_px, speed_max_cm))
-    print("Immobility: {:.2f} s".format(immobility_sec))
-    print("Tortuosity: {:.4f}".format(tortuosity))
-    print("Thigmotaxis: {:.2f}%".format(thigmotaxis_pct))
+    print("Distance: {:.2f} px ({:.2f} cm)".format(m["distance_px"], m["distance_cm"]))
+    print("Speed mean: {:.2f} px/s ({:.2f} cm/s)".format(m["speed_mean_px"], m["speed_mean_cm"]))
+    print("Speed median: {:.2f} px/s ({:.2f} cm/s)".format(m["speed_median_px"], m["speed_median_cm"]))
+    print("Speed max: {:.2f} px/s ({:.2f} cm/s)".format(m["speed_max_px"], m["speed_max_cm"]))
+    print("Immobility: {:.2f} s".format(m["immobility_seconds"]))
+    print("Tortuosity: {:.4f}".format(m["path_tortuosity"]))
+    print("Thigmotaxis: {:.2f}%".format(m["thigmotaxis_pct"]))
 
     print("# frames into ROI {}".format(frames_into_roi))
     for i in range(len(frames_into_roi)):
         print("Time into ROI {}: {} seconds".format(i + 1, frames_into_roi[i] / fps))
 
     # 9. Plotting and saving visualizations
-    max_speed = 300 * conv if speeds_cm else 300
+    speeds_cm = m["speeds_cm"]
+    max_speed = 300 * m["conv"] if speeds_cm else 300
 
     if args["speed_profile"]:
-        render.plot_speed_profile(speeds_cm, speed_mean_cm, speed_median_cm, max_speed, args["speed_profile"])
+        render.plot_speed_profile(speeds_cm, m["speed_mean_cm"], m["speed_median_cm"], max_speed, args["speed_profile"])
 
     if args["speed_distribution"]:
         render.plot_speed_distribution(speeds_cm, max_speed, args["speed_distribution"])
