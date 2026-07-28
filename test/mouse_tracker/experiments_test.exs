@@ -100,6 +100,15 @@ defmodule MouseTracker.ExperimentsTest do
       assert {:error, changeset} = Experiments.update_experiment(scope, exp, %{name: ""})
       assert "can't be blank" in errors_on(changeset).name
     end
+
+    test "levanta erro se o experimento pertencer a outro usuário" do
+      exp = experiment_fixture(user_fixture())
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.update_experiment(other_scope, exp, %{name: "Hackeado"})
+      end
+    end
   end
 
   describe "delete_experiment/2" do
@@ -112,6 +121,15 @@ defmodule MouseTracker.ExperimentsTest do
 
       assert_raise Ecto.NoResultsError, fn ->
         Experiments.get_experiment!(scope, exp.id)
+      end
+    end
+
+    test "levanta erro se o experimento pertencer a outro usuário" do
+      exp = experiment_fixture(user_fixture())
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.delete_experiment(other_scope, exp)
       end
     end
 
@@ -225,6 +243,50 @@ defmodule MouseTracker.ExperimentsTest do
 
       refute File.exists?(filepath)
       refute File.exists?(results_dir)
+    end
+  end
+
+  describe "update_video/3" do
+    test "atualiza o vídeo quando o experimento pertence ao usuário do scope" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      video = exp |> video_fixture() |> then(&Experiments.get_video_with_experiment!(&1.id))
+
+      assert {:ok, updated} = Experiments.update_video(scope, video, %{status: "done"})
+      assert updated.status == "done"
+    end
+
+    test "levanta erro se o vídeo pertencer a experimento de outro usuário" do
+      exp = experiment_fixture(user_fixture())
+      video = exp |> video_fixture() |> then(&Experiments.get_video_with_experiment!(&1.id))
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.update_video(other_scope, video, %{status: "done"})
+      end
+    end
+  end
+
+  describe "delete_video/2" do
+    test "remove o vídeo quando o experimento pertence ao usuário do scope" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      video = exp |> video_fixture() |> then(&Experiments.get_video_with_experiment!(&1.id))
+
+      assert {:ok, _} = Experiments.delete_video(scope, video)
+      assert Experiments.list_videos(exp) == []
+    end
+
+    test "levanta erro se o vídeo pertencer a experimento de outro usuário" do
+      exp = experiment_fixture(user_fixture())
+      video = exp |> video_fixture() |> then(&Experiments.get_video_with_experiment!(&1.id))
+      other_scope = user_scope_fixture(user_fixture())
+
+      assert_raise FunctionClauseError, fn ->
+        Experiments.delete_video(other_scope, video)
+      end
     end
   end
 

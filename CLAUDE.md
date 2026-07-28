@@ -323,13 +323,40 @@ Sprint 1 — feito (extração mecânica, sem mudança de comportamento, `mix co
   vários `handle_event`, o que é mais risco do que "extração pura" deveria ser para um
   primeiro sprint. Revisitar só se as chaves forem normalizadas por outro motivo.
 
-Sprint 2 (fix de ownership-guard + dedupe do guard) até Sprint 5 (split de
-`experiments.ex`, empurrar lógica de LiveView pra `Experiments.Reporting`, quebrar as
-maiores funções): planejados, ainda não iniciados. Plano detalhado salvo em
-`C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`. Achado notável do
-levantamento (Sprint 2 vai corrigir): `update_experiment/3`/`delete_experiment/2`
-aceitam `%Scope{}` mas nunca checam `experiment.user_id == user.id` — todo recurso
-irmão (Calibration/Roi/Subject) já faz essa checagem, Experiment não.
+Sprint 2 — feito (fix de bug de autorização + dedupe do guard, `mix precommit` limpo,
+350 testes passando):
+- [x] **Fix de bug real**: `update_experiment/3`/`delete_experiment/2` aceitavam
+  `%Scope{}` mas nunca checavam `experiment.user_id == user.id` — todo recurso irmão
+  (Calibration/Roi/Subject) já fazia essa checagem, Experiment não. Agora seguem o
+  mesmo padrão (guard na function head; usuário de outro dono → `FunctionClauseError`,
+  mesmo comportamento que os outros recursos já tinham).
+- [x] **`defguard is_owner/2`** (topo de `lib/mouse_tracker/experiments.ex`): substitui
+  o guard `when user_id == user.id` que estava copiado quase idêntico 7 vezes
+  (`update_calibration/3`, `delete_calibration/2`, `update_roi/3`, `delete_roi/2`,
+  `duplicate_roi/2`, `update_subject/3`, `delete_subject/2`) + as 2 correções acima —
+  uma função privada comum não funcionaria numa guard clause, por isso `defguard`
+  (guard-safe, só igualdade), preservando o mesmo `FunctionClauseError` de antes em
+  caso de dono errado (sem mudança de comportamento, só remove a repetição textual).
+- [x] **`update_video/3`/`delete_video/2`** (novos, com `%Scope{}` + checagem de posse
+  via `video.experiment.user_id`, já que `Video` não tem `user_id` próprio — exige
+  `:experiment` pré-carregado, ver `get_video_with_experiment!/1`) foram adicionados
+  **ao lado de**, não no lugar de, `update_video/2`/`delete_video/1` (sem Scope).
+  Decisão tomada ao investigar os callers reais: o único caller de produção hoje é
+  `mix mouse_tracker.backfill_video_metadata`, uma tarefa de manutenção que varre
+  vídeos de **todos** os usuários por design (mesma categoria de
+  `OrphanUploadCleanupWorker` — operação de sistema, não uma requisição em nome de um
+  usuário específico); forçar essa tarefa a fabricar um `Scope` por vídeo não
+  agregaria segurança real e seria arquiteturalmente estranho. As variantes com Scope
+  ficam prontas para quando uma tela LiveView precisar mutar um vídeo em nome do
+  usuário logado (hoje nenhuma o faz — `VideoProcessingWorker` atualiza status via
+  `Video.changeset`/`Repo.update` direto, outro caso de código de sistema).
+- [x] Testes: casos novos de "pertence a outro usuário" → `FunctionClauseError` para
+  `update_experiment/3`/`delete_experiment/2` (faltavam, mirror dos que já existiam
+  para Calibration/Roi/Subject) e para os novos `update_video/3`/`delete_video/2`.
+
+Sprint 3 (split de `experiments.ex`) até Sprint 5 (quebrar as maiores funções,
+componentizar o display de métrica 3x-duplicado): planejados, ainda não iniciados.
+Plano detalhado salvo em `C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`.
 
 ## Completed Features
 

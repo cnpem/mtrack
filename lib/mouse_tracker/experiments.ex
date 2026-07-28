@@ -14,6 +14,16 @@ defmodule MouseTracker.Experiments do
     Subject
   }
 
+  @doc """
+  Guard for "does this resource belong to the scope's user" — shared by every
+  `update_*`/`delete_*` function below instead of each repeating
+  `when user_id == user.id` inline. A plain private function wouldn't work in
+  a guard position, so this uses `defguard` (guard-safe: just an equality
+  check); a mismatch falls through to no matching function clause, i.e. a
+  `FunctionClauseError`, same as before this was factored out.
+  """
+  defguard is_owner(resource_user_id, scope_user_id) when resource_user_id == scope_user_id
+
   # --- Experiments ---
 
   def list_experiments(%Scope{user: user}) do
@@ -104,13 +114,15 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
-  def update_experiment(%Scope{}, %Experiment{} = experiment, attrs) do
+  def update_experiment(%Scope{user: user}, %Experiment{user_id: owner_id} = experiment, attrs)
+      when is_owner(owner_id, user.id) do
     experiment
     |> Experiment.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_experiment(%Scope{}, %Experiment{} = experiment) do
+  def delete_experiment(%Scope{user: user}, %Experiment{user_id: owner_id} = experiment)
+      when is_owner(owner_id, user.id) do
     experiment = Repo.preload(experiment, :videos)
 
     with {:ok, deleted} <- Repo.delete(experiment) do
@@ -292,17 +304,45 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
+  @doc """
+  Unscoped — for system-level callers that are not acting on behalf of a
+  specific end user (the `mouse_tracker.backfill_video_metadata` mix task,
+  which sweeps videos across every user by design). LiveView code acting on
+  behalf of a logged-in user should use `update_video/3` instead.
+  """
   def update_video(%Video{} = video, attrs) do
     video
     |> Video.changeset(attrs)
     |> Repo.update()
   end
 
+  @doc """
+  Scoped variant of `update_video/2`, for LiveView callers acting on behalf of
+  a logged-in user. `video` must have `:experiment` preloaded (see
+  `get_video_with_experiment!/1`) so ownership can be checked without an extra
+  query — a `Video` has no `user_id` of its own, only via its experiment.
+  """
+  def update_video(
+        %Scope{user: user},
+        %Video{experiment: %Experiment{user_id: owner_id}} = video,
+        attrs
+      )
+      when is_owner(owner_id, user.id) do
+    update_video(video, attrs)
+  end
+
+  @doc "Unscoped — see `update_video/2`."
   def delete_video(%Video{} = video) do
     with {:ok, deleted} <- Repo.delete(video) do
       cleanup_video_files(video)
       {:ok, deleted}
     end
+  end
+
+  @doc "Scoped variant of `delete_video/1` — see `update_video/3`."
+  def delete_video(%Scope{user: user}, %Video{experiment: %Experiment{user_id: owner_id}} = video)
+      when is_owner(owner_id, user.id) do
+    delete_video(video)
   end
 
   # The DB row is deleted first (source of truth); file removal below is
@@ -356,15 +396,15 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
-  def update_calibration(%Scope{user: user}, %Calibration{user_id: user_id} = calibration, attrs)
-      when user_id == user.id do
+  def update_calibration(%Scope{user: user}, %Calibration{user_id: owner_id} = calibration, attrs)
+      when is_owner(owner_id, user.id) do
     calibration
     |> Calibration.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_calibration(%Scope{user: user}, %Calibration{user_id: user_id} = calibration)
-      when user_id == user.id do
+  def delete_calibration(%Scope{user: user}, %Calibration{user_id: owner_id} = calibration)
+      when is_owner(owner_id, user.id) do
     Repo.delete(calibration)
   end
 
@@ -404,8 +444,8 @@ defmodule MouseTracker.Experiments do
   to any video, so it's always freely editable — used as the escape hatch
   when the source ROI is `roi_locked?/1`.
   """
-  def duplicate_roi(%Scope{user: user} = scope, %Roi{user_id: user_id} = roi)
-      when user_id == user.id do
+  def duplicate_roi(%Scope{user: user} = scope, %Roi{user_id: owner_id} = roi)
+      when is_owner(owner_id, user.id) do
     attrs =
       roi
       |> Map.take([:shape, :x, :y, :w, :h, :radius, :x1, :y1, :x2, :y2, :x3, :y3, :x4, :y4])
@@ -427,14 +467,15 @@ defmodule MouseTracker.Experiments do
       else: candidate
   end
 
-  def update_roi(%Scope{user: user}, %Roi{user_id: user_id} = roi, attrs)
-      when user_id == user.id do
+  def update_roi(%Scope{user: user}, %Roi{user_id: owner_id} = roi, attrs)
+      when is_owner(owner_id, user.id) do
     roi
     |> Roi.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_roi(%Scope{user: user}, %Roi{user_id: user_id} = roi) when user_id == user.id do
+  def delete_roi(%Scope{user: user}, %Roi{user_id: owner_id} = roi)
+      when is_owner(owner_id, user.id) do
     Repo.delete(roi)
   end
 
@@ -531,15 +572,15 @@ defmodule MouseTracker.Experiments do
     |> Repo.insert()
   end
 
-  def update_subject(%Scope{user: user}, %Subject{user_id: user_id} = subject, attrs)
-      when user_id == user.id do
+  def update_subject(%Scope{user: user}, %Subject{user_id: owner_id} = subject, attrs)
+      when is_owner(owner_id, user.id) do
     subject
     |> Subject.changeset(attrs)
     |> Repo.update()
   end
 
-  def delete_subject(%Scope{user: user}, %Subject{user_id: user_id} = subject)
-      when user_id == user.id do
+  def delete_subject(%Scope{user: user}, %Subject{user_id: owner_id} = subject)
+      when is_owner(owner_id, user.id) do
     Repo.delete(subject)
   end
 
