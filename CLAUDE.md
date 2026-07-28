@@ -497,6 +497,46 @@ Com isso, os 5 sprints planejados de limpeza do lado Elixir estão completos. Py
 (`priv/python/`) permanece fora de escopo, por decisão explícita no início desta
 série (ver topo desta seção).
 
+Sprint 6 — feito, ad-hoc (fora dos 5 originalmente planejados, pedido depois de uma
+revisão do estado do código; `mix precommit` limpo, 357 testes passando — mesma
+contagem de antes, refactor puro de estrutura):
+- [x] **`lib/mouse_tracker_web/live/experiment_live/new.ex` ainda tinha 1620 linhas**
+  mesmo depois do Sprint 5 (que só quebrou `roi_step/1`), porque a *lógica de negócio*
+  do wizard (resolução de referência/herança de escala e ROI, validação dos passos,
+  derivação de `px_per_10cm`, montagem do payload de `create_experiment_with_videos/2`)
+  vivia no mesmo módulo que todo o `render`/`handle_event` — cerca de 30 funções que
+  não tocam `socket`, só `assigns`/mapas simples, indistinguíveis à primeira vista das
+  que de fato precisam do LiveView.
+- [x] **Nova `MouseTrackerWeb.ExperimentLive.New.Wizard`**
+  (`lib/mouse_tracker_web/live/experiment_live/new/wizard.ex`, mesmo padrão de módulo
+  aninhado de `Experiments.Reporting`): recebeu, sem mudança de lógica, as ~30 funções
+  puras — flags de referência (`ref_flag/2`, `put_ref_flag/3`, `source_of/2`,
+  `put_source/3`), resolução de herança (`resolve_ref/3`, `resolve_inherit/3`,
+  `resolve_label/4`, `source_options/2`, `current_source_ref/2`, `live_refs/2`,
+  `entry_refs/1`, `ref_filename/2`), validação (`step1_valid?/1`, `step2_valid?/1`,
+  `step2_missing_reasons/1`, `cal_complete?/1`, `present?/1`), derivação de escala
+  (`derive_px_per_10cm/2`, `derive_px_per_10cm_pair/1`, `divergence_warning_pct/0`,
+  `scale_status/2`, `cal_field/3`), montagem do payload (`build_calibrations/1`,
+  `build_rois/1`, `roi_to_params/1`), e helpers menores (`default_spec/1`,
+  `default_cal/1`, `parse_float/1`, `parse_subject_ref/2`, `subject_new_name/1`,
+  `experiment_name/2`, `default_name_placeholder/1`, `clamp_frame/2`). `build_calibrations/1`
+  e `build_rois/1` mudaram de assinatura de `(socket)` para `(assigns)` (só liam
+  `socket.assigns`, nunca chamavam `assign/3`), para serem de fato socket-free.
+- [x] **`new.ex` caiu para ~1285 linhas**, ficando só com `mount`/`handle_params`/
+  `handle_event`/`render` + as funções que genuinely mutam `socket` (`toggle_ref/3`,
+  `set_source/4`, `update_calibration/3`, `apply_shape/2`, `save_pending_uploads/1`,
+  `set_reference_frame/3`, `do_create/1`) — essas continuam chamando `Wizard.*` para a
+  parte de lógica pura que precisam (ex.: `toggle_ref/3` chama `Wizard.ref_flag/2` +
+  `Wizard.put_ref_flag/3` + `Wizard.put_source/3`, só o `assign/3` fica no LiveView).
+  Todos os call sites nos templates HEEx (`step1_valid?(assigns)`,
+  `resolve_label(...)`, `cal_field(...)`, etc.) foram qualificados para `Wizard.*` —
+  chamada de função remota funciona normalmente dentro de `~H`, sem mudança de
+  comportamento.
+- Testes: nenhum teste novo (mesma categoria do Sprint 5 — puro reposicionamento);
+  `mix compile --force --warnings-as-errors` limpo e a suite completa manteve a
+  contagem exata de 357, confirmando que nenhuma lógica mudou de comportamento no
+  processo.
+
 ## Completed Features
 
 ### Métricas de rastreamento (Python)
