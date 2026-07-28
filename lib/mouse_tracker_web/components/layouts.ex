@@ -73,6 +73,47 @@ defmodule MouseTrackerWeb.Layouts do
   end
 
   @doc """
+  Auth screens shell (login/register/confirmation): centered card on the same
+  light Locomo palette as `locomo/1` (no sidebar, since the user isn't signed
+  in yet at this point).
+
+  ## Examples
+
+      <Layouts.auth flash={@flash} current_scope={@current_scope}>
+        <h1>Content</h1>
+      </Layouts.auth>
+  """
+  attr :flash, :map, required: true, doc: "the map of flash messages"
+
+  attr :current_scope, :map,
+    default: nil,
+    doc: "the current [scope](https://phoenix.hexdocs.pm/scopes.html)"
+
+  slot :inner_block, required: true
+
+  def auth(assigns) do
+    ~H"""
+    <div class="font-ui flex min-h-screen flex-col items-center justify-center bg-[#f3f4f6] px-4 py-12 text-[#0f1729]">
+      <.link navigate={~p"/"} class="mb-8 flex items-center gap-2.5">
+        <div class="flex size-9 items-center justify-center rounded-[9px] bg-[#CC5500] text-white">
+          <.icon name="hero-viewfinder-circle" class="size-5" />
+        </div>
+        <div class="text-left leading-tight">
+          <div class="text-[15px] font-semibold text-[#0f1729]">Locomo</div>
+          <div class="font-data text-[10.5px] text-[#8a93a3]">locomotion tracking</div>
+        </div>
+      </.link>
+
+      <main class="w-full max-w-sm rounded-2xl border border-[#e7e9ee] bg-white p-7 shadow-sm">
+        {render_slot(@inner_block)}
+      </main>
+
+      <.flash_group flash={@flash} />
+    </div>
+    """
+  end
+
+  @doc """
   The Locomo application shell: fixed dark sidebar (248px) + sticky topbar,
   built in pure Tailwind per the design handoff (see CLAUDE.md Sprint 3).
 
