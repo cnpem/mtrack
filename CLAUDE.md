@@ -354,9 +354,60 @@ Sprint 2 — feito (fix de bug de autorização + dedupe do guard, `mix precommi
   `update_experiment/3`/`delete_experiment/2` (faltavam, mirror dos que já existiam
   para Calibration/Roi/Subject) e para os novos `update_video/3`/`delete_video/2`.
 
-Sprint 3 (split de `experiments.ex`) até Sprint 5 (quebrar as maiores funções,
-componentizar o display de métrica 3x-duplicado): planejados, ainda não iniciados.
-Plano detalhado salvo em `C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`.
+Sprint 3 — feito (split de `experiments.ex` por concern, movimentação pura sem
+mudança de lógica, `mix precommit` limpo, 350 testes passando — mesma contagem de
+antes do split):
+- [x] **`lib/mouse_tracker/experiments.ex` (701 linhas) dividido em 6 módulos** por
+  responsabilidade, usando as costuras já identificadas no plano:
+  - `MouseTracker.Experiments` (módulo raiz, mantido): CRUD de Experiment/Video +
+    orquestração do wizard (`create_experiment_with_videos/2` e privados) +
+    `enqueue_video_processing/1` + `TrackingResult` (`get_tracking_result_for_video/1`,
+    `create_tracking_result/2`).
+  - `MouseTracker.Experiments.Calibrations`: CRUD + posse de `Calibration` +
+    `count_videos_using_calibration/1`.
+  - `MouseTracker.Experiments.Rois`: CRUD + posse de `Roi`, incluindo as funções de
+    vínculo com vídeo (`attach_roi_to_video/2`, `detach_roi_from_video/2`,
+    `roi_locked?/1`, `list_rois_for_video/1`, `count_videos_using_roi/1`,
+    `duplicate_roi/2`) e `RoiTime` (`list_roi_times/1`, `get_roi_time!/1`,
+    `create_roi_time/3`, `change_roi_time/2`) — mantidos juntos por serem
+    inseparáveis do ciclo de vida de uma ROI.
+  - `MouseTracker.Experiments.Subjects`: CRUD + posse de `Subject` +
+    `count_videos_using_subject/1`.
+  - `MouseTracker.Experiments.Reporting`: agregação cross-experiment —
+    `list_all_videos/1`, `datasets_summary/1`, `subject_result_videos/3`,
+    `subject_experiments/2`, `group_by_calibration/1`, `subject_metric_aggregate/1`
+    (+ privados `stat/2`/`roi_zone_aggregate/1`).
+  - `MouseTracker.Experiments.FileCleanup`: `cleanup_video_files/1` (+ privados
+    `remove_file/1`/`remove_dir/1`/`static_dir/0`), chamado por
+    `Experiments.delete_experiment/2` e `Experiments.delete_video/1`.
+- [x] **`MouseTracker.Experiments.Ownership`**: o `defguard is_owner/2` (adicionado no
+  Sprint 2 dentro de `experiments.ex`) virou módulo próprio, já que uma guard só pode
+  ser reaproveitada em outro módulo via `import` — `Experiments`, `Calibrations`,
+  `Rois` e `Subjects` todos importam esse módulo em vez de duplicar a guard.
+- [x] **Todos os call sites atualizados** (mecânico, mas com fan-out grande — o ponto
+  de risco que o plano já antecipava): 7 LiveViews em `lib/` (`ExperimentLive.Show`,
+  `.Results`, `.New`, `.RoiEdit`, `DatasetLive.Index`, `AnalysesLive.Index`,
+  `PipelineSettingsLive.Index`), `priv/repo/seeds_locomo.exs`, e os testes —
+  `test/support/fixtures/experiments_fixtures.ex`, `experiments_wizard_test.exs`,
+  `video_processing_worker_test.exs`, `new_test.exs`, `roi_edit_test.exs`,
+  `pipeline_settings_live/index_test.exs` — todos apontando para o novo módulo
+  específico em vez de `Experiments`.
+- [x] **`test/mouse_tracker/experiments_test.exs` (992 linhas) dividido na mesma
+  fronteira dos módulos**, já que o arquivo original já estava organizado em seções
+  por recurso com comentários-separador — divisão mecânica, sem reescrever nenhum
+  teste: `experiments_test.exs` ficou só com Experiment/Video (mantido, mesmo nome);
+  novos `test/mouse_tracker/experiments/calibrations_test.exs`, `rois_test.exs`,
+  `subjects_test.exs`, `reporting_test.exs`. Contagem total de testes idêntica à de
+  antes do split (350), confirmando que foi puro reposicionamento.
+- Fora de escopo desta sprint (decisão explícita, não esquecimento): nenhuma
+  assinatura de função ou comportamento mudou — só localização/organização. Sprint 4
+  é quem move lógica de agregação hoje presa em LiveViews para dentro de
+  `Experiments.Reporting`.
+
+Sprint 4 (mover lógica de agregação de LiveViews para `Experiments.Reporting`) e
+Sprint 5 (quebrar as maiores funções, componentizar o display de métrica
+3x-duplicado): planejados, ainda não iniciados. Plano detalhado salvo em
+`C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`.
 
 ## Completed Features
 

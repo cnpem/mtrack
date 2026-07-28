@@ -6,6 +6,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
   import MouseTracker.ExperimentsFixtures
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Subjects
   alias MouseTracker.Tracking.PythonPortMock
 
   setup :register_and_log_in_user
@@ -457,8 +458,8 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       |> form("form[phx-submit='create']", %{"experiment_name" => "Solo run"})
       |> render_submit()
 
-      assert length(Experiments.list_subjects(scope)) == 1
-      assert [subject] = Experiments.list_subjects(scope)
+      assert length(Subjects.list_subjects(scope)) == 1
+      assert [subject] = Subjects.list_subjects(scope)
       assert subject.name == "a"
     end
   end
@@ -543,7 +544,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       |> form("form[phx-submit='create']", %{"experiment_name" => "Reuse run"})
       |> render_submit()
 
-      assert length(Experiments.list_subjects(scope)) == 1
+      assert length(Subjects.list_subjects(scope)) == 1
 
       [experiment] = Experiments.list_experiments(scope)
       [video] = Experiments.list_videos(experiment)

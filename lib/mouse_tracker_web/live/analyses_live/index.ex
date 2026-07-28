@@ -17,7 +17,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   """
   use MouseTrackerWeb, :live_view
 
-  alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.{Subjects, Reporting}
 
   @metrics [
     {"distance_cm", "Distance traveled", "cm"},
@@ -32,7 +32,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    subjects = Experiments.list_subjects(socket.assigns.current_scope)
+    subjects = Subjects.list_subjects(socket.assigns.current_scope)
 
     {:ok,
      socket
@@ -59,12 +59,12 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
 
     per_subject =
       Enum.map(selected_subjects, fn subject ->
-        videos = Experiments.subject_result_videos(scope, subject.id, scope_experiment_id)
+        videos = Reporting.subject_result_videos(scope, subject.id, scope_experiment_id)
 
         %{
           subject: subject,
           videos: videos,
-          experiments: Experiments.subject_experiments(scope, subject.id),
+          experiments: Reporting.subject_experiments(scope, subject.id),
           points: build_series(videos, metric)
         }
       end)

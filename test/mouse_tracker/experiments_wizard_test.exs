@@ -2,6 +2,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
   use MouseTracker.DataCase
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.{Rois, Subjects}
   alias MouseTracker.Accounts.Scope
 
   import MouseTracker.AccountsFixtures
@@ -71,11 +72,11 @@ defmodule MouseTracker.ExperimentsWizardTest do
       refute is_nil(v1.calibration_id)
 
       # ROI is attached to both videos and its name is prefixed with the experiment.
-      assert [%{name: "Batch A · Center"}] = Experiments.list_rois_for_video(v1)
-      assert [%{name: "Batch A · Center"}] = Experiments.list_rois_for_video(v2)
+      assert [%{name: "Batch A · Center"}] = Rois.list_rois_for_video(v1)
+      assert [%{name: "Batch A · Center"}] = Rois.list_rois_for_video(v2)
 
       # One subject per distinct name.
-      assert length(Experiments.list_subjects(scope)) == 2
+      assert length(Subjects.list_subjects(scope)) == 2
     end
 
     test "persists the chosen background_frame per video, defaulting to 0", %{scope: scope} do
@@ -143,7 +144,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert {:ok, {_experiment, [video]}} =
                Experiments.create_experiment_with_videos(scope, payload)
 
-      assert [roi] = Experiments.list_rois_for_video(video)
+      assert [roi] = Rois.list_rois_for_video(video)
       assert roi.shape == "polygon"
       assert {roi.x1, roi.y1, roi.x4, roi.y4} == {5, 6, 5, 30}
     end
@@ -167,7 +168,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert {:ok, {_experiment, [video]}} =
                Experiments.create_experiment_with_videos(scope, payload)
 
-      assert Experiments.list_rois_for_video(video) == []
+      assert Rois.list_rois_for_video(video) == []
       assert is_nil(video.subject_id)
     end
 
@@ -217,7 +218,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert {:ok, {_experiment_a, [video_a]}} =
                Experiments.create_experiment_with_videos(scope, payload_a)
 
-      assert length(Experiments.list_subjects(scope)) == 1
+      assert length(Subjects.list_subjects(scope)) == 1
 
       payload_b = %{
         name: "Batch E",
@@ -238,7 +239,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
                Experiments.create_experiment_with_videos(scope, payload_b)
 
       assert video_b.subject_id == video_a.subject_id
-      assert length(Experiments.list_subjects(scope)) == 1
+      assert length(Subjects.list_subjects(scope)) == 1
     end
 
     test "rolls back entirely on an invalid calibration", %{scope: scope} do

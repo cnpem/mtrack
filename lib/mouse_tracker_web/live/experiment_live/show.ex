@@ -2,6 +2,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Subjects
   alias MouseTrackerWeb.VideoStatusSync
 
   @impl true
@@ -21,10 +22,10 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   @impl true
   def handle_event("update_subject_notes", %{"subject-id" => id, "value" => notes}, socket) do
-    subject = Experiments.get_subject!(socket.assigns.current_scope, id)
+    subject = Subjects.get_subject!(socket.assigns.current_scope, id)
 
     {:ok, updated} =
-      Experiments.update_subject(socket.assigns.current_scope, subject, %{notes: notes})
+      Subjects.update_subject(socket.assigns.current_scope, subject, %{notes: notes})
 
     {:noreply,
      update(socket, :experiment_subjects, fn subjects ->

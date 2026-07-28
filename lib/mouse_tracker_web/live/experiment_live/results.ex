@@ -2,6 +2,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Reporting
 
   @tabs [
     {"video", "Per video", true},
@@ -64,15 +65,15 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       scope = socket.assigns.current_scope
       scope_experiment_id = parse_int(params["scope_experiment"])
 
-      subject_experiments = Experiments.subject_experiments(scope, subject_id)
-      subject_videos = Experiments.subject_result_videos(scope, subject_id, scope_experiment_id)
+      subject_experiments = Reporting.subject_experiments(scope, subject_id)
+      subject_videos = Reporting.subject_result_videos(scope, subject_id, scope_experiment_id)
 
       socket
       |> assign(:scope_experiment_id, scope_experiment_id)
       |> assign(:subject_experiments, subject_experiments)
       |> assign(:subject_videos, subject_videos)
-      |> assign(:calibration_groups, Experiments.group_by_calibration(subject_videos))
-      |> assign(:subject_aggregate, Experiments.subject_metric_aggregate(subject_videos))
+      |> assign(:calibration_groups, Reporting.group_by_calibration(subject_videos))
+      |> assign(:subject_aggregate, Reporting.subject_metric_aggregate(subject_videos))
     else
       socket
       |> assign(:scope_experiment_id, nil)

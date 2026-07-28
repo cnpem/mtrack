@@ -1,6 +1,6 @@
 defmodule MouseTracker.ExperimentsFixtures do
   alias MouseTracker.Repo
-  alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Rois
 
   alias MouseTracker.Experiments.{
     Calibration,
@@ -79,7 +79,7 @@ defmodule MouseTracker.ExperimentsFixtures do
       |> Roi.changeset(attrs)
       |> Repo.insert!()
 
-    :ok = Experiments.attach_roi_to_video(video, roi)
+    :ok = Rois.attach_roi_to_video(video, roi)
     roi
   end
 

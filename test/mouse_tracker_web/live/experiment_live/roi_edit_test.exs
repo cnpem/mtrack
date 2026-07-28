@@ -5,7 +5,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEditTest do
   import MouseTracker.AccountsFixtures
   import MouseTracker.ExperimentsFixtures
 
-  alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Rois
 
   setup :register_and_log_in_user
 
@@ -44,7 +44,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEditTest do
 
     lv |> element("form") |> render_submit(%{"value" => "Zona A"})
 
-    updated = Experiments.get_roi!(scope, roi.id)
+    updated = Rois.get_roi!(scope, roi.id)
 
     assert {updated.x1, updated.y1, updated.x2, updated.y2, updated.x3, updated.y3, updated.x4,
             updated.y4} ==
@@ -63,7 +63,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEditTest do
 
     lv |> element("form") |> render_submit(%{"value" => "Zona renomeada"})
 
-    updated = Experiments.get_roi!(scope, roi.id)
+    updated = Rois.get_roi!(scope, roi.id)
     assert updated.name == "Zona renomeada"
     assert {updated.x, updated.y, updated.w, updated.h} == {1, 2, 3, 4}
   end
@@ -90,7 +90,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEditTest do
 
     lv |> element("form") |> render_submit(%{"value" => "Zona pronta"})
 
-    updated = Experiments.get_roi!(scope, roi.id)
+    updated = Rois.get_roi!(scope, roi.id)
     assert updated.name == "Zona pronta"
     assert updated.shape == "rectangle"
   end
@@ -111,10 +111,10 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEditTest do
     assert to =~ "/videos/#{video.id}/rois/"
     refute to =~ "/rois/#{roi.id}/edit"
 
-    [copy] = Experiments.list_rois(scope) |> Enum.reject(&(&1.id == roi.id))
+    [copy] = Rois.list_rois(scope) |> Enum.reject(&(&1.id == roi.id))
     assert copy.name == "Zona pronta (copy)"
-    refute Experiments.roi_locked?(copy)
-    assert Experiments.list_rois_for_video(video) |> Enum.map(& &1.id) == [roi.id]
+    refute Rois.roi_locked?(copy)
+    assert Rois.list_rois_for_video(video) |> Enum.map(& &1.id) == [roi.id]
   end
 
   test "mount raises when the video belongs to another user", %{conn: conn} do

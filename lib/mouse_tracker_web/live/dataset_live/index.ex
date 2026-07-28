@@ -12,14 +12,14 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
   """
   use MouseTrackerWeb, :live_view
 
-  alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Reporting
   alias MouseTrackerWeb.VideoStatusSync
 
   @tabs [{"all", "All"}, {"done", "Done"}, {"processing", "Processing"}, {"pending", "Pending"}]
 
   @impl true
   def mount(_params, _session, socket) do
-    videos = Experiments.list_all_videos(socket.assigns.current_scope)
+    videos = Reporting.list_all_videos(socket.assigns.current_scope)
 
     if connected?(socket) do
       VideoStatusSync.subscribe_all(videos)
@@ -71,7 +71,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
       |> Enum.filter(fn v -> q == "" or matches_query?(v, q) end)
 
     socket
-    |> assign(:summary, Experiments.datasets_summary(videos))
+    |> assign(:summary, Reporting.datasets_summary(videos))
     |> assign(:videos, filtered)
     |> assign(:subject_groups, subject_groups(filtered))
   end
@@ -93,7 +93,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
       %{
         subject: List.first(group).subject,
         videos: group,
-        aggregate: Experiments.subject_metric_aggregate(done)
+        aggregate: Reporting.subject_metric_aggregate(done)
       }
     end)
     |> Enum.sort_by(fn %{subject: subject} ->

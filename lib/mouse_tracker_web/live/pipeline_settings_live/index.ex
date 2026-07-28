@@ -18,7 +18,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Accounts
-  alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.{Calibrations, Rois, Subjects}
 
   @tabs [{"calibrations", "Calibrations"}, {"rois", "ROIs"}, {"subjects", "Subjects"}]
 
@@ -27,9 +27,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     scope = socket.assigns.current_scope
     user = scope.user
 
-    calibrations = Experiments.list_calibrations(scope)
-    rois = Experiments.list_rois(scope)
-    subjects = Experiments.list_subjects(scope)
+    calibrations = Calibrations.list_calibrations(scope)
+    rois = Rois.list_rois(scope)
+    subjects = Subjects.list_subjects(scope)
 
     {:ok,
      socket
@@ -40,10 +40,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
      |> assign(:subjects, subjects)
      |> assign(
        :calibration_usage,
-       usage_map(calibrations, &Experiments.count_videos_using_calibration/1)
+       usage_map(calibrations, &Calibrations.count_videos_using_calibration/1)
      )
-     |> assign(:roi_usage, usage_map(rois, &Experiments.count_videos_using_roi/1))
-     |> assign(:subject_usage, usage_map(subjects, &Experiments.count_videos_using_subject/1))
+     |> assign(:roi_usage, usage_map(rois, &Rois.count_videos_using_roi/1))
+     |> assign(:subject_usage, usage_map(subjects, &Subjects.count_videos_using_subject/1))
      |> assign(:defaults_form, to_form(Accounts.change_user_pipeline_defaults(user)))}
   end
 
@@ -89,23 +89,23 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     rename(
       socket,
       :calibrations,
-      &Experiments.get_calibration!/2,
-      &Experiments.update_calibration/3,
+      &Calibrations.get_calibration!/2,
+      &Calibrations.update_calibration/3,
       id,
       name
     )
   end
 
   def handle_event("rename_roi", %{"id" => id, "value" => name}, socket) do
-    rename(socket, :rois, &Experiments.get_roi!/2, &Experiments.update_roi/3, id, name)
+    rename(socket, :rois, &Rois.get_roi!/2, &Rois.update_roi/3, id, name)
   end
 
   def handle_event("rename_subject", %{"id" => id, "value" => name}, socket) do
     rename(
       socket,
       :subjects,
-      &Experiments.get_subject!/2,
-      &Experiments.update_subject/3,
+      &Subjects.get_subject!/2,
+      &Subjects.update_subject/3,
       id,
       name
     )
@@ -124,8 +124,8 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       socket,
       :calibrations,
       :calibration_usage,
-      &Experiments.get_calibration!/2,
-      &Experiments.delete_calibration/2,
+      &Calibrations.get_calibration!/2,
+      &Calibrations.delete_calibration/2,
       id,
       "Calibration"
     )
@@ -136,8 +136,8 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       socket,
       :rois,
       :roi_usage,
-      &Experiments.get_roi!/2,
-      &Experiments.delete_roi/2,
+      &Rois.get_roi!/2,
+      &Rois.delete_roi/2,
       id,
       "ROI"
     )
@@ -148,8 +148,8 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       socket,
       :subjects,
       :subject_usage,
-      &Experiments.get_subject!/2,
-      &Experiments.delete_subject/2,
+      &Subjects.get_subject!/2,
+      &Subjects.delete_subject/2,
       id,
       "Subject"
     )
@@ -157,9 +157,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   def handle_event("duplicate_roi", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
-    roi = Experiments.get_roi!(scope, id)
+    roi = Rois.get_roi!(scope, id)
 
-    case Experiments.duplicate_roi(scope, roi) do
+    case Rois.duplicate_roi(scope, roi) do
       {:ok, duplicate} ->
         socket =
           socket
@@ -225,9 +225,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   defp update_subject_field(socket, id, attrs) do
     scope = socket.assigns.current_scope
-    subject = Experiments.get_subject!(scope, id)
+    subject = Subjects.get_subject!(scope, id)
 
-    case Experiments.update_subject(scope, subject, attrs) do
+    case Subjects.update_subject(scope, subject, attrs) do
       {:ok, updated} ->
         {:noreply, socket |> update(:subjects, &replace(&1, updated)) |> assign_derived()}
 

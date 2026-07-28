@@ -20,6 +20,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Subjects
   alias MouseTracker.Tracking.FrameExtractor
 
   # Two independent scale segments are required so px_per_10cm is the average
@@ -49,7 +50,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:draw_mode, "roi_polygon")
      |> assign(:experiment_name, "")
      |> assign(:pipeline_defaults, pipeline_defaults)
-     |> assign(:existing_subjects, Experiments.list_subjects(socket.assigns.current_scope))
+     |> assign(:existing_subjects, Subjects.list_subjects(socket.assigns.current_scope))
      |> allow_upload(:videos, upload_opts())}
   end
 
