@@ -65,7 +65,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           subject: subject,
           videos: videos,
           experiments: Reporting.subject_experiments(scope, subject.id),
-          points: build_series(videos, metric)
+          points: Reporting.metric_series(videos, metric)
         }
       end)
 
@@ -134,30 +134,6 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   defp unselected_subjects(subjects, selected_subjects) do
     selected_ids = MapSet.new(selected_subjects, & &1.id)
     Enum.reject(subjects, &MapSet.member?(selected_ids, &1.id))
-  end
-
-  # `subject_result_videos/3` orders newest-first; reverse to chronological
-  # (oldest-first) for a left-to-right trend, skip videos with no tracking
-  # result at all, then skip points whose specific metric is nil (some
-  # metrics — thigmotaxis, tortuosity, immobility, max speed — are optional on
-  # `TrackingResult` and can legitimately be missing even on a "done" video).
-  defp build_series(videos, metric_key) do
-    metric_atom = String.to_existing_atom(metric_key)
-
-    videos
-    |> Enum.reverse()
-    |> Enum.filter(&(&1.tracking_result != nil))
-    |> Enum.map(fn video ->
-      %{
-        video_id: video.id,
-        date: video.inserted_at,
-        label: Calendar.strftime(video.inserted_at, "%b %d"),
-        experiment_name: video.experiment.name,
-        filename: video.filename,
-        value: Map.get(video.tracking_result, metric_atom)
-      }
-    end)
-    |> Enum.reject(&is_nil(&1.value))
   end
 
   @impl true

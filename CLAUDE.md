@@ -404,9 +404,48 @@ antes do split):
   é quem move lógica de agregação hoje presa em LiveViews para dentro de
   `Experiments.Reporting`.
 
-Sprint 4 (mover lógica de agregação de LiveViews para `Experiments.Reporting`) e
+Sprint 4 — feito (lógica de agregação movida de LiveViews para
+`Experiments.Reporting`, `mix precommit` limpo, 357 testes passando — 7 a mais que
+antes, todos novos testes diretos contra `Reporting` que não existiam porque a lógica
+vivia presa em funções privadas de LiveView):
+- [x] **`Reporting.total_roi_seconds/1`** (novo): soma de `roi_times` de um
+  `TrackingResult`, movida de `ExperimentLive.Results`' `total_roi_seconds/1` privado
+  (usada 3x ali — stat card, cabeçalho da tabela de zonas e coluna "Time in ROI" da
+  aba por-subject).
+- [x] **`Reporting.share_of_session/2`** (novo): `% do tempo de sessão numa zona`,
+  movida de `Results`' `share_pct/2`. Unifica com o mesmo conceito que
+  `roi_zone_aggregate/1` (privado de `Reporting`) já calculava internamente para
+  `avg_share_pct` — mesma convenção de retornar `nil` quando `duration_seconds` é
+  ausente/zero (antes `share_pct/2` retornava `0.0` nesse caso e só `share_label/2`
+  sabia que isso significava "indisponível"; agora os dois wrappers finos que sobraram
+  em `Results` (`share_pct/2` para a largura da barra, `share_label/2` para o texto)
+  derivam do mesmo `nil` sem repetir a regra).
+- [x] **`Reporting.subject_groups/1`** (novo): agrupamento de vídeos por subject (nil
+  por último) + `subject_metric_aggregate/1` sobre os vídeos `"done"` de cada grupo —
+  movida de `DatasetLive.Index`'s `subject_groups/1` privado, sem nenhuma mudança de
+  comportamento (a função já delegava pra `Reporting.subject_metric_aggregate/1`, só
+  o agrupamento em si estava fora do módulo).
+- [x] **`Reporting.metric_series/2`** (novo): constrói a série temporal (mais antigo
+  primeiro) de uma métrica para o gráfico de tendência do Analyses — movida de
+  `AnalysesLive.Index`'s `build_series/2` privado. Também endereça o ponto do plano
+  sobre "filtragem de nil duplicada": `build_series/2` re-derivava do zero a regra
+  "pular vídeo sem `tracking_result`" que `subject_metric_aggregate/1` (via seu
+  privado `videos_with_results`) já aplicava — agora as duas vivem no mesmo módulo,
+  ainda que como funções distintas (formas de saída diferentes: série cronológica de
+  1 métrica vs. média/desvio-padrão de todas), reduzindo o risco de uma divergir da
+  outra no futuro.
+- [x] **`AnalysesLive.Index`'s `table_rows/1` e `series/1` não foram movidas**
+  (decisão explícita, não esquecimento): `table_rows/1` só reordena o `per_subject` já
+  montado pela própria LiveView (estrutura de view, não dado de domínio) e `series/1`
+  depende de `subject_color/1`, um helper de UI (`LocomoComponents`) sem sentido
+  dentro de `Reporting`.
+- [x] Testes: novos blocos `describe` em `test/mouse_tracker/experiments/reporting_test.exs`
+  para as 4 funções novas (`total_roi_seconds/1`, `share_of_session/2`,
+  `subject_groups/1`, `metric_series/2`) — a primeira cobertura direta dessa lógica,
+  já que antes só era exercitada indiretamente através dos testes de LiveView.
+
 Sprint 5 (quebrar as maiores funções, componentizar o display de métrica
-3x-duplicado): planejados, ainda não iniciados. Plano detalhado salvo em
+3x-duplicado): planejado, ainda não iniciado. Plano detalhado salvo em
 `C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`.
 
 ## Completed Features

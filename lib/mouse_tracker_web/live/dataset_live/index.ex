@@ -73,32 +73,12 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     socket
     |> assign(:summary, Reporting.datasets_summary(videos))
     |> assign(:videos, filtered)
-    |> assign(:subject_groups, subject_groups(filtered))
+    |> assign(:subject_groups, Reporting.subject_groups(filtered))
   end
 
   defp matches_query?(video, q) do
     [video.filename, video.subject && video.subject.name, video.experiment.name]
     |> Enum.any?(fn s -> s && String.contains?(String.downcase(s), q) end)
-  end
-
-  # Groups the filtered videos by subject (unassigned videos under a `nil`
-  # subject, sorted last), with the metric aggregate over each group's "done"
-  # videos.
-  defp subject_groups(videos) do
-    videos
-    |> Enum.group_by(& &1.subject_id)
-    |> Enum.map(fn {_subject_id, group} ->
-      done = Enum.filter(group, &(&1.status == "done"))
-
-      %{
-        subject: List.first(group).subject,
-        videos: group,
-        aggregate: Reporting.subject_metric_aggregate(done)
-      }
-    end)
-    |> Enum.sort_by(fn %{subject: subject} ->
-      {is_nil(subject), subject && String.downcase(subject.name)}
-    end)
   end
 
   # --- Thumbnails (async, cached per video on disk) ---

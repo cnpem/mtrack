@@ -231,4 +231,104 @@ defmodule MouseTracker.Experiments.ReportingTest do
              }
     end
   end
+
+  describe "subject_groups/1" do
+    test "agrupa por subject (nil por último), com aggregate sobre os vídeos done do grupo" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      subject = subject_fixture(user, %{name: "M-01"})
+
+      v1 = video_fixture(exp, nil, %{status: "done", subject_id: subject.id})
+      v2_pending = video_fixture(exp, nil, %{status: "pending", subject_id: subject.id})
+      v3_no_subject = video_fixture(exp, nil, %{status: "done"})
+
+      tracking_result_fixture(v1, %{distance_cm: 42.0})
+
+      videos =
+        Repo.preload([v1, v2_pending, v3_no_subject], [
+          :subject,
+          tracking_result: [roi_times: :roi]
+        ])
+
+      assert [%{subject: %{id: sid}, aggregate: aggregate}, %{subject: nil}] =
+               Reporting.subject_groups(videos)
+
+      assert sid == subject.id
+      # só o vídeo "done" do grupo entra no aggregate (o pending fica de fora)
+      assert aggregate.n == 1
+      assert aggregate.metrics.distance_cm.mean == 42.0
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Per-video helpers (Results screen)
+  # ---------------------------------------------------------------------------
+
+  describe "total_roi_seconds/1" do
+    test "soma os segundos de todas as zonas" do
+      exp = experiment_fixture(user_fixture())
+      video = video_fixture(exp)
+      roi1 = roi_fixture(video)
+      roi2 = roi_fixture(video)
+      result = tracking_result_fixture(video)
+      roi_time_fixture(roi1, result, %{seconds: 20.0})
+      roi_time_fixture(roi2, result, %{seconds: 15.0})
+
+      result = Repo.preload(result, :roi_times)
+
+      assert Reporting.total_roi_seconds(result) == 35.0
+    end
+
+    test "0.0 quando não há roi_times ou o shape é inesperado" do
+      assert Reporting.total_roi_seconds(%{roi_times: []}) == 0.0
+      assert Reporting.total_roi_seconds(nil) == 0.0
+    end
+  end
+
+  describe "share_of_session/2" do
+    test "calcula a porcentagem, limitada a 100%" do
+      assert Reporting.share_of_session(20.0, 100.0) == 20.0
+      assert Reporting.share_of_session(150.0, 100.0) == 100.0
+    end
+
+    test "nil quando a duração é ausente ou zero" do
+      assert Reporting.share_of_session(20.0, nil) == nil
+      assert Reporting.share_of_session(20.0, 0) == nil
+      assert Reporting.share_of_session(20.0, 0.0) == nil
+    end
+  end
+
+  describe "metric_series/2" do
+    test "ordena do mais antigo para o mais novo e ignora vídeos sem tracking_result" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+
+      v_new = video_fixture(exp, nil, %{status: "done"})
+      v_old = video_fixture(exp, nil, %{status: "done"})
+      v_no_result = video_fixture(exp, nil, %{status: "done"})
+
+      tracking_result_fixture(v_new, %{distance_cm: 200.0})
+      tracking_result_fixture(v_old, %{distance_cm: 100.0})
+
+      videos =
+        [v_new, v_old, v_no_result]
+        |> Repo.preload([:experiment, tracking_result: [roi_times: :roi]])
+
+      # simula o contrato de `subject_result_videos/3` (mais novo primeiro)
+      series = Reporting.metric_series(videos, "distance_cm")
+
+      assert Enum.map(series, & &1.value) == [100.0, 200.0]
+    end
+
+    test "ignora pontos cujo valor da métrica selecionada é nil" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      video = video_fixture(exp, nil, %{status: "done"})
+      tracking_result_fixture(video, %{path_tortuosity: nil})
+
+      videos = Repo.preload([video], [:experiment, tracking_result: [roi_times: :roi]])
+
+      assert Reporting.metric_series(videos, "path_tortuosity") == []
+    end
+  end
 end

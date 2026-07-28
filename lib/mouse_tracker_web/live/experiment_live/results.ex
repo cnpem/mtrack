@@ -289,7 +289,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       />
       <.stat_card
         label="Time in ROI"
-        value={fmt(total_roi_seconds(@result))}
+        value={fmt(Reporting.total_roi_seconds(@result))}
         unit="s"
         sub="Across all zones"
       />
@@ -334,7 +334,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
 
         <div class="font-data text-[11.5px] text-[#8a93a3]">
-          total {fmt(total_roi_seconds(@result))} s
+          total {fmt(Reporting.total_roi_seconds(@result))} s
         </div>
       </div>
 
@@ -649,7 +649,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             </td>
 
             <td class="py-2.5 font-data text-[#344054]">
-              {fmt(v.tracking_result && total_roi_seconds(v.tracking_result))} s
+              {fmt(v.tracking_result && Reporting.total_roi_seconds(v.tracking_result))} s
             </td>
           </tr>
         </tbody>
@@ -662,22 +662,17 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
 
   defp tabs, do: @tabs
 
-  defp total_roi_seconds(%{roi_times: roi_times}) when is_list(roi_times) do
-    roi_times |> Enum.map(& &1.seconds) |> Enum.sum()
+  # Bar width falls back to 0 when the session's share can't be computed
+  # (older videos may lack `duration_seconds`) — see `Reporting.share_of_session/2`.
+  defp share_pct(seconds, video),
+    do: Reporting.share_of_session(seconds, video.duration_seconds) || 0.0
+
+  defp share_label(seconds, video) do
+    case Reporting.share_of_session(seconds, video.duration_seconds) do
+      nil -> "—"
+      pct -> "#{fmt(pct)}%"
+    end
   end
-
-  defp total_roi_seconds(_), do: 0.0
-
-  # Share of the session spent in a zone. Falls back to 0 when the video has no
-  # known duration (older records may lack `duration_seconds`).
-  defp share_pct(_seconds, %{duration_seconds: d}) when d in [nil, 0, 0.0], do: 0.0
-
-  defp share_pct(seconds, %{duration_seconds: duration}) do
-    min(seconds / duration * 100, 100.0)
-  end
-
-  defp share_label(_seconds, %{duration_seconds: d}) when d in [nil, 0, 0.0], do: "—"
-  defp share_label(seconds, video), do: "#{fmt(share_pct(seconds, video))}%"
 
   defp calibration_label(nil), do: "No calibration assigned"
   defp calibration_label(%{name: name}) when is_binary(name) and name != "", do: name
