@@ -90,6 +90,8 @@ The app uses **magic-link login** (passwordless email link) as the primary flow,
 
 Phoenix LiveView with Tailwind CSS (v4). JS entry point is `assets/js/app.js`. Templates use `.heex` files. `core_components.ex` defines reusable UI components. **Do not use DaisyUI** — write Tailwind components manually.
 
+**Status: DaisyUI foi totalmente removido do projeto.** Todas as telas (auth, Locomo, e `UserLive.Settings`) usam Tailwind puro, com a paleta Locomo (fundo `#f3f4f6`, texto `#0f1729`, laranja `#CC5500`) como sistema único — sem alternância de tema (o toggle light/dark/system existente foi removido, já que o design Locomo nunca teve modo escuro). `core_components.ex` (`.input`/`.button`/`.header`/`.flash_group`/`.table`/`.list`) agora usa classes Tailwind puras por padrão; `Layouts.app` (navbar boilerplate do Phoenix, com `theme_toggle`) foi removida — `UserLive.Settings` passou a usar `Layouts.locomo` (`active={:account}`, sem item de sidebar correspondente). `assets/css/app.css` não carrega mais `@plugin "../vendor/daisyui"`/`daisyui-theme`. A página padrão do Phoenix em `/` (`PageController`) também foi removida — `/` agora redireta para `/experiments` (logado) ou `/users/log-in` (deslogado) via `RootRedirectController`/`UserAuth.root_path/1`; o menu de navegação genérico (`menu menu-horizontal`) que `root.html.heex` renderizava acima de toda página também saiu, já que a sidebar Locomo e as telas de auth já cobrem essa navegação.
+
 ### HTTP client
 
 Use the `:req` (`Req`) library for all HTTP requests. **Never** use `:httpoison`, `:tesla`, or `:httpc`. `Req` is already included as a dependency.
@@ -272,6 +274,14 @@ Pontos técnicos principais do plano (ver arquivo completo para detalhes):
 - ✅ Testes de `python_port`/`video_processing_worker` (feito) atualizados para a nova aridade do callback.
 
 Ponto em aberto resolvido na Fase 2 parte 7: editar a geometria de uma ROI já usada em vídeo processado alteraria o desenho pra todos os vídeos que a compartilham, dessincronizando de resultados antigos (não é sobreposição de dados — medições continuam por-vídeo — mas confunde). Decisão: bloquear a edição de geometria nesse caso (só o nome fica editável) e oferecer "Duplicar ROI" como alternativa livre — ver `ExperimentLive.RoiEdit` acima.
+
+Fase 2 — parte 15: migração completa de DaisyUI para Tailwind puro (`mix precommit` limpo, 344 testes passando) — item que a seção "Frontend" acima já vinha sinalizando como pendente há várias partes:
+- [x] **`core_components.ex`** (usado por toda página do site, inclusive as Locomo): `flash`/`button`/`input` (4 variantes: texto, select, textarea, checkbox)/`error`/`header`/`table`/`list` reescritos em Tailwind puro, reaproveitando a paleta Locomo já estabelecida (`#CC5500` laranja, `#0f1729`/`#344054`/`#8a93a3` texto, `#e7e9ee` bordas, `red-600`/`red-400` erro). O default de `<.input>` texto agora é idêntico ao `@input_class` que `login.ex`/`registration.ex` já usavam via override manual — essas telas continuam com override próprio (por causa de `w-full` e afins), mas ficaram visualmente consistentes com o novo default por coincidência de design, não por dependência.
+- [x] **`UserLive.Settings`** saiu de `Layouts.app` (DaisyUI) para `Layouts.locomo` (`active={:account}`, valor novo que não corresponde a nenhum item da sidebar — a tela de conta não é uma das 4 seções principais, então nada acende). `Layouts.app` e `theme_toggle/1` foram apagados de `layouts.ex` — não tinham mais nenhum outro caller.
+- [x] **Dark mode removido por completo**: o toggle light/dark/system nunca teve equivalente nas telas Locomo/auth (100% paleta clara fixa); o script inline de tema em `root.html.heex` e os blocos `@plugin "../vendor/daisyui-theme"` (OKLCH) + `@custom-variant dark` em `app.css` foram removidos. App é single-theme agora.
+- [x] **Página padrão do Phoenix em `/` removida** (`PageController`/`page_html/home.html.heex`, boilerplate não relacionado ao produto real) — `/` agora é um redirect puro via `RootRedirectController`/`UserAuth.root_path/1`: `/experiments` se logado, `/users/log-in` se não. `test/.../user_session_controller_test.exs` (que antes checava o menu renderizado em `/`) foi atualizado para checar o redirect.
+- [x] **Menu de navegação genérico removido de `root.html.heex`** (`<ul class="menu menu-horizontal">` com email/Settings/Log out ou Register/Log in, renderizado acima de toda página) — duplicava nav que a sidebar Locomo (email + Sign out no rodapé) e as telas de auth já cobrem; não foi substituído por nada.
+- [x] `assets/vendor/daisyui.js`/`daisyui-theme.js` apagados (mortos desde a remoção do `@plugin` em `app.css`).
 
 ## Completed Features
 

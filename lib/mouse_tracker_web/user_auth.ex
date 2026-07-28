@@ -264,6 +264,13 @@ defmodule MouseTrackerWeb.UserAuth do
 
   def signed_in_path(_), do: ~p"/experiments"
 
+  @doc "Returns the path to redirect to when visiting `/`."
+  def root_path(%Plug.Conn{assigns: %{current_scope: %Scope{user: %Accounts.User{}}}}) do
+    ~p"/experiments"
+  end
+
+  def root_path(_), do: ~p"/users/log-in"
+
   @doc """
   Plug for routes that require the user to be authenticated.
   """

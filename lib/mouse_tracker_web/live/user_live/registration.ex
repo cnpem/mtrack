@@ -4,74 +4,83 @@ defmodule MouseTrackerWeb.UserLive.Registration do
   alias MouseTracker.Accounts
   alias MouseTracker.Accounts.User
 
+  @input_class "w-full rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2.5 text-[14px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+
   @impl true
   def render(assigns) do
-    ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="mx-auto max-w-sm">
-        <div class="text-center">
-          <.header>
-            Register for an account
-            <:subtitle>
-              Already registered?
-              <.link navigate={~p"/users/log-in"} class="font-semibold text-brand hover:underline">
-                Log in
-              </.link>
-              to your account now.
-            </:subtitle>
-          </.header>
-        </div>
+    assigns = assign(assigns, :input_class, @input_class)
 
-        <.form
-          for={@form}
-          id="registration_form"
-          action={~p"/users/log-in"}
-          method="post"
-          phx-trigger-action={@trigger_submit}
-          phx-submit="save"
-          phx-change="validate"
-        >
-          <.input
-            field={@form[:name]}
-            type="text"
-            label="Full name"
-            autocomplete="name"
-            required
-            phx-mounted={JS.focus()}
-          />
-          <.input
-            field={@form[:institution]}
-            type="text"
-            label="Institution / Lab (optional)"
-            autocomplete="organization"
-          />
-          <.input
-            field={@form[:email]}
-            type="email"
-            label="Email"
-            autocomplete="username"
-            spellcheck="false"
-            required
-          />
-          <.input
-            field={@form[:password]}
-            type="password"
-            label="Password"
-            autocomplete="new-password"
-            required
-          />
-          <.input
-            field={@form[:password_confirmation]}
-            type="password"
-            label="Confirm password"
-            autocomplete="new-password"
-          />
-          <.button phx-disable-with="Creating account..." class="btn btn-primary w-full">
-            Create an account
-          </.button>
-        </.form>
+    ~H"""
+    <Layouts.auth flash={@flash} current_scope={@current_scope}>
+      <div class="text-center">
+        <h1 class="text-lg font-semibold text-[#0f1729]">Register for an account</h1>
+        <p class="mt-1.5 text-sm text-[#667085]">
+          Already registered?
+          <.link navigate={~p"/users/log-in"} class="font-semibold text-[#CC5500] hover:underline">
+            Log in
+          </.link>
+          to your account now.
+        </p>
       </div>
-    </Layouts.app>
+
+      <.form
+        for={@form}
+        id="registration_form"
+        action={~p"/users/log-in"}
+        method="post"
+        phx-trigger-action={@trigger_submit}
+        phx-submit="save"
+        phx-change="validate"
+        class="mt-6 space-y-4"
+      >
+        <.input
+          field={@form[:name]}
+          type="text"
+          label="Full name"
+          autocomplete="name"
+          required
+          phx-mounted={JS.focus()}
+          class={@input_class}
+        />
+        <.input
+          field={@form[:institution]}
+          type="text"
+          label="Institution / Lab (optional)"
+          autocomplete="organization"
+          class={@input_class}
+        />
+        <.input
+          field={@form[:email]}
+          type="email"
+          label="Email"
+          autocomplete="username"
+          spellcheck="false"
+          required
+          class={@input_class}
+        />
+        <.input
+          field={@form[:password]}
+          type="password"
+          label="Password"
+          autocomplete="new-password"
+          required
+          class={@input_class}
+        />
+        <.input
+          field={@form[:password_confirmation]}
+          type="password"
+          label="Confirm password"
+          autocomplete="new-password"
+          class={@input_class}
+        />
+        <.button
+          phx-disable-with="Creating account..."
+          class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
+        >
+          Create an account
+        </.button>
+      </.form>
+    </Layouts.auth>
     """
   end
 
