@@ -8,72 +8,94 @@ defmodule MouseTrackerWeb.UserLive.Settings do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <div class="text-center">
-        <.header>
-          Account Settings
-          <:subtitle>Manage your account email address and password settings</:subtitle>
-        </.header>
-      </div>
+    <Layouts.locomo
+      flash={@flash}
+      current_scope={@current_scope}
+      active={:account}
+      breadcrumb="Account"
+      page_title="Settings"
+    >
+      <div class="mx-auto max-w-xl">
+        <div class="rounded-2xl border border-[#e7e9ee] bg-white p-7 shadow-sm">
+          <div class="text-center">
+            <.header>
+              Account Settings
+              <:subtitle>Manage your account email address and password settings</:subtitle>
+            </.header>
+          </div>
 
-      <.form
-        for={@profile_form}
-        id="profile_form"
-        phx-submit="update_profile"
-        phx-change="validate_profile"
-      >
-        <.input field={@profile_form[:name]} type="text" label="Full name" required />
-        <.input field={@profile_form[:institution]} type="text" label="Institution / Lab" />
-        <.button variant="primary" phx-disable-with="Saving...">Save profile</.button>
-      </.form>
-      <div class="divider" />
-      <.form for={@email_form} id="email_form" phx-submit="update_email" phx-change="validate_email">
-        <.input
-          field={@email_form[:email]}
-          type="email"
-          label="Email"
-          autocomplete="username"
-          spellcheck="false"
-          required
-        /> <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
-      </.form>
-      <div class="divider" />
-      <.form
-        for={@password_form}
-        id="password_form"
-        action={~p"/users/update-password"}
-        method="post"
-        phx-change="validate_password"
-        phx-submit="update_password"
-        phx-trigger-action={@trigger_submit}
-      >
-        <input
-          name={@password_form[:email].name}
-          type="hidden"
-          id="hidden_user_email"
-          spellcheck="false"
-          value={@current_email}
-        />
-        <.input
-          field={@password_form[:password]}
-          type="password"
-          label="New password"
-          autocomplete="new-password"
-          spellcheck="false"
-          required
-        />
-        <.input
-          field={@password_form[:password_confirmation]}
-          type="password"
-          label="Confirm new password"
-          autocomplete="new-password"
-          spellcheck="false"
-        />
-        <.button variant="primary" phx-disable-with="Saving...">
-          Save Password
-        </.button>
-      </.form>
-    </Layouts.app>
+          <.form
+            for={@profile_form}
+            id="profile_form"
+            phx-submit="update_profile"
+            phx-change="validate_profile"
+            class="space-y-4"
+          >
+            <.input field={@profile_form[:name]} type="text" label="Full name" required />
+            <.input field={@profile_form[:institution]} type="text" label="Institution / Lab" />
+            <.button variant="primary" phx-disable-with="Saving...">Save profile</.button>
+          </.form>
+
+          <div class="my-6 border-t border-[#e7e9ee]" />
+
+          <.form
+            for={@email_form}
+            id="email_form"
+            phx-submit="update_email"
+            phx-change="validate_email"
+            class="space-y-4"
+          >
+            <.input
+              field={@email_form[:email]}
+              type="email"
+              label="Email"
+              autocomplete="username"
+              spellcheck="false"
+              required
+            /> <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+          </.form>
+
+          <div class="my-6 border-t border-[#e7e9ee]" />
+
+          <.form
+            for={@password_form}
+            id="password_form"
+            action={~p"/users/update-password"}
+            method="post"
+            phx-change="validate_password"
+            phx-submit="update_password"
+            phx-trigger-action={@trigger_submit}
+            class="space-y-4"
+          >
+            <input
+              name={@password_form[:email].name}
+              type="hidden"
+              id="hidden_user_email"
+              spellcheck="false"
+              value={@current_email}
+            />
+            <.input
+              field={@password_form[:password]}
+              type="password"
+              label="New password"
+              autocomplete="new-password"
+              spellcheck="false"
+              required
+            />
+            <.input
+              field={@password_form[:password_confirmation]}
+              type="password"
+              label="Confirm new password"
+              autocomplete="new-password"
+              spellcheck="false"
+            />
+            <.button variant="primary" phx-disable-with="Saving...">
+              Save Password
+            </.button>
+          </.form>
+        </div>
+      </div>
+    </Layouts.locomo>
     """
   end
 

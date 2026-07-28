@@ -20,7 +20,7 @@ defmodule MouseTrackerWeb.Router do
   scope "/", MouseTrackerWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    get "/", RootRedirectController, :index
   end
 
   # Other scopes may use custom stacks.
