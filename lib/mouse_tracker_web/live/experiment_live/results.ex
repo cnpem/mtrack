@@ -521,49 +521,19 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         Mean ± SD across {@aggregate.n} video(s)
       </p>
 
-      <div class="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <.stat_card
-          label="Distance traveled"
-          value={stat_fmt(@aggregate.metrics.distance_cm)}
-          unit="cm"
-          sub="Total path length"
-        />
-        <.stat_card
-          label="Mean speed"
-          value={stat_fmt(@aggregate.metrics.speed_mean_cm)}
-          unit="cm/s"
-          sub="Average over session"
-        />
-        <.stat_card
-          label="Median speed"
-          value={stat_fmt(@aggregate.metrics.speed_median_cm)}
-          unit="cm/s"
-          sub="Typical speed"
-        />
-        <.stat_card
-          label="Max speed"
-          value={stat_fmt(@aggregate.metrics.speed_max_cm)}
-          unit="cm/s"
-          sub="Peak instantaneous"
-        />
-        <.stat_card
-          label="Thigmotaxis"
-          value={stat_fmt(@aggregate.metrics.thigmotaxis_pct)}
-          unit="%"
-          sub="Time near the wall"
-        />
-        <.stat_card
-          label="Path tortuosity"
-          value={stat_fmt(@aggregate.metrics.path_tortuosity)}
-          sub="Path length / displacement"
-        />
-        <.stat_card
-          label="Immobility"
-          value={stat_fmt(@aggregate.metrics.immobility_seconds)}
-          unit="s"
-          sub="Speed < 2 cm/s"
-        />
-      </div>
+      <.metric_stat_cards
+        metrics={@aggregate.metrics}
+        fields={[
+          %{key: :distance_cm, label: "Distance traveled", unit: "cm", sub: "Total path length"},
+          %{key: :speed_mean_cm, label: "Mean speed", unit: "cm/s", sub: "Average over session"},
+          %{key: :speed_median_cm, label: "Median speed", unit: "cm/s", sub: "Typical speed"},
+          %{key: :speed_max_cm, label: "Max speed", unit: "cm/s", sub: "Peak instantaneous"},
+          %{key: :thigmotaxis_pct, label: "Thigmotaxis", unit: "%", sub: "Time near the wall"},
+          %{key: :path_tortuosity, label: "Path tortuosity", sub: "Path length / displacement"},
+          %{key: :immobility_seconds, label: "Immobility", unit: "s", sub: "Speed < 2 cm/s"}
+        ]}
+        class="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4"
+      />
 
       <div
         :if={@aggregate.roi_zones != []}

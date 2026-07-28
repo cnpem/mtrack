@@ -22,6 +22,37 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   @tabs [{"calibrations", "Calibrations"}, {"rois", "ROIs"}, {"subjects", "Subjects"}]
 
+  # Drives the generic rename/delete handlers below: one entry per renamable
+  # resource, keyed by the singular name already used in each event ("rename_roi",
+  # "delete_subject", ...), so a 3rd copy-pasted `handle_event` clause per
+  # resource never needs to happen again if a 4th resource shows up here.
+  @resources %{
+    "calibration" => %{
+      assign_key: :calibrations,
+      usage_key: :calibration_usage,
+      label: "Calibration",
+      get: &Calibrations.get_calibration!/2,
+      update: &Calibrations.update_calibration/3,
+      delete: &Calibrations.delete_calibration/2
+    },
+    "roi" => %{
+      assign_key: :rois,
+      usage_key: :roi_usage,
+      label: "ROI",
+      get: &Rois.get_roi!/2,
+      update: &Rois.update_roi/3,
+      delete: &Rois.delete_roi/2
+    },
+    "subject" => %{
+      assign_key: :subjects,
+      usage_key: :subject_usage,
+      label: "Subject",
+      get: &Subjects.get_subject!/2,
+      update: &Subjects.update_subject/3,
+      delete: &Subjects.delete_subject/2
+    }
+  }
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -85,30 +116,8 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     {:noreply, socket |> assign(:query, query) |> assign_derived()}
   end
 
-  def handle_event("rename_calibration", %{"id" => id, "value" => name}, socket) do
-    rename(
-      socket,
-      :calibrations,
-      &Calibrations.get_calibration!/2,
-      &Calibrations.update_calibration/3,
-      id,
-      name
-    )
-  end
-
-  def handle_event("rename_roi", %{"id" => id, "value" => name}, socket) do
-    rename(socket, :rois, &Rois.get_roi!/2, &Rois.update_roi/3, id, name)
-  end
-
-  def handle_event("rename_subject", %{"id" => id, "value" => name}, socket) do
-    rename(
-      socket,
-      :subjects,
-      &Subjects.get_subject!/2,
-      &Subjects.update_subject/3,
-      id,
-      name
-    )
+  def handle_event("rename_" <> key, %{"id" => id, "value" => name}, socket) do
+    rename(socket, Map.fetch!(@resources, key), id, name)
   end
 
   def handle_event("update_subject_sex", %{"subject_id" => id, "value" => sex}, socket) do
@@ -119,40 +128,8 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     update_subject_field(socket, id, %{genotype: normalize_blank(genotype)})
   end
 
-  def handle_event("delete_calibration", %{"id" => id}, socket) do
-    delete(
-      socket,
-      :calibrations,
-      :calibration_usage,
-      &Calibrations.get_calibration!/2,
-      &Calibrations.delete_calibration/2,
-      id,
-      "Calibration"
-    )
-  end
-
-  def handle_event("delete_roi", %{"id" => id}, socket) do
-    delete(
-      socket,
-      :rois,
-      :roi_usage,
-      &Rois.get_roi!/2,
-      &Rois.delete_roi/2,
-      id,
-      "ROI"
-    )
-  end
-
-  def handle_event("delete_subject", %{"id" => id}, socket) do
-    delete(
-      socket,
-      :subjects,
-      :subject_usage,
-      &Subjects.get_subject!/2,
-      &Subjects.delete_subject/2,
-      id,
-      "Subject"
-    )
+  def handle_event("delete_" <> key, %{"id" => id}, socket) do
+    delete(socket, Map.fetch!(@resources, key), id)
   end
 
   def handle_event("duplicate_roi", %{"id" => id}, socket) do
@@ -202,15 +179,15 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     end
   end
 
-  defp rename(socket, assign_key, get_fn, update_fn, id, name) do
+  defp rename(socket, resource, id, name) do
     scope = socket.assigns.current_scope
-    resource = get_fn.(scope, id)
+    item = resource.get.(scope, id)
 
-    case update_fn.(scope, resource, %{name: name}) do
+    case resource.update.(scope, item, %{name: name}) do
       {:ok, updated} ->
         socket =
           socket
-          |> update(assign_key, &replace(&1, updated))
+          |> update(resource.assign_key, &replace(&1, updated))
           |> assign_derived()
 
         {:noreply, socket}
@@ -246,23 +223,25 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     end
   end
 
-  defp delete(socket, assign_key, usage_key, get_fn, delete_fn, id, label) do
+  defp delete(socket, resource, id) do
     scope = socket.assigns.current_scope
-    resource = get_fn.(scope, id)
-    usage = Map.get(socket.assigns[usage_key], resource.id, 0)
+    item = resource.get.(scope, id)
+    usage = Map.get(socket.assigns[resource.usage_key], item.id, 0)
 
     if usage > 0 do
-      msg = "#{label} is attached to #{usage} video(s) — remove it from those videos first."
+      msg =
+        "#{resource.label} is attached to #{usage} video(s) — remove it from those videos first."
+
       {:noreply, put_flash(socket, :error, msg)}
     else
-      {:ok, _} = delete_fn.(scope, resource)
+      {:ok, _} = resource.delete.(scope, item)
 
       socket =
         socket
-        |> update(assign_key, fn list -> Enum.reject(list, &(&1.id == resource.id)) end)
-        |> update(usage_key, &Map.delete(&1, resource.id))
+        |> update(resource.assign_key, fn list -> Enum.reject(list, &(&1.id == item.id)) end)
+        |> update(resource.usage_key, &Map.delete(&1, item.id))
         |> assign_derived()
-        |> put_flash(:info, "#{label} deleted.")
+        |> put_flash(:info, "#{resource.label} deleted.")
 
       {:noreply, socket}
     end

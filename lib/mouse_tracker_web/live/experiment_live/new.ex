@@ -727,286 +727,43 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         active_spec: assigns.specs[active],
         active_rois: Map.get(assigns.rois, active, []),
         scale_summary:
-          assigns.calibrations[active] && derive_px_per_10cm_pair(assigns.calibrations[active])
+          assigns.calibrations[active] && derive_px_per_10cm_pair(assigns.calibrations[active]),
+        shapes_json: Jason.encode!(canvas_shapes(assigns))
       )
 
     ~H"""
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1.5fr_1fr]">
-      <div>
-        <div
-          :if={@active_video && @active_video.frame_url}
-          id="roi-canvas"
-          phx-hook="RoiCanvas"
-          data-frame={@active_video.frame_url}
-          data-mode={@draw_mode}
-          data-shapes={Jason.encode!(canvas_shapes(assigns))}
-          class="relative overflow-hidden rounded-[10px] border border-[#e7e9ee] bg-[#11161f]"
-        >
-          <img data-role="frame" src={@active_video.frame_url} class="block w-full select-none" />
-          <canvas data-role="overlay" class="absolute inset-0 h-full w-full cursor-crosshair"></canvas>
-        </div>
-
-        <div
-          :if={@active_video && !@active_video.frame_url}
-          class="flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
-        >
-          Could not extract a frame from this video.
-        </div>
-
-        <div :if={@active_video && @active_video.frame_url} class="mt-3">
-          <form
-            id={"ref-frame-#{@active_ref}"}
-            phx-submit="set_reference_frame"
-            class="flex flex-wrap items-end gap-2"
-          >
-            <input type="hidden" name="ref" value={@active_ref} />
-            <label class="block">
-              <span class="text-[11px] text-[#667085]">Reference frame (background)</span>
-              <input
-                type="number"
-                name="frame"
-                min="0"
-                value={Map.get(@active_video, :background_frame, 0)}
-                class="mt-1 w-28 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-              />
-            </label>
-
-            <button
-              type="submit"
-              class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-            >
-              Load frame
-            </button>
-
-            <span
-              :if={Map.get(@active_video, :frame_count)}
-              class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
-            >
-              of {@active_video.frame_count} frames
-            </span>
-          </form>
-
-          <p class="mt-1 text-[11px] text-[#8a93a3]">
-            Switch the frame if the first one has a hand or obstruction in the arena — it's used as the background for detection and the heatmap.
-          </p>
-        </div>
-
-        <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            phx-click="toggle_cal_ref"
-            phx-value-ref={@active_ref}
-            class={ref_toggle_class(@active_spec.cal_ref?)}
-          >
-            <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
-              do: "★ scale reference",
-              else: "use as scale reference"}
-          </button>
-
-          <button
-            type="button"
-            phx-click="toggle_roi_ref"
-            phx-value-ref={@active_ref}
-            class={ref_toggle_class(@active_spec.roi_ref?)}
-          >
-            <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
-              do: "★ ROI reference",
-              else: "use as ROI reference"}
-          </button>
-        </div>
-      </div>
+      <.canvas_section
+        active_video={@active_video}
+        active_ref={@active_ref}
+        active_spec={@active_spec}
+        draw_mode={@draw_mode}
+        shapes_json={@shapes_json}
+      />
 
       <div class="space-y-4">
-        <div
-          :if={@active_spec && @active_spec.cal_ref?}
-          class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
-        >
-          <div class="text-[12px] font-bold text-[#0f1729]">Scale & valid region</div>
+        <.scale_card
+          :if={@active_spec}
+          active_spec={@active_spec}
+          active_ref={@active_ref}
+          draw_mode={@draw_mode}
+          calibrations={@calibrations}
+          scale_summary={@scale_summary}
+          specs={@specs}
+          saved_videos={@saved_videos}
+        />
 
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            <.mode_button current={@draw_mode} mode="valid_region" label="Valid region" />
-            <.mode_button current={@draw_mode} mode="scale" label="Scale 1 (2 pts)" />
-            <.mode_button current={@draw_mode} mode="scale2" label="Scale 2 (2 pts)" />
-          </div>
+        <.roi_card
+          :if={@active_spec}
+          active_spec={@active_spec}
+          active_ref={@active_ref}
+          draw_mode={@draw_mode}
+          active_rois={@active_rois}
+          specs={@specs}
+          saved_videos={@saved_videos}
+        />
 
-          <form
-            id={"scale-cm-#{@active_ref}"}
-            phx-change="set_scale_cm"
-            phx-submit="set_scale_cm"
-            class="mt-3"
-          >
-            <label class="text-[11px] text-[#667085]">Real-world measure of reference 1 (cm)</label>
-            <input
-              type="number"
-              step="any"
-              name="value"
-              value={cal_field(@calibrations, @active_ref, :scale_cm)}
-              placeholder="ex: 40"
-              class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
-
-          <form
-            id={"scale-cm2-#{@active_ref}"}
-            phx-change="set_scale_cm2"
-            phx-submit="set_scale_cm2"
-            class="mt-3"
-          >
-            <label class="text-[11px] text-[#667085]">Real-world measure of reference 2 (cm)</label>
-            <input
-              type="number"
-              step="any"
-              name="value"
-              value={cal_field(@calibrations, @active_ref, :scale_cm2)}
-              placeholder="ex: 40"
-              class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
-
-          <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
-            {scale_status(@calibrations, @active_ref)}
-          </div>
-
-          <div
-            :if={@scale_summary && @scale_summary.divergence_pct > divergence_warning_pct()}
-            class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
-          >
-            <div class="text-[11.5px] font-semibold text-[#92400e]">
-              The two scale measurements diverge by {@scale_summary.divergence_pct}% (expected ≤{divergence_warning_pct()}%). Double-check the points clicked on each segment.
-            </div>
-          </div>
-
-          <form
-            id={"cal-setting-#{@active_ref}"}
-            phx-change="cal_setting"
-            phx-submit="cal_setting"
-            class="mt-3 grid grid-cols-2 gap-2"
-          >
-            <label class="block">
-              <span class="text-[11px] text-[#667085]">Threshold</span>
-              <input
-                type="number"
-                name="threshold"
-                value={cal_field(@calibrations, @active_ref, :threshold)}
-                class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-[11px] text-[#667085]">Min area</span>
-              <input
-                type="number"
-                name="min_area"
-                value={cal_field(@calibrations, @active_ref, :min_area)}
-                class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
-              />
-            </label>
-          </form>
-        </div>
-
-        <div :if={@active_spec && not @active_spec.cal_ref?}>
-          <.inherit_control
-            kind="scale"
-            resolved={resolve_label(@active_ref, @specs, :cal, @saved_videos)}
-            event="set_cal_source"
-            ref={@active_ref}
-            options={source_options(assigns, :cal)}
-            selected={current_source_ref(@specs[@active_ref], :cal)}
-          />
-        </div>
-
-        <div
-          :if={@active_spec && @active_spec.roi_ref?}
-          class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
-        >
-          <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zones)</div>
-
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            <.mode_button current={@draw_mode} mode="roi_polygon" label="Polygon (4 pts)" />
-            <.mode_button current={@draw_mode} mode="roi_circle" label="Circle" />
-          </div>
-
-          <ul class="mt-3 space-y-2">
-            <li :for={{roi, idx} <- Enum.with_index(@active_rois)} class="flex items-center gap-2">
-              <span class="font-data text-[10.5px] uppercase text-[#98a2b3]">{roi.shape}</span>
-              <form
-                id={"roi-name-#{@active_ref}-#{idx}"}
-                phx-change="set_roi_name"
-                phx-submit="set_roi_name"
-                class="flex-1"
-              >
-                <input type="hidden" name="index" value={idx} />
-                <input
-                  type="text"
-                  name="value"
-                  value={roi.name}
-                  placeholder="Zone name"
-                  class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-                />
-              </form>
-
-              <button
-                type="button"
-                phx-click="remove_roi"
-                phx-value-index={idx}
-                class="text-[#98a2b3] hover:text-[#b42318]"
-                aria-label="Remove ROI"
-              >
-                <.icon name="hero-trash-micro" class="size-4" />
-              </button>
-            </li>
-          </ul>
-
-          <div :if={@active_rois == []} class="mt-2 text-[11.5px] text-[#98a2b3]">
-            Choose a mode above and draw on the frame to add zones.
-          </div>
-        </div>
-
-        <div :if={@active_spec && not @active_spec.roi_ref?}>
-          <.inherit_control
-            kind="ROI"
-            resolved={resolve_label(@active_ref, @specs, :roi, @saved_videos)}
-            event="set_roi_source"
-            ref={@active_ref}
-            options={source_options(assigns, :roi)}
-            selected={current_source_ref(@specs[@active_ref], :roi)}
-          />
-        </div>
-
-        <div>
-          <div class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-            Videos in this batch
-          </div>
-
-          <ul class="mt-2 space-y-1.5">
-            <li
-              :for={v <- @saved_videos}
-              phx-click="select_active"
-              phx-value-ref={v.ref}
-              class={[
-                "cursor-pointer rounded-[10px] border bg-white p-2.5 transition-colors",
-                v.ref == @active_ref && "border-[#CC5500] ring-1 ring-[#CC5500]/20",
-                v.ref != @active_ref && "border-[#e7e9ee] hover:border-[#d4d8df]"
-              ]}
-            >
-              <div class="truncate font-data text-[12px] font-medium text-[#0f1729]">
-                {v.filename}
-              </div>
-
-              <div class="mt-1 flex flex-wrap gap-1.5">
-                <.resource_badge
-                  label="Scale"
-                  tag={resolve_label(v.ref, @specs, :cal, @saved_videos)}
-                />
-                <.resource_badge
-                  label="ROI"
-                  tag={resolve_label(v.ref, @specs, :roi, @saved_videos)}
-                  optional
-                />
-              </div>
-            </li>
-          </ul>
-        </div>
+        <.batch_list saved_videos={@saved_videos} active_ref={@active_ref} specs={@specs} />
       </div>
     </div>
 
@@ -1042,6 +799,334 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       >
         Continue → Review
       </button>
+    </div>
+    """
+  end
+
+  # --- Step 2 cards ---
+
+  attr :active_video, :map, default: nil
+  attr :active_ref, :string, required: true
+  attr :active_spec, :map, default: nil
+  attr :draw_mode, :string, required: true
+  attr :shapes_json, :string, required: true
+
+  # The frame/canvas the user draws on, plus the reference-frame picker and
+  # the "use as scale/ROI reference" toggles — everything tied to *which*
+  # video is currently active, as opposed to the scale/ROI data itself.
+  defp canvas_section(assigns) do
+    ~H"""
+    <div>
+      <div
+        :if={@active_video && @active_video.frame_url}
+        id="roi-canvas"
+        phx-hook="RoiCanvas"
+        data-frame={@active_video.frame_url}
+        data-mode={@draw_mode}
+        data-shapes={@shapes_json}
+        class="relative overflow-hidden rounded-[10px] border border-[#e7e9ee] bg-[#11161f]"
+      >
+        <img data-role="frame" src={@active_video.frame_url} class="block w-full select-none" />
+        <canvas data-role="overlay" class="absolute inset-0 h-full w-full cursor-crosshair"></canvas>
+      </div>
+
+      <div
+        :if={@active_video && !@active_video.frame_url}
+        class="flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
+      >
+        Could not extract a frame from this video.
+      </div>
+
+      <.reference_frame_form
+        :if={@active_video && @active_video.frame_url}
+        active_ref={@active_ref}
+        active_video={@active_video}
+      />
+
+      <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          phx-click="toggle_cal_ref"
+          phx-value-ref={@active_ref}
+          class={ref_toggle_class(@active_spec.cal_ref?)}
+        >
+          <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
+            do: "★ scale reference",
+            else: "use as scale reference"}
+        </button>
+
+        <button
+          type="button"
+          phx-click="toggle_roi_ref"
+          phx-value-ref={@active_ref}
+          class={ref_toggle_class(@active_spec.roi_ref?)}
+        >
+          <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
+            do: "★ ROI reference",
+            else: "use as ROI reference"}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  attr :active_ref, :string, required: true
+  attr :active_video, :map, required: true
+
+  defp reference_frame_form(assigns) do
+    ~H"""
+    <div class="mt-3">
+      <form
+        id={"ref-frame-#{@active_ref}"}
+        phx-submit="set_reference_frame"
+        class="flex flex-wrap items-end gap-2"
+      >
+        <input type="hidden" name="ref" value={@active_ref} />
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Reference frame (background)</span>
+          <input
+            type="number"
+            name="frame"
+            min="0"
+            value={Map.get(@active_video, :background_frame, 0)}
+            class="mt-1 w-28 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <button
+          type="submit"
+          class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
+        >
+          Load frame
+        </button>
+
+        <span
+          :if={Map.get(@active_video, :frame_count)}
+          class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
+        >
+          of {@active_video.frame_count} frames
+        </span>
+      </form>
+
+      <p class="mt-1 text-[11px] text-[#8a93a3]">
+        Switch the frame if the first one has a hand or obstruction in the arena — it's used as the background for detection and the heatmap.
+      </p>
+    </div>
+    """
+  end
+
+  attr :active_spec, :map, required: true
+  attr :active_ref, :string, required: true
+  attr :draw_mode, :string, required: true
+  attr :calibrations, :map, required: true
+  attr :scale_summary, :map, default: nil
+  attr :specs, :map, required: true
+  attr :saved_videos, :list, required: true
+
+  # Either the scale/valid-region editor (if this video is the scale
+  # reference) or an `inherit_control` pointing at whichever video it inherits
+  # scale from.
+  defp scale_card(assigns) do
+    ~H"""
+    <div :if={@active_spec.cal_ref?} class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+      <div class="text-[12px] font-bold text-[#0f1729]">Scale & valid region</div>
+
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <.mode_button current={@draw_mode} mode="valid_region" label="Valid region" />
+        <.mode_button current={@draw_mode} mode="scale" label="Scale 1 (2 pts)" />
+        <.mode_button current={@draw_mode} mode="scale2" label="Scale 2 (2 pts)" />
+      </div>
+
+      <form
+        id={"scale-cm-#{@active_ref}"}
+        phx-change="set_scale_cm"
+        phx-submit="set_scale_cm"
+        class="mt-3"
+      >
+        <label class="text-[11px] text-[#667085]">Real-world measure of reference 1 (cm)</label>
+        <input
+          type="number"
+          step="any"
+          name="value"
+          value={cal_field(@calibrations, @active_ref, :scale_cm)}
+          placeholder="ex: 40"
+          class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+        />
+      </form>
+
+      <form
+        id={"scale-cm2-#{@active_ref}"}
+        phx-change="set_scale_cm2"
+        phx-submit="set_scale_cm2"
+        class="mt-3"
+      >
+        <label class="text-[11px] text-[#667085]">Real-world measure of reference 2 (cm)</label>
+        <input
+          type="number"
+          step="any"
+          name="value"
+          value={cal_field(@calibrations, @active_ref, :scale_cm2)}
+          placeholder="ex: 40"
+          class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+        />
+      </form>
+
+      <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
+        {scale_status(@calibrations, @active_ref)}
+      </div>
+
+      <div
+        :if={@scale_summary && @scale_summary.divergence_pct > divergence_warning_pct()}
+        class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
+      >
+        <div class="text-[11.5px] font-semibold text-[#92400e]">
+          The two scale measurements diverge by {@scale_summary.divergence_pct}% (expected ≤{divergence_warning_pct()}%). Double-check the points clicked on each segment.
+        </div>
+      </div>
+
+      <form
+        id={"cal-setting-#{@active_ref}"}
+        phx-change="cal_setting"
+        phx-submit="cal_setting"
+        class="mt-3 grid grid-cols-2 gap-2"
+      >
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Threshold</span>
+          <input
+            type="number"
+            name="threshold"
+            value={cal_field(@calibrations, @active_ref, :threshold)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Min area</span>
+          <input
+            type="number"
+            name="min_area"
+            value={cal_field(@calibrations, @active_ref, :min_area)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+      </form>
+    </div>
+
+    <.inherit_control
+      :if={not @active_spec.cal_ref?}
+      kind="scale"
+      resolved={resolve_label(@active_ref, @specs, :cal, @saved_videos)}
+      event="set_cal_source"
+      ref={@active_ref}
+      options={source_options(%{specs: @specs, saved_videos: @saved_videos}, :cal)}
+      selected={current_source_ref(@specs[@active_ref], :cal)}
+    />
+    """
+  end
+
+  attr :active_spec, :map, required: true
+  attr :active_ref, :string, required: true
+  attr :draw_mode, :string, required: true
+  attr :active_rois, :list, required: true
+  attr :specs, :map, required: true
+  attr :saved_videos, :list, required: true
+
+  # Either the ROI list editor (if this video is the ROI reference) or an
+  # `inherit_control` pointing at whichever video it inherits ROIs from.
+  defp roi_card(assigns) do
+    ~H"""
+    <div :if={@active_spec.roi_ref?} class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+      <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zones)</div>
+
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <.mode_button current={@draw_mode} mode="roi_polygon" label="Polygon (4 pts)" />
+        <.mode_button current={@draw_mode} mode="roi_circle" label="Circle" />
+      </div>
+
+      <ul class="mt-3 space-y-2">
+        <li :for={{roi, idx} <- Enum.with_index(@active_rois)} class="flex items-center gap-2">
+          <span class="font-data text-[10.5px] uppercase text-[#98a2b3]">{roi.shape}</span>
+          <form
+            id={"roi-name-#{@active_ref}-#{idx}"}
+            phx-change="set_roi_name"
+            phx-submit="set_roi_name"
+            class="flex-1"
+          >
+            <input type="hidden" name="index" value={idx} />
+            <input
+              type="text"
+              name="value"
+              value={roi.name}
+              placeholder="Zone name"
+              class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+            />
+          </form>
+
+          <button
+            type="button"
+            phx-click="remove_roi"
+            phx-value-index={idx}
+            class="text-[#98a2b3] hover:text-[#b42318]"
+            aria-label="Remove ROI"
+          >
+            <.icon name="hero-trash-micro" class="size-4" />
+          </button>
+        </li>
+      </ul>
+
+      <div :if={@active_rois == []} class="mt-2 text-[11.5px] text-[#98a2b3]">
+        Choose a mode above and draw on the frame to add zones.
+      </div>
+    </div>
+
+    <.inherit_control
+      :if={not @active_spec.roi_ref?}
+      kind="ROI"
+      resolved={resolve_label(@active_ref, @specs, :roi, @saved_videos)}
+      event="set_roi_source"
+      ref={@active_ref}
+      options={source_options(%{specs: @specs, saved_videos: @saved_videos}, :roi)}
+      selected={current_source_ref(@specs[@active_ref], :roi)}
+    />
+    """
+  end
+
+  attr :saved_videos, :list, required: true
+  attr :active_ref, :string, required: true
+  attr :specs, :map, required: true
+
+  defp batch_list(assigns) do
+    ~H"""
+    <div>
+      <div class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        Videos in this batch
+      </div>
+
+      <ul class="mt-2 space-y-1.5">
+        <li
+          :for={v <- @saved_videos}
+          phx-click="select_active"
+          phx-value-ref={v.ref}
+          class={[
+            "cursor-pointer rounded-[10px] border bg-white p-2.5 transition-colors",
+            v.ref == @active_ref && "border-[#CC5500] ring-1 ring-[#CC5500]/20",
+            v.ref != @active_ref && "border-[#e7e9ee] hover:border-[#d4d8df]"
+          ]}
+        >
+          <div class="truncate font-data text-[12px] font-medium text-[#0f1729]">
+            {v.filename}
+          </div>
+
+          <div class="mt-1 flex flex-wrap gap-1.5">
+            <.resource_badge label="Scale" tag={resolve_label(v.ref, @specs, :cal, @saved_videos)} />
+            <.resource_badge
+              label="ROI"
+              tag={resolve_label(v.ref, @specs, :roi, @saved_videos)}
+              optional
+            />
+          </div>
+        </li>
+      </ul>
     </div>
     """
   end

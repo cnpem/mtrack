@@ -444,9 +444,58 @@ vivia presa em funções privadas de LiveView):
   `subject_groups/1`, `metric_series/2`) — a primeira cobertura direta dessa lógica,
   já que antes só era exercitada indiretamente através dos testes de LiveView.
 
-Sprint 5 (quebrar as maiores funções, componentizar o display de métrica
-3x-duplicado): planejado, ainda não iniciado. Plano detalhado salvo em
-`C:\Users\talve\.claude\plans\cheerful-dazzling-badger.md`.
+Sprint 5 — feito e último desta série (`mix precommit` limpo, 357 testes passando —
+mesma contagem do Sprint 4, refactor puro de estrutura/markup, sem mudança de
+comportamento):
+- [x] **`ExperimentLive.New`'s `roi_step/1` (~326 linhas) dividido** em uma função de
+  render por card, seguindo o plano: `canvas_section/1` (frame/canvas + fallback +
+  botões "use as scale/ROI reference"), `reference_frame_form/1` (formulário de
+  índice do frame de fundo, antes inline dentro do canvas), `scale_card/1` e
+  `roi_card/1` (cada um decidindo internamente entre mostrar o editor, quando o
+  vídeo é referência daquele tipo, ou `<.inherit_control>`, já existente desde a
+  Fase 2 parte 4, quando não é) e `batch_list/1` ("Videos in this batch"). `roi_step/1`
+  em si ficou só com a composição desses 5 componentes + o preview de erros e os
+  botões de navegação — nenhuma mudança de comportamento, `data-shapes` (JSON)
+  passa a ser computado uma vez em `roi_step/1` e repassado como atributo em vez de
+  recalculado dentro do template.
+- [x] **`PipelineSettingsLive.Index`'s `rename/6`/`delete/7` — dedupe do call site,
+  não só da função**: os 3 pares de `handle_event("rename_<recurso>", ...)` /
+  `handle_event("delete_<recurso>", ...)` (6 clauses hardcoding módulo + chave de
+  assign) viraram 2 clauses genéricas — `handle_event("rename_" <> key, ...)` e
+  `handle_event("delete_" <> key, ...)` — despachadas por um novo `@resources`
+  (module attribute, mapa `"calibration"/"roi"/"subject" => %{assign_key:, usage_key:,
+  label:, get:, update:, delete:}`, com os `get`/`update`/`delete` como captures de
+  `Calibrations`/`Rois`/`Subjects`). `rename/6`→`rename/4` e `delete/7`→`delete/3`
+  passaram a receber essa entrada de `@resources` inteira em vez de 4-5 argumentos
+  posicionais soltos. Detalhe de implementação: `@resources` não pode aparecer numa
+  guard (`when is_map_key(@resources, key)`) porque o attribute se expande inline no
+  AST e carrega `&Mod.fun/N` captures, que não são permitidos em guards — resolvido
+  com `Map.fetch!(@resources, key)` dentro do corpo da função (falha rápido em caso
+  de eventos desconhecidos, mesmo padrão de "erro de programador" que o resto do
+  módulo já usa). `duplicate_roi` continua hardcoded pra `Rois` (não tem equivalente
+  em Calibration/Subject, não faz parte da duplicação que este sprint mirava).
+- [x] **`<.metric_stat_cards>`** (novo componente em `locomo_components.ex`, ao lado
+  de `stat_card/1`): substitui os grids de `stat_card` + `stat_fmt/1` hand-rolled
+  independentemente em `ExperimentLive.Results`'s `subject_average/1` (7 métricas +
+  ROI zones) e `DatasetLive.Index`'s `subject_group/1` (preview de 4 métricas) — cada
+  chamador continua escolhendo seu próprio subconjunto/ordem de métricas via
+  `fields` (lista de `%{key:, label:, unit:, sub:}`), então o componente só fatora a
+  repetição real ("stat_card envolvendo uma métrica de aggregate formatada com
+  `stat_fmt/1`"), não decide quais métricas cada tela mostra.
+  **Achado ao investigar**: o item do plano original citava 3 lugares duplicados
+  (Results, Datasets, Analyses); na investigação, `AnalysesLive.Index` não tinha
+  nenhum display de mean±SD — a tela virou gráfico de tendência + tabela cronológica
+  na Fase 2 parte 13 (Compare foi absorvido por Analyses), então a "duplicação
+  3x" citada no plano já não existia mais nesse módulo; só Results e Datasets
+  precisavam do componente.
+- Testes: nenhum teste novo (sprint de puro refactor estrutural/de markup) — os
+  testes de LiveView existentes (`new_test.exs`, `pipeline_settings_live/index_test.exs`,
+  `results_test.exs`, `dataset_live/index_test.exs`) já cobrem o HTML renderizado e
+  continuaram passando sem alteração, confirmando que a saída não mudou.
+
+Com isso, os 5 sprints planejados de limpeza do lado Elixir estão completos. Python
+(`priv/python/`) permanece fora de escopo, por decisão explícita no início desta
+série (ver topo desta seção).
 
 ## Completed Features
 

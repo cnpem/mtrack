@@ -380,28 +380,17 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         </span>
       </div>
 
-      <div :if={@group.aggregate.n > 0} class="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <.stat_card
-          label="Distance"
-          value={stat_fmt(@group.aggregate.metrics.distance_cm)}
-          unit="cm"
-        />
-        <.stat_card
-          label="Mean speed"
-          value={stat_fmt(@group.aggregate.metrics.speed_mean_cm)}
-          unit="cm/s"
-        />
-        <.stat_card
-          label="Thigmotaxis"
-          value={stat_fmt(@group.aggregate.metrics.thigmotaxis_pct)}
-          unit="%"
-        />
-        <.stat_card
-          label="Immobility"
-          value={stat_fmt(@group.aggregate.metrics.immobility_seconds)}
-          unit="s"
-        />
-      </div>
+      <.metric_stat_cards
+        :if={@group.aggregate.n > 0}
+        metrics={@group.aggregate.metrics}
+        fields={[
+          %{key: :distance_cm, label: "Distance", unit: "cm"},
+          %{key: :speed_mean_cm, label: "Mean speed", unit: "cm/s"},
+          %{key: :thigmotaxis_pct, label: "Thigmotaxis", unit: "%"},
+          %{key: :immobility_seconds, label: "Immobility", unit: "s"}
+        ]}
+        class="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4"
+      />
 
       <div class="mt-3 divide-y divide-[#f4f5f7]">
         <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
