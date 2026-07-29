@@ -73,10 +73,7 @@ defmodule MouseTrackerWeb.UserLive.Registration do
           autocomplete="new-password"
           class={@input_class}
         />
-        <.button
-          phx-disable-with="Creating account..."
-          class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-        >
+        <.button phx-disable-with="Creating account..." class="w-full">
           Create an account
         </.button>
       </.form>

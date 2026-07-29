@@ -145,12 +145,9 @@ defmodule MouseTrackerWeb.VideoLive.Processing do
         </div>
 
         <div :if={@status == "done"} class="mt-4 flex justify-end">
-          <.link
-            navigate={~p"/experiments/#{@video.experiment_id}/results?#{[video: @video.id]}"}
-            class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-          >
+          <.button navigate={~p"/experiments/#{@video.experiment_id}/results?#{[video: @video.id]}"}>
             View results
-          </.link>
+          </.button>
         </div>
       </div>
     </Layouts.locomo>

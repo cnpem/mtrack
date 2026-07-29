@@ -6,6 +6,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
 
   alias MouseTracker.Accounts
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Subjects
   alias MouseTracker.Repo
 
   setup :register_and_log_in_user
@@ -138,7 +139,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     subject: subject
   } do
     {:ok, subject} =
-      Experiments.update_subject(Accounts.Scope.for_user(user), subject, %{sex: "M"})
+      Subjects.update_subject(Accounts.Scope.for_user(user), subject, %{sex: "M"})
 
     {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
 

@@ -20,12 +20,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Subjects
   alias MouseTracker.Tracking.FrameExtractor
-
-  # Two independent scale segments are required so px_per_10cm is the average
-  # of two measurements instead of a single click-prone one; divergence above
-  # this only warns (non-blocking) — it doesn't gate wizard navigation.
-  @divergence_warning_pct 8.0
+  alias MouseTrackerWeb.ExperimentLive.New.Wizard
 
   @impl true
   def mount(_params, _session, socket) do
@@ -49,7 +46,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:draw_mode, "roi_polygon")
      |> assign(:experiment_name, "")
      |> assign(:pipeline_defaults, pipeline_defaults)
-     |> assign(:existing_subjects, Experiments.list_subjects(socket.assigns.current_scope))
+     |> assign(:existing_subjects, Subjects.list_subjects(socket.assigns.current_scope))
      |> allow_upload(:videos, upload_opts())}
   end
 
@@ -72,7 +69,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         step in [:roi, :review] and socket.assigns.saved_videos == [] ->
           push_patch(socket, to: ~p"/experiments/new")
 
-        step == :review and not step2_valid?(socket.assigns) ->
+        step == :review and not Wizard.step2_valid?(socket.assigns) ->
           socket
           |> put_flash(:error, "Complete ROI & scale first.")
           |> push_patch(to: ~p"/experiments/new/roi")
@@ -186,7 +183,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       Enum.reduce(subject_sel, socket.assigns.specs, fn {ref, value}, acc ->
         case acc do
           %{^ref => spec} ->
-            ref_value = parse_subject_ref(value, Map.get(subject_new_names, ref, ""))
+            ref_value = Wizard.parse_subject_ref(value, Map.get(subject_new_names, ref, ""))
             Map.put(acc, ref, %{spec | subject_ref: ref_value})
 
           _ ->
@@ -201,7 +198,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   end
 
   def handle_event("create", _params, socket) do
-    if step2_valid?(socket.assigns) do
+    if Wizard.step2_valid?(socket.assigns) do
       do_create(socket)
     else
       {:noreply, put_flash(socket, :error, "Complete ROI & scale first.")}
@@ -266,7 +263,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
     specs =
       Enum.reduce(consumed, socket.assigns.specs, fn v, acc ->
-        Map.put_new(acc, v.ref, default_spec(v.filename))
+        Map.put_new(acc, v.ref, Wizard.default_spec(v.filename))
       end)
 
     active = socket.assigns.active_ref || saved |> List.first() |> then(&(&1 && &1.ref))
@@ -287,7 +284,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
     with %{filepath: filepath} <- video,
          {n, _} <- Integer.parse(to_string(frame_str)) do
-      n = clamp_frame(n, video)
+      n = Wizard.clamp_frame(n, video)
       token = socket.assigns.upload_token
       frame_path = Path.join([static_dir(), "uploads", "frames", token, "#{ref}-#{n}.png"])
 
@@ -304,15 +301,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       end
     else
       _ -> socket
-    end
-  end
-
-  # Clamp to [0, frame_count - 1] when the frame count is known, else just floor
-  # at 0 (an out-of-range seek simply reads nothing and falls to the error path).
-  defp clamp_frame(n, video) do
-    case Map.get(video, :frame_count) do
-      count when is_integer(count) and count > 0 -> n |> max(0) |> min(count - 1)
-      _ -> max(n, 0)
     end
   end
 
@@ -407,11 +395,11 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   defp active_flag?(socket, kind) do
     spec = socket.assigns.specs[socket.assigns.active_ref]
-    spec && ref_flag(spec, kind)
+    spec && Wizard.ref_flag(spec, kind)
   end
 
   defp update_calibration(socket, ref, fun) do
-    default = default_cal(socket.assigns.pipeline_defaults)
+    default = Wizard.default_cal(socket.assigns.pipeline_defaults)
     cal = fun.(Map.get(socket.assigns.calibrations, ref, default))
     assign(socket, :calibrations, Map.put(socket.assigns.calibrations, ref, cal))
   end
@@ -422,9 +410,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     specs = socket.assigns.specs
 
     payload = %{
-      name: experiment_name(socket.assigns.experiment_name, socket.assigns.saved_videos),
-      calibrations: build_calibrations(socket),
-      rois: build_rois(socket),
+      name: Wizard.experiment_name(socket.assigns.experiment_name, socket.assigns.saved_videos),
+      calibrations: Wizard.build_calibrations(socket.assigns),
+      rois: Wizard.build_rois(socket.assigns),
       videos:
         Enum.map(socket.assigns.saved_videos, fn v ->
           %{
@@ -438,8 +426,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             width: Map.get(v, :width),
             height: Map.get(v, :height),
             subject_ref: specs[v.ref].subject_ref,
-            cal_ref: resolve_ref(v.ref, specs, :cal),
-            roi_ref: resolve_ref(v.ref, specs, :roi)
+            cal_ref: Wizard.resolve_ref(v.ref, specs, :cal),
+            roi_ref: Wizard.resolve_ref(v.ref, specs, :roi)
           }
         end)
     }
@@ -462,98 +450,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
          )}
     end
   end
-
-  defp build_calibrations(socket) do
-    for ref <- live_refs(socket.assigns, :cal), into: %{} do
-      cal = socket.assigns.calibrations[ref]
-      vr = cal.valid_region
-      s1 = cal.scale
-      s2 = cal.scale2
-      summary = derive_px_per_10cm_pair(cal) || %{avg: 0.0}
-
-      params = %{
-        "cage_side_cm" => cal.scale_cm,
-        "scale_cm_2" => cal.scale_cm2,
-        "px_per_10cm" => summary.avg,
-        "threshold" => cal.threshold,
-        "min_area" => cal.min_area,
-        "valid_region_x" => vr.x,
-        "valid_region_y" => vr.y,
-        "valid_region_w" => vr.w,
-        "valid_region_h" => vr.h,
-        "coordinate_x1" => s1.x1,
-        "coordinate_y1" => s1.y1,
-        "coordinate_x2" => s1.x2,
-        "coordinate_y2" => s1.y2,
-        "coordinate_x3" => s2.x1,
-        "coordinate_y3" => s2.y1,
-        "coordinate_x4" => s2.x2,
-        "coordinate_y4" => s2.y2
-      }
-
-      {ref, params}
-    end
-  end
-
-  defp build_rois(socket) do
-    for ref <- live_refs(socket.assigns, :roi), into: %{} do
-      {ref, Enum.map(Map.get(socket.assigns.rois, ref, []), &roi_to_params/1)}
-    end
-  end
-
-  defp roi_to_params(%{shape: "circle", name: name, cx: cx, cy: cy, r: r}) do
-    %{"name" => name, "shape" => "circle", "x" => cx, "y" => cy, "radius" => r}
-  end
-
-  defp roi_to_params(%{shape: "polygon", name: name, points: [x0, y0, x1, y1, x2, y2, x3, y3]}) do
-    %{
-      "name" => name,
-      "shape" => "polygon",
-      "x" => x0,
-      "y" => y0,
-      "x1" => x0,
-      "y1" => y0,
-      "x2" => x1,
-      "y2" => y1,
-      "x3" => x2,
-      "y3" => y2,
-      "x4" => x3,
-      "y4" => y3
-    }
-  end
-
-  defp derive_px_per_10cm(%{x1: x1, y1: y1, x2: x2, y2: y2}, cm_str) do
-    dist = :math.sqrt(:math.pow(x2 - x1, 2) + :math.pow(y2 - y1, 2))
-
-    case parse_float(cm_str) do
-      cm when cm > 0 -> Float.round(dist / cm * 10, 4)
-      _ -> 0.0
-    end
-  end
-
-  # Combines both scale segments into one px_per_10cm (their average) plus the
-  # relative divergence between them, for the non-blocking warning banner.
-  # Returns nil when either segment isn't fully drawn/measured yet.
-  defp derive_px_per_10cm_pair(%{scale: s1, scale_cm: cm1, scale2: s2, scale_cm2: cm2})
-       when not is_nil(s1) and not is_nil(s2) do
-    px1 = derive_px_per_10cm(s1, cm1)
-    px2 = derive_px_per_10cm(s2, cm2)
-
-    if px1 > 0 and px2 > 0 do
-      avg = (px1 + px2) / 2
-
-      %{
-        px1: px1,
-        px2: px2,
-        avg: Float.round(avg, 4),
-        divergence_pct: Float.round(abs(px1 - px2) / avg * 100, 2)
-      }
-    end
-  end
-
-  defp derive_px_per_10cm_pair(_cal), do: nil
-
-  defp divergence_warning_pct, do: @divergence_warning_pct
 
   # --- Render ---
 
@@ -692,23 +588,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     </div>
 
     <div class="mt-6 flex items-center justify-between">
-      <.link
-        navigate={~p"/experiments"}
-        class="rounded-[8px] border border-[#e7e9ee] px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-      >
+      <.button variant="secondary" navigate={~p"/experiments"}>
         Cancel
-      </.link>
+      </.button>
 
       <div class="flex flex-col items-end gap-1">
-        <button
+        <.button
           type="button"
           phx-click="goto"
           phx-value-step="roi"
-          disabled={not step1_valid?(assigns)}
-          class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00] disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={not Wizard.step1_valid?(assigns)}
         >
           Continue → ROI & scale
-        </button>
+        </.button>
         <span class="text-[11px] text-[#98a2b3]">This may take a while — extracting a frame from each video.</span>
       </div>
     </div>
@@ -726,291 +618,49 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         active_spec: assigns.specs[active],
         active_rois: Map.get(assigns.rois, active, []),
         scale_summary:
-          assigns.calibrations[active] && derive_px_per_10cm_pair(assigns.calibrations[active])
+          assigns.calibrations[active] &&
+            Wizard.derive_px_per_10cm_pair(assigns.calibrations[active]),
+        shapes_json: Jason.encode!(canvas_shapes(assigns))
       )
 
     ~H"""
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-[1.5fr_1fr]">
-      <div>
-        <div
-          :if={@active_video && @active_video.frame_url}
-          id="roi-canvas"
-          phx-hook="RoiCanvas"
-          data-frame={@active_video.frame_url}
-          data-mode={@draw_mode}
-          data-shapes={Jason.encode!(canvas_shapes(assigns))}
-          class="relative overflow-hidden rounded-[10px] border border-[#e7e9ee] bg-[#11161f]"
-        >
-          <img data-role="frame" src={@active_video.frame_url} class="block w-full select-none" />
-          <canvas data-role="overlay" class="absolute inset-0 h-full w-full cursor-crosshair"></canvas>
-        </div>
-
-        <div
-          :if={@active_video && !@active_video.frame_url}
-          class="flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
-        >
-          Could not extract a frame from this video.
-        </div>
-
-        <div :if={@active_video && @active_video.frame_url} class="mt-3">
-          <form
-            id={"ref-frame-#{@active_ref}"}
-            phx-submit="set_reference_frame"
-            class="flex flex-wrap items-end gap-2"
-          >
-            <input type="hidden" name="ref" value={@active_ref} />
-            <label class="block">
-              <span class="text-[11px] text-[#667085]">Reference frame (background)</span>
-              <input
-                type="number"
-                name="frame"
-                min="0"
-                value={Map.get(@active_video, :background_frame, 0)}
-                class="mt-1 w-28 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-              />
-            </label>
-
-            <button
-              type="submit"
-              class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-            >
-              Load frame
-            </button>
-
-            <span
-              :if={Map.get(@active_video, :frame_count)}
-              class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
-            >
-              of {@active_video.frame_count} frames
-            </span>
-          </form>
-
-          <p class="mt-1 text-[11px] text-[#8a93a3]">
-            Switch the frame if the first one has a hand or obstruction in the arena — it's used as the background for detection and the heatmap.
-          </p>
-        </div>
-
-        <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            phx-click="toggle_cal_ref"
-            phx-value-ref={@active_ref}
-            class={ref_toggle_class(@active_spec.cal_ref?)}
-          >
-            <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
-              do: "★ scale reference",
-              else: "use as scale reference"}
-          </button>
-
-          <button
-            type="button"
-            phx-click="toggle_roi_ref"
-            phx-value-ref={@active_ref}
-            class={ref_toggle_class(@active_spec.roi_ref?)}
-          >
-            <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
-              do: "★ ROI reference",
-              else: "use as ROI reference"}
-          </button>
-        </div>
-      </div>
+      <.canvas_section
+        active_video={@active_video}
+        active_ref={@active_ref}
+        active_spec={@active_spec}
+        draw_mode={@draw_mode}
+        shapes_json={@shapes_json}
+      />
 
       <div class="space-y-4">
-        <div
-          :if={@active_spec && @active_spec.cal_ref?}
-          class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
-        >
-          <div class="text-[12px] font-bold text-[#0f1729]">Scale & valid region</div>
+        <.scale_card
+          :if={@active_spec}
+          active_spec={@active_spec}
+          active_ref={@active_ref}
+          draw_mode={@draw_mode}
+          calibrations={@calibrations}
+          scale_summary={@scale_summary}
+          specs={@specs}
+          saved_videos={@saved_videos}
+        />
 
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            <.mode_button current={@draw_mode} mode="valid_region" label="Valid region" />
-            <.mode_button current={@draw_mode} mode="scale" label="Scale 1 (2 pts)" />
-            <.mode_button current={@draw_mode} mode="scale2" label="Scale 2 (2 pts)" />
-          </div>
+        <.roi_card
+          :if={@active_spec}
+          active_spec={@active_spec}
+          active_ref={@active_ref}
+          draw_mode={@draw_mode}
+          active_rois={@active_rois}
+          specs={@specs}
+          saved_videos={@saved_videos}
+        />
 
-          <form
-            id={"scale-cm-#{@active_ref}"}
-            phx-change="set_scale_cm"
-            phx-submit="set_scale_cm"
-            class="mt-3"
-          >
-            <label class="text-[11px] text-[#667085]">Real-world measure of reference 1 (cm)</label>
-            <input
-              type="number"
-              step="any"
-              name="value"
-              value={cal_field(@calibrations, @active_ref, :scale_cm)}
-              placeholder="ex: 40"
-              class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
-
-          <form
-            id={"scale-cm2-#{@active_ref}"}
-            phx-change="set_scale_cm2"
-            phx-submit="set_scale_cm2"
-            class="mt-3"
-          >
-            <label class="text-[11px] text-[#667085]">Real-world measure of reference 2 (cm)</label>
-            <input
-              type="number"
-              step="any"
-              name="value"
-              value={cal_field(@calibrations, @active_ref, :scale_cm2)}
-              placeholder="ex: 40"
-              class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
-
-          <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
-            {scale_status(@calibrations, @active_ref)}
-          </div>
-
-          <div
-            :if={@scale_summary && @scale_summary.divergence_pct > divergence_warning_pct()}
-            class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
-          >
-            <div class="text-[11.5px] font-semibold text-[#92400e]">
-              The two scale measurements diverge by {@scale_summary.divergence_pct}% (expected ≤{divergence_warning_pct()}%). Double-check the points clicked on each segment.
-            </div>
-          </div>
-
-          <form
-            id={"cal-setting-#{@active_ref}"}
-            phx-change="cal_setting"
-            phx-submit="cal_setting"
-            class="mt-3 grid grid-cols-2 gap-2"
-          >
-            <label class="block">
-              <span class="text-[11px] text-[#667085]">Threshold</span>
-              <input
-                type="number"
-                name="threshold"
-                value={cal_field(@calibrations, @active_ref, :threshold)}
-                class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
-              />
-            </label>
-
-            <label class="block">
-              <span class="text-[11px] text-[#667085]">Min area</span>
-              <input
-                type="number"
-                name="min_area"
-                value={cal_field(@calibrations, @active_ref, :min_area)}
-                class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
-              />
-            </label>
-          </form>
-        </div>
-
-        <div :if={@active_spec && not @active_spec.cal_ref?}>
-          <.inherit_control
-            kind="scale"
-            resolved={resolve_label(@active_ref, @specs, :cal, @saved_videos)}
-            event="set_cal_source"
-            ref={@active_ref}
-            options={source_options(assigns, :cal)}
-            selected={current_source_ref(@specs[@active_ref], :cal)}
-          />
-        </div>
-
-        <div
-          :if={@active_spec && @active_spec.roi_ref?}
-          class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]"
-        >
-          <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zones)</div>
-
-          <div class="mt-2 flex flex-wrap gap-1.5">
-            <.mode_button current={@draw_mode} mode="roi_polygon" label="Polygon (4 pts)" />
-            <.mode_button current={@draw_mode} mode="roi_circle" label="Circle" />
-          </div>
-
-          <ul class="mt-3 space-y-2">
-            <li :for={{roi, idx} <- Enum.with_index(@active_rois)} class="flex items-center gap-2">
-              <span class="font-data text-[10.5px] uppercase text-[#98a2b3]">{roi.shape}</span>
-              <form
-                id={"roi-name-#{@active_ref}-#{idx}"}
-                phx-change="set_roi_name"
-                phx-submit="set_roi_name"
-                class="flex-1"
-              >
-                <input type="hidden" name="index" value={idx} />
-                <input
-                  type="text"
-                  name="value"
-                  value={roi.name}
-                  placeholder="Zone name"
-                  class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
-                />
-              </form>
-
-              <button
-                type="button"
-                phx-click="remove_roi"
-                phx-value-index={idx}
-                class="text-[#98a2b3] hover:text-[#b42318]"
-                aria-label="Remove ROI"
-              >
-                <.icon name="hero-trash-micro" class="size-4" />
-              </button>
-            </li>
-          </ul>
-
-          <div :if={@active_rois == []} class="mt-2 text-[11.5px] text-[#98a2b3]">
-            Choose a mode above and draw on the frame to add zones.
-          </div>
-        </div>
-
-        <div :if={@active_spec && not @active_spec.roi_ref?}>
-          <.inherit_control
-            kind="ROI"
-            resolved={resolve_label(@active_ref, @specs, :roi, @saved_videos)}
-            event="set_roi_source"
-            ref={@active_ref}
-            options={source_options(assigns, :roi)}
-            selected={current_source_ref(@specs[@active_ref], :roi)}
-          />
-        </div>
-
-        <div>
-          <div class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-            Videos in this batch
-          </div>
-
-          <ul class="mt-2 space-y-1.5">
-            <li
-              :for={v <- @saved_videos}
-              phx-click="select_active"
-              phx-value-ref={v.ref}
-              class={[
-                "cursor-pointer rounded-[10px] border bg-white p-2.5 transition-colors",
-                v.ref == @active_ref && "border-[#CC5500] ring-1 ring-[#CC5500]/20",
-                v.ref != @active_ref && "border-[#e7e9ee] hover:border-[#d4d8df]"
-              ]}
-            >
-              <div class="truncate font-data text-[12px] font-medium text-[#0f1729]">
-                {v.filename}
-              </div>
-
-              <div class="mt-1 flex flex-wrap gap-1.5">
-                <.resource_badge
-                  label="Scale"
-                  tag={resolve_label(v.ref, @specs, :cal, @saved_videos)}
-                />
-                <.resource_badge
-                  label="ROI"
-                  tag={resolve_label(v.ref, @specs, :roi, @saved_videos)}
-                  optional
-                />
-              </div>
-            </li>
-          </ul>
-        </div>
+        <.batch_list saved_videos={@saved_videos} active_ref={@active_ref} specs={@specs} />
       </div>
     </div>
 
     <div
-      :if={not step2_valid?(assigns)}
+      :if={not Wizard.step2_valid?(assigns)}
       class="mt-4 rounded-[10px] border border-[#fdecec] bg-[#fff9f8] p-3"
     >
       <div class="text-[11.5px] font-semibold text-[#b42318]">
@@ -1018,29 +668,354 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       </div>
 
       <ul class="mt-1 list-disc pl-4 text-[11.5px] text-[#b42318]">
-        <li :for={msg <- step2_missing_reasons(assigns)}>{msg}</li>
+        <li :for={msg <- Wizard.step2_missing_reasons(assigns)}>{msg}</li>
       </ul>
     </div>
 
     <div class="mt-6 flex items-center justify-between">
-      <button
-        type="button"
-        phx-click="goto"
-        phx-value-step="upload"
-        class="rounded-[8px] border border-[#e7e9ee] px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-      >
+      <.button type="button" variant="secondary" phx-click="goto" phx-value-step="upload">
         ← Back
-      </button>
+      </.button>
 
-      <button
+      <.button
         type="button"
         phx-click="goto"
         phx-value-step="review"
-        disabled={not step2_valid?(assigns)}
-        class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00] disabled:cursor-not-allowed disabled:opacity-40"
+        disabled={not Wizard.step2_valid?(assigns)}
       >
         Continue → Review
-      </button>
+      </.button>
+    </div>
+    """
+  end
+
+  # --- Step 2 cards ---
+
+  attr :active_video, :map, default: nil
+  attr :active_ref, :string, required: true
+  attr :active_spec, :map, default: nil
+  attr :draw_mode, :string, required: true
+  attr :shapes_json, :string, required: true
+
+  # The frame/canvas the user draws on, plus the reference-frame picker and
+  # the "use as scale/ROI reference" toggles — everything tied to *which*
+  # video is currently active, as opposed to the scale/ROI data itself.
+  defp canvas_section(assigns) do
+    ~H"""
+    <div>
+      <div
+        :if={@active_video && @active_video.frame_url}
+        id="roi-canvas"
+        phx-hook="RoiCanvas"
+        data-frame={@active_video.frame_url}
+        data-mode={@draw_mode}
+        data-shapes={@shapes_json}
+        class="relative overflow-hidden rounded-[10px] border border-[#e7e9ee] bg-[#11161f]"
+      >
+        <img data-role="frame" src={@active_video.frame_url} class="block w-full select-none" />
+        <canvas data-role="overlay" class="absolute inset-0 h-full w-full cursor-crosshair"></canvas>
+      </div>
+
+      <div
+        :if={@active_video && !@active_video.frame_url}
+        class="flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
+      >
+        Could not extract a frame from this video.
+      </div>
+
+      <.reference_frame_form
+        :if={@active_video && @active_video.frame_url}
+        active_ref={@active_ref}
+        active_video={@active_video}
+      />
+
+      <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          phx-click="toggle_cal_ref"
+          phx-value-ref={@active_ref}
+          class={ref_toggle_class(@active_spec.cal_ref?)}
+        >
+          <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
+            do: "★ scale reference",
+            else: "use as scale reference"}
+        </button>
+
+        <button
+          type="button"
+          phx-click="toggle_roi_ref"
+          phx-value-ref={@active_ref}
+          class={ref_toggle_class(@active_spec.roi_ref?)}
+        >
+          <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
+            do: "★ ROI reference",
+            else: "use as ROI reference"}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  attr :active_ref, :string, required: true
+  attr :active_video, :map, required: true
+
+  defp reference_frame_form(assigns) do
+    ~H"""
+    <div class="mt-3">
+      <form
+        id={"ref-frame-#{@active_ref}"}
+        phx-submit="set_reference_frame"
+        class="flex flex-wrap items-end gap-2"
+      >
+        <input type="hidden" name="ref" value={@active_ref} />
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Reference frame (background)</span>
+          <input
+            type="number"
+            name="frame"
+            min="0"
+            value={Map.get(@active_video, :background_frame, 0)}
+            class="mt-1 w-28 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <button
+          type="submit"
+          class="rounded-[6px] border border-[#e7e9ee] px-3 py-1.5 text-[12px] font-semibold text-[#344054] hover:border-[#d4d8df]"
+        >
+          Load frame
+        </button>
+
+        <span
+          :if={Map.get(@active_video, :frame_count)}
+          class="pb-1.5 font-data text-[11px] text-[#98a2b3]"
+        >
+          of {@active_video.frame_count} frames
+        </span>
+      </form>
+
+      <p class="mt-1 text-[11px] text-[#8a93a3]">
+        Switch the frame if the first one has a hand or obstruction in the arena — it's used as the background for detection and the heatmap.
+      </p>
+    </div>
+    """
+  end
+
+  attr :active_spec, :map, required: true
+  attr :active_ref, :string, required: true
+  attr :draw_mode, :string, required: true
+  attr :calibrations, :map, required: true
+  attr :scale_summary, :map, default: nil
+  attr :specs, :map, required: true
+  attr :saved_videos, :list, required: true
+
+  # Either the scale/valid-region editor (if this video is the scale
+  # reference) or an `inherit_control` pointing at whichever video it inherits
+  # scale from.
+  defp scale_card(assigns) do
+    ~H"""
+    <div :if={@active_spec.cal_ref?} class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+      <div class="text-[12px] font-bold text-[#0f1729]">Scale & valid region</div>
+
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <.mode_button current={@draw_mode} mode="valid_region" label="Valid region" />
+        <.mode_button current={@draw_mode} mode="scale" label="Scale 1 (2 pts)" />
+        <.mode_button current={@draw_mode} mode="scale2" label="Scale 2 (2 pts)" />
+      </div>
+
+      <form
+        id={"scale-cm-#{@active_ref}"}
+        phx-change="set_scale_cm"
+        phx-submit="set_scale_cm"
+        class="mt-3"
+      >
+        <label class="text-[11px] text-[#667085]">Real-world measure of reference 1 (cm)</label>
+        <input
+          type="number"
+          step="any"
+          name="value"
+          value={Wizard.cal_field(@calibrations, @active_ref, :scale_cm)}
+          placeholder="ex: 40"
+          class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+        />
+      </form>
+
+      <form
+        id={"scale-cm2-#{@active_ref}"}
+        phx-change="set_scale_cm2"
+        phx-submit="set_scale_cm2"
+        class="mt-3"
+      >
+        <label class="text-[11px] text-[#667085]">Real-world measure of reference 2 (cm)</label>
+        <input
+          type="number"
+          step="any"
+          name="value"
+          value={Wizard.cal_field(@calibrations, @active_ref, :scale_cm2)}
+          placeholder="ex: 40"
+          class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+        />
+      </form>
+
+      <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
+        {Wizard.scale_status(@calibrations, @active_ref)}
+      </div>
+
+      <div
+        :if={@scale_summary && @scale_summary.divergence_pct > Wizard.divergence_warning_pct()}
+        class="mt-2 rounded-[8px] border border-[#fde68a] bg-[#fffbeb] p-2.5"
+      >
+        <div class="text-[11.5px] font-semibold text-[#92400e]">
+          The two scale measurements diverge by {@scale_summary.divergence_pct}% (expected ≤{Wizard.divergence_warning_pct()}%). Double-check the points clicked on each segment.
+        </div>
+      </div>
+
+      <form
+        id={"cal-setting-#{@active_ref}"}
+        phx-change="cal_setting"
+        phx-submit="cal_setting"
+        class="mt-3 grid grid-cols-2 gap-2"
+      >
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Threshold</span>
+          <input
+            type="number"
+            name="threshold"
+            value={Wizard.cal_field(@calibrations, @active_ref, :threshold)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Min area</span>
+          <input
+            type="number"
+            name="min_area"
+            value={Wizard.cal_field(@calibrations, @active_ref, :min_area)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+      </form>
+    </div>
+
+    <.inherit_control
+      :if={not @active_spec.cal_ref?}
+      kind="scale"
+      resolved={Wizard.resolve_label(@active_ref, @specs, :cal, @saved_videos)}
+      event="set_cal_source"
+      ref={@active_ref}
+      options={Wizard.source_options(%{specs: @specs, saved_videos: @saved_videos}, :cal)}
+      selected={Wizard.current_source_ref(@specs[@active_ref], :cal)}
+    />
+    """
+  end
+
+  attr :active_spec, :map, required: true
+  attr :active_ref, :string, required: true
+  attr :draw_mode, :string, required: true
+  attr :active_rois, :list, required: true
+  attr :specs, :map, required: true
+  attr :saved_videos, :list, required: true
+
+  # Either the ROI list editor (if this video is the ROI reference) or an
+  # `inherit_control` pointing at whichever video it inherits ROIs from.
+  defp roi_card(assigns) do
+    ~H"""
+    <div :if={@active_spec.roi_ref?} class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+      <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zones)</div>
+
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <.mode_button current={@draw_mode} mode="roi_polygon" label="Polygon (4 pts)" />
+        <.mode_button current={@draw_mode} mode="roi_circle" label="Circle" />
+      </div>
+
+      <ul class="mt-3 space-y-2">
+        <li :for={{roi, idx} <- Enum.with_index(@active_rois)} class="flex items-center gap-2">
+          <span class="font-data text-[10.5px] uppercase text-[#98a2b3]">{roi.shape}</span>
+          <form
+            id={"roi-name-#{@active_ref}-#{idx}"}
+            phx-change="set_roi_name"
+            phx-submit="set_roi_name"
+            class="flex-1"
+          >
+            <input type="hidden" name="index" value={idx} />
+            <input
+              type="text"
+              name="value"
+              value={roi.name}
+              placeholder="Zone name"
+              class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+            />
+          </form>
+
+          <button
+            type="button"
+            phx-click="remove_roi"
+            phx-value-index={idx}
+            class="text-[#98a2b3] hover:text-[#b42318]"
+            aria-label="Remove ROI"
+          >
+            <.icon name="hero-trash-micro" class="size-4" />
+          </button>
+        </li>
+      </ul>
+
+      <div :if={@active_rois == []} class="mt-2 text-[11.5px] text-[#98a2b3]">
+        Choose a mode above and draw on the frame to add zones.
+      </div>
+    </div>
+
+    <.inherit_control
+      :if={not @active_spec.roi_ref?}
+      kind="ROI"
+      resolved={Wizard.resolve_label(@active_ref, @specs, :roi, @saved_videos)}
+      event="set_roi_source"
+      ref={@active_ref}
+      options={Wizard.source_options(%{specs: @specs, saved_videos: @saved_videos}, :roi)}
+      selected={Wizard.current_source_ref(@specs[@active_ref], :roi)}
+    />
+    """
+  end
+
+  attr :saved_videos, :list, required: true
+  attr :active_ref, :string, required: true
+  attr :specs, :map, required: true
+
+  defp batch_list(assigns) do
+    ~H"""
+    <div>
+      <div class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        Videos in this batch
+      </div>
+
+      <ul class="mt-2 space-y-1.5">
+        <li
+          :for={v <- @saved_videos}
+          phx-click="select_active"
+          phx-value-ref={v.ref}
+          class={[
+            "cursor-pointer rounded-[10px] border bg-white p-2.5 transition-colors",
+            v.ref == @active_ref && "border-[#CC5500] ring-1 ring-[#CC5500]/20",
+            v.ref != @active_ref && "border-[#e7e9ee] hover:border-[#d4d8df]"
+          ]}
+        >
+          <div class="truncate font-data text-[12px] font-medium text-[#0f1729]">
+            {v.filename}
+          </div>
+
+          <div class="mt-1 flex flex-wrap gap-1.5">
+            <.resource_badge
+              label="Scale"
+              tag={Wizard.resolve_label(v.ref, @specs, :cal, @saved_videos)}
+            />
+            <.resource_badge
+              label="ROI"
+              tag={Wizard.resolve_label(v.ref, @specs, :roi, @saved_videos)}
+              optional
+            />
+          </div>
+        </li>
+      </ul>
     </div>
     """
   end
@@ -1058,7 +1033,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         type="text"
         name="experiment_name"
         value={@experiment_name}
-        placeholder={default_name_placeholder(@saved_videos)}
+        placeholder={Wizard.default_name_placeholder(@saved_videos)}
         class="mt-2 w-full rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2.5 text-[14px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
       />
       <div class="mt-5 overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white">
@@ -1102,38 +1077,30 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               :if={match?({:new, _}, @specs[v.ref].subject_ref)}
               type="text"
               name={"subject_new_name[#{v.ref}]"}
-              value={subject_new_name(@specs[v.ref].subject_ref)}
+              value={Wizard.subject_new_name(@specs[v.ref].subject_ref)}
               placeholder="New subject name"
               class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
             />
           </div>
 
           <div class="font-data text-[12px] text-[#667085]">
-            {resolve_label(v.ref, @specs, :roi, @saved_videos) || "—"}
+            {Wizard.resolve_label(v.ref, @specs, :roi, @saved_videos) || "—"}
           </div>
 
           <div class="font-data text-[12px] text-[#667085]">
-            {resolve_label(v.ref, @specs, :cal, @saved_videos) || "—"}
+            {Wizard.resolve_label(v.ref, @specs, :cal, @saved_videos) || "—"}
           </div>
         </div>
       </div>
 
       <div class="mt-6 flex items-center justify-between">
-        <button
-          type="button"
-          phx-click="goto"
-          phx-value-step="roi"
-          class="rounded-[8px] border border-[#e7e9ee] px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-        >
+        <.button type="button" variant="secondary" phx-click="goto" phx-value-step="roi">
           ← Back
-        </button>
+        </.button>
 
-        <button
-          type="submit"
-          class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-        >
+        <.button type="submit">
           Create experiment ✓
-        </button>
+        </.button>
       </div>
     </form>
     """
@@ -1219,8 +1186,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp canvas_shapes(assigns) do
     specs = assigns.specs
     active = assigns.active_ref
-    cal_ref = resolve_ref(active, specs, :cal)
-    roi_ref = resolve_ref(active, specs, :roi)
+    cal_ref = Wizard.resolve_ref(active, specs, :cal)
+    roi_ref = Wizard.resolve_ref(active, specs, :roi)
     cal = cal_ref && assigns.calibrations[cal_ref]
 
     %{
@@ -1237,35 +1204,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp shape_json(%{shape: "polygon", points: points}),
     do: %{shape: "polygon", points: points}
 
-  # --- Wizard state helpers ---
-
-  defp default_spec(filename) do
-    %{
-      subject_ref: {:new, Path.rootname(filename)},
-      roi_ref?: false,
-      cal_ref?: false,
-      roi_source: nil,
-      cal_source: nil
-    }
-  end
-
-  defp default_cal(defaults) do
-    %{
-      valid_region: nil,
-      scale: nil,
-      scale_cm: "",
-      scale2: nil,
-      scale_cm2: "",
-      threshold: defaults.threshold,
-      min_area: defaults.min_area
-    }
-  end
+  # --- Wizard state mutation (delegates flag/resolution logic to Wizard) ---
 
   defp toggle_ref(socket, ref, kind) do
     spec = socket.assigns.specs[ref]
-    turning_on = not ref_flag(spec, kind)
-    spec = put_ref_flag(spec, kind, turning_on)
-    spec = if turning_on, do: put_source(spec, kind, nil), else: spec
+    turning_on = not Wizard.ref_flag(spec, kind)
+    spec = Wizard.put_ref_flag(spec, kind, turning_on)
+    spec = if turning_on, do: Wizard.put_source(spec, kind, nil), else: spec
     socket = assign(socket, :specs, Map.put(socket.assigns.specs, ref, spec))
 
     case kind do
@@ -1276,7 +1221,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           Map.put_new(
             socket.assigns.calibrations,
             ref,
-            default_cal(socket.assigns.pipeline_defaults)
+            Wizard.default_cal(socket.assigns.pipeline_defaults)
           )
         )
 
@@ -1294,219 +1239,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp set_source(socket, ref, kind, value) do
     specs = socket.assigns.specs
     source = if value in [nil, ""], do: nil, else: {:inherit, value}
-    assign(socket, :specs, Map.put(specs, ref, put_source(specs[ref], kind, source)))
-  end
-
-  defp ref_flag(%{roi_ref?: v}, :roi), do: v
-  defp ref_flag(%{cal_ref?: v}, :cal), do: v
-  defp put_ref_flag(spec, :roi, v), do: %{spec | roi_ref?: v}
-  defp put_ref_flag(spec, :cal, v), do: %{spec | cal_ref?: v}
-  defp source_of(%{roi_source: s}, :roi), do: s
-  defp source_of(%{cal_source: s}, :cal), do: s
-  defp put_source(spec, :roi, s), do: %{spec | roi_source: s}
-  defp put_source(spec, :cal, s), do: %{spec | cal_source: s}
-
-  defp live_refs(assigns, kind) do
-    Enum.filter(entry_refs(assigns), fn r ->
-      assigns.specs[r] && ref_flag(assigns.specs[r], kind)
-    end)
-  end
-
-  defp entry_refs(assigns), do: Enum.map(assigns.saved_videos, & &1.ref)
-
-  # Options for the reference dropdown: every video currently flagged as a
-  # `kind` reference, excluding the active video itself (it isn't a candidate
-  # for its own dropdown, since inherit_control only renders for non-references).
-  defp source_options(assigns, kind) do
-    Enum.map(
-      live_refs(assigns, kind),
-      &%{ref: &1, filename: ref_filename(&1, assigns.saved_videos)}
-    )
-  end
-
-  defp current_source_ref(spec, kind) do
-    case source_of(spec, kind) do
-      {:inherit, r} -> r
-      _ -> nil
-    end
-  end
-
-  defp resolve_ref(ref, specs, kind) do
-    spec = specs[ref]
-
-    cond do
-      is_nil(spec) -> nil
-      ref_flag(spec, kind) -> ref
-      match?({:inherit, _}, source_of(spec, kind)) -> resolve_inherit(spec, specs, kind)
-      true -> nil
-    end
-  end
-
-  defp resolve_inherit(spec, specs, kind) do
-    {:inherit, r} = source_of(spec, kind)
-    if specs[r] && ref_flag(specs[r], kind), do: r, else: nil
-  end
-
-  defp resolve_label(ref, specs, kind, videos) do
-    case resolve_ref(ref, specs, kind) do
-      nil -> nil
-      ^ref -> "★ reference"
-      other -> "inherits from #{ref_filename(other, videos)}"
-    end
-  end
-
-  defp ref_filename(ref, videos) do
-    case Enum.find(videos, &(&1.ref == ref)) do
-      nil -> ref
-      v -> v.filename
-    end
-  end
-
-  defp cal_field(calibrations, ref, key) do
-    case Map.get(calibrations, ref) do
-      nil -> nil
-      cal -> Map.get(cal, key)
-    end
-  end
-
-  defp scale_status(calibrations, ref) do
-    case Map.get(calibrations, ref) do
-      %{valid_region: vr, scale: s1, scale2: s2} = cal ->
-        parts = [
-          if(vr, do: "region ✓", else: "region —"),
-          if(s1, do: "scale 1 ✓", else: "scale 1 —"),
-          if(s2, do: "scale 2 ✓", else: "scale 2 —")
-        ]
-
-        px =
-          case derive_px_per_10cm_pair(cal) do
-            %{avg: avg, divergence_pct: pct} -> " · px_per_10cm=#{avg} (div #{pct}%)"
-            nil -> ""
-          end
-
-        Enum.join(parts, " · ") <> px
-
-      _ ->
-        "region — · scale 1 — · scale 2 —"
-    end
-  end
-
-  # --- Validation ---
-
-  defp step1_valid?(assigns) do
-    (assigns.saved_videos != [] or assigns.uploads.videos.entries != []) and
-      Enum.all?(assigns.uploads.videos.entries, &(&1.progress == 100)) and
-      upload_errors(assigns.uploads.videos) == []
-  end
-
-  defp step2_valid?(assigns) do
-    refs = entry_refs(assigns)
-    roi_refs = live_refs(assigns, :roi)
-    roi_names = for r <- roi_refs, roi <- Map.get(assigns.rois, r, []), do: roi.name
-
-    refs != [] and
-      Enum.all?(refs, fn r ->
-        case resolve_ref(r, assigns.specs, :cal) do
-          nil -> false
-          cal_ref -> cal_complete?(assigns.calibrations[cal_ref])
-        end
-      end) and
-      Enum.all?(roi_refs, fn r ->
-        Enum.all?(Map.get(assigns.rois, r, []), &present?(&1.name))
-      end) and
-      Enum.all?(roi_names, &present?/1) and
-      length(roi_names) == length(Enum.uniq(roi_names))
-  end
-
-  # Human-readable breakdown of step2_valid?/1, shown next to the disabled
-  # Continue button so an unmet condition (e.g. an unnamed ROI) is visible
-  # instead of silently blocking navigation.
-  defp step2_missing_reasons(assigns) do
-    videos = assigns.saved_videos
-    refs = entry_refs(assigns)
-    roi_refs = live_refs(assigns, :roi)
-
-    cal_msgs =
-      for r <- refs,
-          cal_ref = resolve_ref(r, assigns.specs, :cal),
-          is_nil(cal_ref) or not cal_complete?(assigns.calibrations[cal_ref]) do
-        "#{ref_filename(r, videos)}: scale/valid region incomplete"
-      end
-
-    roi_name_msgs =
-      for r <- roi_refs,
-          roi <- Map.get(assigns.rois, r, []),
-          not present?(roi.name) do
-        "#{ref_filename(r, videos)}: one ROI zone is missing a name"
-      end
-
-    roi_names = for r <- roi_refs, roi <- Map.get(assigns.rois, r, []), do: roi.name
-
-    dup_msgs =
-      if length(roi_names) != length(Enum.uniq(roi_names)) do
-        ["Two ROI zones share the same name — names must be unique"]
-      else
-        []
-      end
-
-    (cal_msgs ++ roi_name_msgs ++ dup_msgs) |> Enum.uniq()
-  end
-
-  defp cal_complete?(nil), do: false
-
-  defp cal_complete?(%{valid_region: vr, scale: s1, scale_cm: cm1, scale2: s2, scale_cm2: cm2}) do
-    not is_nil(vr) and
-      not is_nil(s1) and parse_float(cm1) > 0 and
-      not is_nil(s2) and parse_float(cm2) > 0
-  end
-
-  defp present?(nil), do: false
-  defp present?(v) when is_binary(v), do: String.trim(v) != ""
-  defp present?(_), do: true
-
-  defp parse_float(v) when is_number(v), do: v * 1.0
-
-  defp parse_float(v) when is_binary(v) do
-    case Float.parse(v) do
-      {f, _} -> f
-      :error -> 0.0
-    end
-  end
-
-  defp parse_float(_), do: 0.0
-
-  defp parse_subject_ref("new", name) do
-    case String.trim(name || "") do
-      "" -> {:new, ""}
-      n -> {:new, n}
-    end
-  end
-
-  defp parse_subject_ref("", _name), do: nil
-  defp parse_subject_ref(id_str, _name), do: {:existing, String.to_integer(id_str)}
-
-  defp subject_new_name({:new, name}), do: name
-  defp subject_new_name(_), do: nil
-
-  # --- Misc ---
-
-  defp experiment_name(name, saved_videos) do
-    case String.trim(name || "") do
-      "" ->
-        saved_videos
-        |> List.first()
-        |> then(&((&1 && Path.rootname(&1.filename)) || "Untitled experiment"))
-
-      n ->
-        n
-    end
-  end
-
-  defp default_name_placeholder(saved_videos) do
-    case saved_videos do
-      [first | _] -> Path.rootname(first.filename)
-      _ -> "My experiment"
-    end
+    assign(socket, :specs, Map.put(specs, ref, Wizard.put_source(specs[ref], kind, source)))
   end
 
   defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")

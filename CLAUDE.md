@@ -283,6 +283,260 @@ Fase 2 — parte 15: migração completa de DaisyUI para Tailwind puro (`mix pre
 - [x] **Menu de navegação genérico removido de `root.html.heex`** (`<ul class="menu menu-horizontal">` com email/Settings/Log out ou Register/Log in, renderizado acima de toda página) — duplicava nav que a sidebar Locomo (email + Sign out no rodapé) e as telas de auth já cobrem; não foi substituído por nada.
 - [x] `assets/vendor/daisyui.js`/`daisyui-theme.js` apagados (mortos desde a remoção do `@plugin` em `app.css`).
 
+## Refatoração clean code — lado Elixir (5 sprints)
+
+Depois de ~15 partes de crescimento orgânico (Fase 2 acima), o lado Elixir acumulou
+duplicação entre LiveViews (o mesmo helper reescrito do zero em 3-4 arquivos) e um
+context module (`experiments.ex`) cobrindo responsabilidades demais. Plano de 5
+sprints, do menor risco pro mais estrutural — cada sprint termina com `mix precommit`
+limpo antes do próximo. Python fica fora de escopo por decisão explícita (item
+separado, ver seção "Frontend"/roadmap Python se/quando entrar).
+
+Sprint 1 — feito (extração mecânica, sem mudança de comportamento, `mix compile
+--force` limpo, 344 testes passando):
+- [x] **`MouseTrackerWeb.Formatters`** (`lib/mouse_tracker_web/formatters.ex`, importado
+  globalmente via `MouseTrackerWeb.html_helpers/0` — mesmo padrão de
+  `CoreComponents`/`LocomoComponents`): `fmt/1`, `stat_fmt/1`, `parse_int/1`, antes
+  copiados quase idênticos em `results.ex`, `dataset_live/index.ex`,
+  `analyses_live/index.ex` (e `fmt_num/1` em `pipeline_settings_live/index.ex`, mesma
+  lógica com outro nome).
+- [x] **`MouseTrackerWeb.LiveHelpers.patch_params/2`** (`lib/mouse_tracker_web/live_helpers.ex`,
+  também importado globalmente): o padrão "merge params base + overrides, descarta
+  `nil`/`"all"`" que `results.ex`'s `patch_subject_tab/2` e `analyses_live/index.ex`'s
+  `patch/2` implementavam cada um do zero (a única parte realmente idêntica entre os
+  dois — a URL/rota de destino de cada `push_patch` continua específica de cada tela).
+- [x] **`MouseTrackerWeb.VideoStatusSync`** (`lib/mouse_tracker_web/live/video_status_sync.ex`):
+  `subscribe_all/1` + `patch_status/3` — o bloco "assina o tópico PubSub de cada vídeo
+  no mount, aplica `{:status,...}` só no vídeo certo" estava **byte a byte idêntico**
+  em `experiment_live/index.ex`, `experiment_live/show.ex` e `dataset_live/index.ex`.
+- [x] **`<.empty_state>`/`<.search_input>`** novos em `core_components.ex`: a caixa
+  tracejada de "nada encontrado" (ícone opcional em círculo + título + subtítulo +
+  slot livre pra CTA) estava duplicada em 10+ lugares entre `experiment_live/index.ex`,
+  `dataset_live/index.ex`, `pipeline_settings_live/index.ex` (`empty_library/1`),
+  `results.ex` e `analyses_live/index.ex`; a busca (`phx-change="search"`, param
+  `query`) era idêntica nas 3 telas de listagem (Experiments/Datasets/Pipeline
+  Settings), só o placeholder mudava.
+- Fora de escopo deste sprint (decisão explícita, não esquecimento): a
+  segmented-control/tab-bar (6+ lugares) e o chip/pill picker (3 lugares) **não**
+  foram componentizados — cada handler usa uma chave `phx-value-*` diferente
+  (`status`/`view`/`tab`/`metric`), então unificar exigiria renomear essas chaves em
+  vários `handle_event`, o que é mais risco do que "extração pura" deveria ser para um
+  primeiro sprint. Revisitar só se as chaves forem normalizadas por outro motivo.
+
+Sprint 2 — feito (fix de bug de autorização + dedupe do guard, `mix precommit` limpo,
+350 testes passando):
+- [x] **Fix de bug real**: `update_experiment/3`/`delete_experiment/2` aceitavam
+  `%Scope{}` mas nunca checavam `experiment.user_id == user.id` — todo recurso irmão
+  (Calibration/Roi/Subject) já fazia essa checagem, Experiment não. Agora seguem o
+  mesmo padrão (guard na function head; usuário de outro dono → `FunctionClauseError`,
+  mesmo comportamento que os outros recursos já tinham).
+- [x] **`defguard is_owner/2`** (topo de `lib/mouse_tracker/experiments.ex`): substitui
+  o guard `when user_id == user.id` que estava copiado quase idêntico 7 vezes
+  (`update_calibration/3`, `delete_calibration/2`, `update_roi/3`, `delete_roi/2`,
+  `duplicate_roi/2`, `update_subject/3`, `delete_subject/2`) + as 2 correções acima —
+  uma função privada comum não funcionaria numa guard clause, por isso `defguard`
+  (guard-safe, só igualdade), preservando o mesmo `FunctionClauseError` de antes em
+  caso de dono errado (sem mudança de comportamento, só remove a repetição textual).
+- [x] **`update_video/3`/`delete_video/2`** (novos, com `%Scope{}` + checagem de posse
+  via `video.experiment.user_id`, já que `Video` não tem `user_id` próprio — exige
+  `:experiment` pré-carregado, ver `get_video_with_experiment!/1`) foram adicionados
+  **ao lado de**, não no lugar de, `update_video/2`/`delete_video/1` (sem Scope).
+  Decisão tomada ao investigar os callers reais: o único caller de produção hoje é
+  `mix mouse_tracker.backfill_video_metadata`, uma tarefa de manutenção que varre
+  vídeos de **todos** os usuários por design (mesma categoria de
+  `OrphanUploadCleanupWorker` — operação de sistema, não uma requisição em nome de um
+  usuário específico); forçar essa tarefa a fabricar um `Scope` por vídeo não
+  agregaria segurança real e seria arquiteturalmente estranho. As variantes com Scope
+  ficam prontas para quando uma tela LiveView precisar mutar um vídeo em nome do
+  usuário logado (hoje nenhuma o faz — `VideoProcessingWorker` atualiza status via
+  `Video.changeset`/`Repo.update` direto, outro caso de código de sistema).
+- [x] Testes: casos novos de "pertence a outro usuário" → `FunctionClauseError` para
+  `update_experiment/3`/`delete_experiment/2` (faltavam, mirror dos que já existiam
+  para Calibration/Roi/Subject) e para os novos `update_video/3`/`delete_video/2`.
+
+Sprint 3 — feito (split de `experiments.ex` por concern, movimentação pura sem
+mudança de lógica, `mix precommit` limpo, 350 testes passando — mesma contagem de
+antes do split):
+- [x] **`lib/mouse_tracker/experiments.ex` (701 linhas) dividido em 6 módulos** por
+  responsabilidade, usando as costuras já identificadas no plano:
+  - `MouseTracker.Experiments` (módulo raiz, mantido): CRUD de Experiment/Video +
+    orquestração do wizard (`create_experiment_with_videos/2` e privados) +
+    `enqueue_video_processing/1` + `TrackingResult` (`get_tracking_result_for_video/1`,
+    `create_tracking_result/2`).
+  - `MouseTracker.Experiments.Calibrations`: CRUD + posse de `Calibration` +
+    `count_videos_using_calibration/1`.
+  - `MouseTracker.Experiments.Rois`: CRUD + posse de `Roi`, incluindo as funções de
+    vínculo com vídeo (`attach_roi_to_video/2`, `detach_roi_from_video/2`,
+    `roi_locked?/1`, `list_rois_for_video/1`, `count_videos_using_roi/1`,
+    `duplicate_roi/2`) e `RoiTime` (`list_roi_times/1`, `get_roi_time!/1`,
+    `create_roi_time/3`, `change_roi_time/2`) — mantidos juntos por serem
+    inseparáveis do ciclo de vida de uma ROI.
+  - `MouseTracker.Experiments.Subjects`: CRUD + posse de `Subject` +
+    `count_videos_using_subject/1`.
+  - `MouseTracker.Experiments.Reporting`: agregação cross-experiment —
+    `list_all_videos/1`, `datasets_summary/1`, `subject_result_videos/3`,
+    `subject_experiments/2`, `group_by_calibration/1`, `subject_metric_aggregate/1`
+    (+ privados `stat/2`/`roi_zone_aggregate/1`).
+  - `MouseTracker.Experiments.FileCleanup`: `cleanup_video_files/1` (+ privados
+    `remove_file/1`/`remove_dir/1`/`static_dir/0`), chamado por
+    `Experiments.delete_experiment/2` e `Experiments.delete_video/1`.
+- [x] **`MouseTracker.Experiments.Ownership`**: o `defguard is_owner/2` (adicionado no
+  Sprint 2 dentro de `experiments.ex`) virou módulo próprio, já que uma guard só pode
+  ser reaproveitada em outro módulo via `import` — `Experiments`, `Calibrations`,
+  `Rois` e `Subjects` todos importam esse módulo em vez de duplicar a guard.
+- [x] **Todos os call sites atualizados** (mecânico, mas com fan-out grande — o ponto
+  de risco que o plano já antecipava): 7 LiveViews em `lib/` (`ExperimentLive.Show`,
+  `.Results`, `.New`, `.RoiEdit`, `DatasetLive.Index`, `AnalysesLive.Index`,
+  `PipelineSettingsLive.Index`), `priv/repo/seeds_locomo.exs`, e os testes —
+  `test/support/fixtures/experiments_fixtures.ex`, `experiments_wizard_test.exs`,
+  `video_processing_worker_test.exs`, `new_test.exs`, `roi_edit_test.exs`,
+  `pipeline_settings_live/index_test.exs` — todos apontando para o novo módulo
+  específico em vez de `Experiments`.
+- [x] **`test/mouse_tracker/experiments_test.exs` (992 linhas) dividido na mesma
+  fronteira dos módulos**, já que o arquivo original já estava organizado em seções
+  por recurso com comentários-separador — divisão mecânica, sem reescrever nenhum
+  teste: `experiments_test.exs` ficou só com Experiment/Video (mantido, mesmo nome);
+  novos `test/mouse_tracker/experiments/calibrations_test.exs`, `rois_test.exs`,
+  `subjects_test.exs`, `reporting_test.exs`. Contagem total de testes idêntica à de
+  antes do split (350), confirmando que foi puro reposicionamento.
+- Fora de escopo desta sprint (decisão explícita, não esquecimento): nenhuma
+  assinatura de função ou comportamento mudou — só localização/organização. Sprint 4
+  é quem move lógica de agregação hoje presa em LiveViews para dentro de
+  `Experiments.Reporting`.
+
+Sprint 4 — feito (lógica de agregação movida de LiveViews para
+`Experiments.Reporting`, `mix precommit` limpo, 357 testes passando — 7 a mais que
+antes, todos novos testes diretos contra `Reporting` que não existiam porque a lógica
+vivia presa em funções privadas de LiveView):
+- [x] **`Reporting.total_roi_seconds/1`** (novo): soma de `roi_times` de um
+  `TrackingResult`, movida de `ExperimentLive.Results`' `total_roi_seconds/1` privado
+  (usada 3x ali — stat card, cabeçalho da tabela de zonas e coluna "Time in ROI" da
+  aba por-subject).
+- [x] **`Reporting.share_of_session/2`** (novo): `% do tempo de sessão numa zona`,
+  movida de `Results`' `share_pct/2`. Unifica com o mesmo conceito que
+  `roi_zone_aggregate/1` (privado de `Reporting`) já calculava internamente para
+  `avg_share_pct` — mesma convenção de retornar `nil` quando `duration_seconds` é
+  ausente/zero (antes `share_pct/2` retornava `0.0` nesse caso e só `share_label/2`
+  sabia que isso significava "indisponível"; agora os dois wrappers finos que sobraram
+  em `Results` (`share_pct/2` para a largura da barra, `share_label/2` para o texto)
+  derivam do mesmo `nil` sem repetir a regra).
+- [x] **`Reporting.subject_groups/1`** (novo): agrupamento de vídeos por subject (nil
+  por último) + `subject_metric_aggregate/1` sobre os vídeos `"done"` de cada grupo —
+  movida de `DatasetLive.Index`'s `subject_groups/1` privado, sem nenhuma mudança de
+  comportamento (a função já delegava pra `Reporting.subject_metric_aggregate/1`, só
+  o agrupamento em si estava fora do módulo).
+- [x] **`Reporting.metric_series/2`** (novo): constrói a série temporal (mais antigo
+  primeiro) de uma métrica para o gráfico de tendência do Analyses — movida de
+  `AnalysesLive.Index`'s `build_series/2` privado. Também endereça o ponto do plano
+  sobre "filtragem de nil duplicada": `build_series/2` re-derivava do zero a regra
+  "pular vídeo sem `tracking_result`" que `subject_metric_aggregate/1` (via seu
+  privado `videos_with_results`) já aplicava — agora as duas vivem no mesmo módulo,
+  ainda que como funções distintas (formas de saída diferentes: série cronológica de
+  1 métrica vs. média/desvio-padrão de todas), reduzindo o risco de uma divergir da
+  outra no futuro.
+- [x] **`AnalysesLive.Index`'s `table_rows/1` e `series/1` não foram movidas**
+  (decisão explícita, não esquecimento): `table_rows/1` só reordena o `per_subject` já
+  montado pela própria LiveView (estrutura de view, não dado de domínio) e `series/1`
+  depende de `subject_color/1`, um helper de UI (`LocomoComponents`) sem sentido
+  dentro de `Reporting`.
+- [x] Testes: novos blocos `describe` em `test/mouse_tracker/experiments/reporting_test.exs`
+  para as 4 funções novas (`total_roi_seconds/1`, `share_of_session/2`,
+  `subject_groups/1`, `metric_series/2`) — a primeira cobertura direta dessa lógica,
+  já que antes só era exercitada indiretamente através dos testes de LiveView.
+
+Sprint 5 — feito e último desta série (`mix precommit` limpo, 357 testes passando —
+mesma contagem do Sprint 4, refactor puro de estrutura/markup, sem mudança de
+comportamento):
+- [x] **`ExperimentLive.New`'s `roi_step/1` (~326 linhas) dividido** em uma função de
+  render por card, seguindo o plano: `canvas_section/1` (frame/canvas + fallback +
+  botões "use as scale/ROI reference"), `reference_frame_form/1` (formulário de
+  índice do frame de fundo, antes inline dentro do canvas), `scale_card/1` e
+  `roi_card/1` (cada um decidindo internamente entre mostrar o editor, quando o
+  vídeo é referência daquele tipo, ou `<.inherit_control>`, já existente desde a
+  Fase 2 parte 4, quando não é) e `batch_list/1` ("Videos in this batch"). `roi_step/1`
+  em si ficou só com a composição desses 5 componentes + o preview de erros e os
+  botões de navegação — nenhuma mudança de comportamento, `data-shapes` (JSON)
+  passa a ser computado uma vez em `roi_step/1` e repassado como atributo em vez de
+  recalculado dentro do template.
+- [x] **`PipelineSettingsLive.Index`'s `rename/6`/`delete/7` — dedupe do call site,
+  não só da função**: os 3 pares de `handle_event("rename_<recurso>", ...)` /
+  `handle_event("delete_<recurso>", ...)` (6 clauses hardcoding módulo + chave de
+  assign) viraram 2 clauses genéricas — `handle_event("rename_" <> key, ...)` e
+  `handle_event("delete_" <> key, ...)` — despachadas por um novo `@resources`
+  (module attribute, mapa `"calibration"/"roi"/"subject" => %{assign_key:, usage_key:,
+  label:, get:, update:, delete:}`, com os `get`/`update`/`delete` como captures de
+  `Calibrations`/`Rois`/`Subjects`). `rename/6`→`rename/4` e `delete/7`→`delete/3`
+  passaram a receber essa entrada de `@resources` inteira em vez de 4-5 argumentos
+  posicionais soltos. Detalhe de implementação: `@resources` não pode aparecer numa
+  guard (`when is_map_key(@resources, key)`) porque o attribute se expande inline no
+  AST e carrega `&Mod.fun/N` captures, que não são permitidos em guards — resolvido
+  com `Map.fetch!(@resources, key)` dentro do corpo da função (falha rápido em caso
+  de eventos desconhecidos, mesmo padrão de "erro de programador" que o resto do
+  módulo já usa). `duplicate_roi` continua hardcoded pra `Rois` (não tem equivalente
+  em Calibration/Subject, não faz parte da duplicação que este sprint mirava).
+- [x] **`<.metric_stat_cards>`** (novo componente em `locomo_components.ex`, ao lado
+  de `stat_card/1`): substitui os grids de `stat_card` + `stat_fmt/1` hand-rolled
+  independentemente em `ExperimentLive.Results`'s `subject_average/1` (7 métricas +
+  ROI zones) e `DatasetLive.Index`'s `subject_group/1` (preview de 4 métricas) — cada
+  chamador continua escolhendo seu próprio subconjunto/ordem de métricas via
+  `fields` (lista de `%{key:, label:, unit:, sub:}`), então o componente só fatora a
+  repetição real ("stat_card envolvendo uma métrica de aggregate formatada com
+  `stat_fmt/1`"), não decide quais métricas cada tela mostra.
+  **Achado ao investigar**: o item do plano original citava 3 lugares duplicados
+  (Results, Datasets, Analyses); na investigação, `AnalysesLive.Index` não tinha
+  nenhum display de mean±SD — a tela virou gráfico de tendência + tabela cronológica
+  na Fase 2 parte 13 (Compare foi absorvido por Analyses), então a "duplicação
+  3x" citada no plano já não existia mais nesse módulo; só Results e Datasets
+  precisavam do componente.
+- Testes: nenhum teste novo (sprint de puro refactor estrutural/de markup) — os
+  testes de LiveView existentes (`new_test.exs`, `pipeline_settings_live/index_test.exs`,
+  `results_test.exs`, `dataset_live/index_test.exs`) já cobrem o HTML renderizado e
+  continuaram passando sem alteração, confirmando que a saída não mudou.
+
+Com isso, os 5 sprints planejados de limpeza do lado Elixir estão completos. Python
+(`priv/python/`) permanece fora de escopo, por decisão explícita no início desta
+série (ver topo desta seção).
+
+Sprint 6 — feito, ad-hoc (fora dos 5 originalmente planejados, pedido depois de uma
+revisão do estado do código; `mix precommit` limpo, 357 testes passando — mesma
+contagem de antes, refactor puro de estrutura):
+- [x] **`lib/mouse_tracker_web/live/experiment_live/new.ex` ainda tinha 1620 linhas**
+  mesmo depois do Sprint 5 (que só quebrou `roi_step/1`), porque a *lógica de negócio*
+  do wizard (resolução de referência/herança de escala e ROI, validação dos passos,
+  derivação de `px_per_10cm`, montagem do payload de `create_experiment_with_videos/2`)
+  vivia no mesmo módulo que todo o `render`/`handle_event` — cerca de 30 funções que
+  não tocam `socket`, só `assigns`/mapas simples, indistinguíveis à primeira vista das
+  que de fato precisam do LiveView.
+- [x] **Nova `MouseTrackerWeb.ExperimentLive.New.Wizard`**
+  (`lib/mouse_tracker_web/live/experiment_live/new/wizard.ex`, mesmo padrão de módulo
+  aninhado de `Experiments.Reporting`): recebeu, sem mudança de lógica, as ~30 funções
+  puras — flags de referência (`ref_flag/2`, `put_ref_flag/3`, `source_of/2`,
+  `put_source/3`), resolução de herança (`resolve_ref/3`, `resolve_inherit/3`,
+  `resolve_label/4`, `source_options/2`, `current_source_ref/2`, `live_refs/2`,
+  `entry_refs/1`, `ref_filename/2`), validação (`step1_valid?/1`, `step2_valid?/1`,
+  `step2_missing_reasons/1`, `cal_complete?/1`, `present?/1`), derivação de escala
+  (`derive_px_per_10cm/2`, `derive_px_per_10cm_pair/1`, `divergence_warning_pct/0`,
+  `scale_status/2`, `cal_field/3`), montagem do payload (`build_calibrations/1`,
+  `build_rois/1`, `roi_to_params/1`), e helpers menores (`default_spec/1`,
+  `default_cal/1`, `parse_float/1`, `parse_subject_ref/2`, `subject_new_name/1`,
+  `experiment_name/2`, `default_name_placeholder/1`, `clamp_frame/2`). `build_calibrations/1`
+  e `build_rois/1` mudaram de assinatura de `(socket)` para `(assigns)` (só liam
+  `socket.assigns`, nunca chamavam `assign/3`), para serem de fato socket-free.
+- [x] **`new.ex` caiu para ~1285 linhas**, ficando só com `mount`/`handle_params`/
+  `handle_event`/`render` + as funções que genuinely mutam `socket` (`toggle_ref/3`,
+  `set_source/4`, `update_calibration/3`, `apply_shape/2`, `save_pending_uploads/1`,
+  `set_reference_frame/3`, `do_create/1`) — essas continuam chamando `Wizard.*` para a
+  parte de lógica pura que precisam (ex.: `toggle_ref/3` chama `Wizard.ref_flag/2` +
+  `Wizard.put_ref_flag/3` + `Wizard.put_source/3`, só o `assign/3` fica no LiveView).
+  Todos os call sites nos templates HEEx (`step1_valid?(assigns)`,
+  `resolve_label(...)`, `cal_field(...)`, etc.) foram qualificados para `Wizard.*` —
+  chamada de função remota funciona normalmente dentro de `~H`, sem mudança de
+  comportamento.
+- Testes: nenhum teste novo (mesma categoria do Sprint 5 — puro reposicionamento);
+  `mix compile --force --warnings-as-errors` limpo e a suite completa manteve a
+  contagem exata de 357, confirmando que nenhuma lógica mudou de comportamento no
+  processo.
+
 ## Completed Features
 
 ### Métricas de rastreamento (Python)
@@ -295,3 +549,42 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
 | `immobility_seconds` | Segundos totais com velocidade < 2 cm/s |
 | `path_tortuosity` | Distância total / deslocamento em linha reta |
 | `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea |
+
+### Limpeza de código — lado Python (item pontual, fora dos 6 sprints do lado Elixir)
+
+- [x] **Dedupe de `priv/python/run.py`**: `_run_headless` (modo `--json`, usado pelo
+  Phoenix) e `_run_interactive` (modo CLI com janelas OpenCV) recomputavam,
+  independentemente, o mesmo bloco de ~15 linhas — conversão px→cm e cada métrica
+  derivada (`speed_mean`/`median`/`max`, `immobility_seconds`, `path_tortuosity`,
+  `thigmotaxis_pct`). Extraído para `metrics.compute_all/8` (`priv/python/metrics.py`),
+  que recebe os outputs brutos de `analyzer.process/9` (`dist_px`, `speeds_px`,
+  `initial_pos`, `final_pos`, `nframe_peripheral`, `nframe_detected`, `px_per_10cm`,
+  `immobility_threshold_cm` opcional) e devolve um dict com todas as variantes
+  px/cm + `speeds_cm`/`conv` (usados depois para os plots). Cada entry point só
+  formata a saída (JSON vs. `print`) de forma diferente agora; nenhuma métrica mudou
+  de valor — smoke-testado manualmente (`metrics.compute_all` chamado direto) e via
+  `py_compile` dos dois arquivos, já que o projeto não tem `pytest` como dependência
+  declarada (`priv/python/tests/test_equivalence.py` existe mas compara só
+  `priv/mouse_tracker.py` (deprecated) com `detector.py`/`metrics.py`, não `run.py`).
+
+### Próximos passos de legibilidade (identificados, ainda não feitos)
+
+Dois candidatos concretos levantados numa revisão do estado do código, ainda
+pendentes:
+
+- [ ] **`priv/python/analyzer.py`'s `process/9`** (loop principal de tracking, ~170
+  linhas): mistura 5 responsabilidades numa função só — diff de frame, amostragem de
+  posição/velocidade, checagem de ROI, tigmotaxia, e desenho OpenCV só-interativo
+  (`if not headless: cv2.rectangle(...)` espalhado pelo meio). Sem cobertura de teste
+  direta hoje (`test_equivalence.py` só cobre `detector.py`/`metrics.py`, não
+  `analyzer.py`) — mais arriscado que o resto da limpeza já feita; considerar
+  adicionar testes de caracterização antes de separar (ex.: extrair o desenho
+  interativo para um helper próprio, ou separar "rastrear posição" de "classificar
+  zona").
+- [ ] **Duplicação de classes Tailwind em botões HEEx**: o par de botões "← Back" /
+  "Continue →" (`rounded-[8px] border ... hover:border-[#d4d8df]` vs
+  `bg-[#CC5500] ... hover:bg-[#b34a00]`) se repete quase idêntico em `new.ex`,
+  `roi_edit.ex`, `results.ex`, etc. Um componente `<.button variant={:primary |
+  :secondary}>` (ou `<.wizard_nav>`) em `core_components.ex` removeria essa
+  cópia-e-cola — mesmo espírito do Sprint 1, extração puramente mecânica, baixo
+  risco.

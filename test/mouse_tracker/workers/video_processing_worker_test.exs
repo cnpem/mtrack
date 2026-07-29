@@ -6,7 +6,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
   import MouseTracker.ExperimentsFixtures
 
   alias MouseTracker.Workers.VideoProcessingWorker
-  alias MouseTracker.Experiments.{Video, TrackingResult}
+  alias MouseTracker.Experiments.{Video, TrackingResult, Rois}
   alias MouseTracker.Tracking.PythonPortMock
   alias MouseTracker.Repo
 
@@ -133,7 +133,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
         })
         |> Repo.insert!()
 
-      :ok = MouseTracker.Experiments.attach_roi_to_video(poly_video, poly)
+      :ok = Rois.attach_roi_to_video(poly_video, poly)
 
       PythonPortMock
       |> expect(:run, fn params, _on_progress ->

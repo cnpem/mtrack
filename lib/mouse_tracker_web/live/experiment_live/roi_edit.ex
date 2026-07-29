@@ -17,6 +17,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Rois
   alias MouseTracker.Tracking.FrameExtractor
 
   @impl true
@@ -27,9 +28,9 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
       raise Ecto.NoResultsError, queryable: MouseTracker.Experiments.Video
     end
 
-    roi = Experiments.get_roi!(socket.assigns.current_scope, roi_id)
+    roi = Rois.get_roi!(socket.assigns.current_scope, roi_id)
 
-    unless roi in Experiments.list_rois_for_video(video) do
+    unless roi in Rois.list_rois_for_video(video) do
       raise Ecto.NoResultsError, queryable: MouseTracker.Experiments.Roi
     end
 
@@ -38,7 +39,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
      |> assign(:page_title, "Edit ROI")
      |> assign(:video, video)
      |> assign(:roi, roi)
-     |> assign(:locked?, Experiments.roi_locked?(roi))
+     |> assign(:locked?, Rois.roi_locked?(roi))
      |> assign(:name, roi.name)
      |> assign(:draw_mode, roi_draw_mode(roi))
      |> assign(:new_geometry, nil)
@@ -89,7 +90,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
     name = Map.get(params, "value", socket.assigns.name)
     attrs = Map.put(geometry_attrs(socket.assigns.new_geometry), :name, name)
 
-    case Experiments.update_roi(socket.assigns.current_scope, socket.assigns.roi, attrs) do
+    case Rois.update_roi(socket.assigns.current_scope, socket.assigns.roi, attrs) do
       {:ok, _updated} ->
         {:noreply,
          socket
@@ -103,7 +104,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
   end
 
   def handle_event("duplicate", _params, socket) do
-    case Experiments.duplicate_roi(socket.assigns.current_scope, socket.assigns.roi) do
+    case Rois.duplicate_roi(socket.assigns.current_scope, socket.assigns.roi) do
       {:ok, new_roi} ->
         {:noreply,
          socket
@@ -264,18 +265,12 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
           </div>
 
           <div class="mt-6 flex items-center justify-between">
-            <.link
-              navigate={~p"/experiments/#{@video.experiment_id}"}
-              class="rounded-[8px] border border-[#e7e9ee] px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-            >
+            <.button variant="secondary" navigate={~p"/experiments/#{@video.experiment_id}"}>
               Cancel
-            </.link>
-            <button
-              type="submit"
-              class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-            >
+            </.button>
+            <.button type="submit">
               Save
-            </button>
+            </.button>
           </div>
         </form>
       </div>

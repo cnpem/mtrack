@@ -7,6 +7,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
   use Phoenix.Component
 
   import MouseTrackerWeb.CoreComponents, only: [icon: 1]
+  import MouseTrackerWeb.Formatters, only: [stat_fmt: 1]
 
   @doc """
   A status pill for a video or an experiment's aggregate status.
@@ -67,6 +68,33 @@ defmodule MouseTrackerWeb.LocomoComponents do
       </div>
 
       <div :if={@sub} class="mt-1.5 text-[11.5px] text-[#8a93a3]">{@sub}</div>
+    </div>
+    """
+  end
+
+  @doc """
+  One `stat_card` per entry in `fields`, each formatted with `stat_fmt/1` from
+  a subject metric aggregate (`Experiments.Reporting.subject_metric_aggregate/1`'s
+  `:metrics` map) — the "mean ± SD" stat-card grid hand-rolled independently on
+  the Results "Por subject" tab and the Datasets library's per-subject preview.
+  Callers keep their own metric subset/order (Results shows all 7; Datasets'
+  preview shows a smaller 4-metric summary) via `fields`, a list of
+  `%{key:, label:, unit:, sub:}` (`unit`/`sub` optional).
+  """
+  attr :metrics, :map, required: true
+  attr :fields, :list, required: true
+  attr :class, :string, default: "grid grid-cols-2 gap-4 lg:grid-cols-4"
+
+  def metric_stat_cards(assigns) do
+    ~H"""
+    <div class={@class}>
+      <.stat_card
+        :for={field <- @fields}
+        label={field.label}
+        value={stat_fmt(Map.fetch!(@metrics, field.key))}
+        unit={field[:unit]}
+        sub={field[:sub]}
+      />
     </div>
     """
   end

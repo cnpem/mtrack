@@ -2,6 +2,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Reporting
 
   @tabs [
     {"video", "Per video", true},
@@ -64,15 +65,15 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       scope = socket.assigns.current_scope
       scope_experiment_id = parse_int(params["scope_experiment"])
 
-      subject_experiments = Experiments.subject_experiments(scope, subject_id)
-      subject_videos = Experiments.subject_result_videos(scope, subject_id, scope_experiment_id)
+      subject_experiments = Reporting.subject_experiments(scope, subject_id)
+      subject_videos = Reporting.subject_result_videos(scope, subject_id, scope_experiment_id)
 
       socket
       |> assign(:scope_experiment_id, scope_experiment_id)
       |> assign(:subject_experiments, subject_experiments)
       |> assign(:subject_videos, subject_videos)
-      |> assign(:calibration_groups, Experiments.group_by_calibration(subject_videos))
-      |> assign(:subject_aggregate, Experiments.subject_metric_aggregate(subject_videos))
+      |> assign(:calibration_groups, Reporting.group_by_calibration(subject_videos))
+      |> assign(:subject_aggregate, Reporting.subject_metric_aggregate(subject_videos))
     else
       socket
       |> assign(:scope_experiment_id, nil)
@@ -92,15 +93,6 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
 
       _ ->
         id
-    end
-  end
-
-  defp parse_int(nil), do: nil
-
-  defp parse_int(str) do
-    case Integer.parse(str) do
-      {id, ""} -> id
-      _ -> nil
     end
   end
 
@@ -152,10 +144,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       metrics_view: socket.assigns.metrics_view
     ]
 
-    params =
-      base
-      |> Keyword.merge(overrides)
-      |> Enum.reject(fn {_k, v} -> v in [nil, "all"] end)
+    params = patch_params(base, overrides)
 
     push_patch(socket, to: ~p"/experiments/#{socket.assigns.experiment.id}/results?#{params}")
   end
@@ -212,20 +201,13 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
           </button>
         </div>
 
-        <div
+        <.empty_state
           :if={@done_videos == []}
-          class="mt-5 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-        >
-          <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-            <.icon name="hero-chart-bar" class="size-6" />
-          </div>
-
-          <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">No analyzed videos yet</h2>
-
-          <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-            Results appear here once a video finishes processing.
-          </p>
-        </div>
+          class="mt-5"
+          icon="hero-chart-bar"
+          title="No analyzed videos yet"
+          subtitle="Results appear here once a video finishes processing."
+        />
 
         <div :if={@done_videos != [] and @tab == "video"} class="mt-5">
           <.video_results
@@ -247,16 +229,11 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             aggregate={@subject_aggregate}
             metrics_view={@metrics_view}
           />
-          <div
+          <.empty_state
             :if={!@subject}
-            class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-          >
-            <h2 class="text-[15px] font-bold text-[#0f1729]">No subject to show</h2>
-
-            <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-              This experiment's videos have no subject assigned yet.
-            </p>
-          </div>
+            title="No subject to show"
+            subtitle="This experiment's videos have no subject assigned yet."
+          />
         </div>
       </div>
     </Layouts.locomo>
@@ -312,7 +289,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       />
       <.stat_card
         label="Time in ROI"
-        value={fmt(total_roi_seconds(@result))}
+        value={fmt(Reporting.total_roi_seconds(@result))}
         unit="s"
         sub="Across all zones"
       />
@@ -357,7 +334,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
 
         <div class="font-data text-[11.5px] text-[#8a93a3]">
-          total {fmt(total_roi_seconds(@result))} s
+          total {fmt(Reporting.total_roi_seconds(@result))} s
         </div>
       </div>
 
@@ -484,16 +461,12 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       </form>
     </div>
 
-    <div
+    <.empty_state
       :if={@subject_videos == []}
-      class="mt-4 flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center"
-    >
-      <h2 class="text-[15px] font-bold text-[#0f1729]">No analyzed videos in this scope</h2>
-
-      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-        Pick a different subject or widen the experiment filter.
-      </p>
-    </div>
+      class="mt-4"
+      title="No analyzed videos in this scope"
+      subtitle="Pick a different subject or widen the experiment filter."
+    />
 
     <div :if={@subject_videos != []}>
       <div class="mt-4 flex flex-wrap gap-6">
@@ -548,49 +521,19 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         Mean ± SD across {@aggregate.n} video(s)
       </p>
 
-      <div class="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <.stat_card
-          label="Distance traveled"
-          value={stat_fmt(@aggregate.metrics.distance_cm)}
-          unit="cm"
-          sub="Total path length"
-        />
-        <.stat_card
-          label="Mean speed"
-          value={stat_fmt(@aggregate.metrics.speed_mean_cm)}
-          unit="cm/s"
-          sub="Average over session"
-        />
-        <.stat_card
-          label="Median speed"
-          value={stat_fmt(@aggregate.metrics.speed_median_cm)}
-          unit="cm/s"
-          sub="Typical speed"
-        />
-        <.stat_card
-          label="Max speed"
-          value={stat_fmt(@aggregate.metrics.speed_max_cm)}
-          unit="cm/s"
-          sub="Peak instantaneous"
-        />
-        <.stat_card
-          label="Thigmotaxis"
-          value={stat_fmt(@aggregate.metrics.thigmotaxis_pct)}
-          unit="%"
-          sub="Time near the wall"
-        />
-        <.stat_card
-          label="Path tortuosity"
-          value={stat_fmt(@aggregate.metrics.path_tortuosity)}
-          sub="Path length / displacement"
-        />
-        <.stat_card
-          label="Immobility"
-          value={stat_fmt(@aggregate.metrics.immobility_seconds)}
-          unit="s"
-          sub="Speed < 2 cm/s"
-        />
-      </div>
+      <.metric_stat_cards
+        metrics={@aggregate.metrics}
+        fields={[
+          %{key: :distance_cm, label: "Distance traveled", unit: "cm", sub: "Total path length"},
+          %{key: :speed_mean_cm, label: "Mean speed", unit: "cm/s", sub: "Average over session"},
+          %{key: :speed_median_cm, label: "Median speed", unit: "cm/s", sub: "Typical speed"},
+          %{key: :speed_max_cm, label: "Max speed", unit: "cm/s", sub: "Peak instantaneous"},
+          %{key: :thigmotaxis_pct, label: "Thigmotaxis", unit: "%", sub: "Time near the wall"},
+          %{key: :path_tortuosity, label: "Path tortuosity", sub: "Path length / displacement"},
+          %{key: :immobility_seconds, label: "Immobility", unit: "s", sub: "Speed < 2 cm/s"}
+        ]}
+        class="mt-2 grid grid-cols-2 gap-4 lg:grid-cols-4"
+      />
 
       <div
         :if={@aggregate.roi_zones != []}
@@ -676,7 +619,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             </td>
 
             <td class="py-2.5 font-data text-[#344054]">
-              {fmt(v.tracking_result && total_roi_seconds(v.tracking_result))} s
+              {fmt(v.tracking_result && Reporting.total_roi_seconds(v.tracking_result))} s
             </td>
           </tr>
         </tbody>
@@ -689,32 +632,19 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
 
   defp tabs, do: @tabs
 
-  defp total_roi_seconds(%{roi_times: roi_times}) when is_list(roi_times) do
-    roi_times |> Enum.map(& &1.seconds) |> Enum.sum()
+  # Bar width falls back to 0 when the session's share can't be computed
+  # (older videos may lack `duration_seconds`) — see `Reporting.share_of_session/2`.
+  defp share_pct(seconds, video),
+    do: Reporting.share_of_session(seconds, video.duration_seconds) || 0.0
+
+  defp share_label(seconds, video) do
+    case Reporting.share_of_session(seconds, video.duration_seconds) do
+      nil -> "—"
+      pct -> "#{fmt(pct)}%"
+    end
   end
-
-  defp total_roi_seconds(_), do: 0.0
-
-  # Share of the session spent in a zone. Falls back to 0 when the video has no
-  # known duration (older records may lack `duration_seconds`).
-  defp share_pct(_seconds, %{duration_seconds: d}) when d in [nil, 0, 0.0], do: 0.0
-
-  defp share_pct(seconds, %{duration_seconds: duration}) do
-    min(seconds / duration * 100, 100.0)
-  end
-
-  defp share_label(_seconds, %{duration_seconds: d}) when d in [nil, 0, 0.0], do: "—"
-  defp share_label(seconds, video), do: "#{fmt(share_pct(seconds, video))}%"
-
-  defp fmt(nil), do: "—"
-  defp fmt(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
 
   defp calibration_label(nil), do: "No calibration assigned"
   defp calibration_label(%{name: name}) when is_binary(name) and name != "", do: name
   defp calibration_label(%{id: id}), do: "Calibration ##{id}"
-
-  defp stat_fmt(%{mean: nil}), do: "—"
-  defp stat_fmt(%{mean: mean, sd: nil}), do: fmt(mean)
-  defp stat_fmt(%{mean: mean, sd: sd}), do: "#{fmt(mean)} ± #{fmt(sd)}"
 end

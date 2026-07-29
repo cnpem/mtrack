@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 import numpy as np
 
-# Adicionar a pasta priv/ ao path para poder importar o arquivo original
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+# Adicionar a raiz do repo ao path para poder importar priv.mouse_tracker
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 # Importar o original e o novo modular
 import priv.mouse_tracker as original

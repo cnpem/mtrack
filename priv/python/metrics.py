@@ -4,6 +4,7 @@ Responsible for: pure mathematical/statistical calculations.
 No I/O, no OpenCV calls, no rendering.
 """
 
+from collections import namedtuple
 from math import sqrt
 
 
@@ -112,6 +113,101 @@ def is_pt_into_polygon(pt, flat_pts):
     return inside
 
 
+MotionState = namedtuple(
+    "MotionState",
+    "pos_prev t_pos dist_total initial_pos final_pos s0 t0 t1 speeds",
+)
+
+
+def new_motion_state():
+    """Initial accumulator state for a `process/9` run — same starting values
+    the loop used to initialise as loose local variables."""
+    return MotionState(
+        pos_prev=None,
+        t_pos=0,
+        dist_total=0.0,
+        initial_pos=None,
+        final_pos=None,
+        s0=None,
+        t0=0,
+        t1=0,
+        speeds=[],
+    )
+
+
+def skip_motion_sample(state):
+    """Advance past a frame with an ambiguous detection (0 or >1 contours) —
+    only `t_pos` moves, mirroring the previous inline `_t_pos += 1`."""
+    return state._replace(t_pos=state.t_pos + 1)
+
+
+def update_motion(state, pos, fps):
+    """Advance motion/speed accumulation by one unambiguous detected
+    position. Returns (new_state, moved), where `moved` is `None` when the
+    position-update interval didn't fire this frame (nothing for the
+    interactive renderer to draw), and otherwise `True`/`False` for whether
+    the displacement exceeded the 5px noise threshold — used to pick the
+    green/red debug marker color."""
+    t_pos = state.t_pos + 1
+    pos_prev = state.pos_prev
+    dist_total = state.dist_total
+    moved = None
+
+    if t_pos >= 5:
+        if pos_prev is not None:
+            d = distance(pos_prev, pos)
+            moved = d > 5
+            if moved:
+                dist_total += d
+        pos_prev = pos
+        t_pos = 0
+
+    initial_pos = state.initial_pos if state.initial_pos is not None else pos
+    final_pos = pos
+
+    s0 = state.s0 if state.s0 is not None else pos
+    t1 = state.t1 + 1
+    speeds = state.speeds
+    if t1 - state.t0 >= fps:
+        speeds = speeds + [distance(pos, s0)]
+        t0 = state.t0 + fps
+        s0 = pos
+    else:
+        t0 = state.t0
+
+    new_state = state._replace(
+        pos_prev=pos_prev,
+        t_pos=t_pos,
+        dist_total=dist_total,
+        initial_pos=initial_pos,
+        final_pos=final_pos,
+        s0=s0,
+        t0=t0,
+        t1=t1,
+        speeds=speeds,
+    )
+    return new_state, moved
+
+
+def is_pt_in_shape(pt, shape):
+    """Dispatch point-in-shape membership by `len(shape)`: 3 = circle
+    (cx, cy, r), 4 = axis-aligned rect (x, y, w, h), >=6 (even) = polygon
+    (flat list of vertices). Same convention used to distinguish ROI shapes
+    coming from the Elixir side."""
+    if len(shape) == 3:
+        return is_pt_into_circle(pt, shape)
+    elif len(shape) == 4:
+        return is_pt_into_roi(pt, shape)
+    else:
+        return is_pt_into_polygon(pt, shape)
+
+
+def rois_containing(pt, rois):
+    """Return a list of booleans, one per roi in `rois`, indicating whether
+    `pt` lies inside that roi (shape auto-detected via `is_pt_in_shape`)."""
+    return [is_pt_in_shape(pt, roi) for roi in rois]
+
+
 def compute_thigmotaxis_pct(nframe_peripheral, nframe_detected):
     """
     Return % of detected frames where the animal was in the peripheral zone (0–100).
@@ -119,3 +215,46 @@ def compute_thigmotaxis_pct(nframe_peripheral, nframe_detected):
     if nframe_detected == 0:
         return 0.0
     return round(100.0 * nframe_peripheral / nframe_detected, 2)
+
+
+def compute_all(
+    dist_px,
+    speeds_px,
+    initial_pos,
+    final_pos,
+    nframe_peripheral,
+    nframe_detected,
+    px_per_10cm,
+    immobility_threshold_cm=2.0,
+):
+    """
+    Derive every per-run metric from the raw outputs of `analyzer.process/9`.
+    Used by both the headless (--json) and interactive entry points in run.py
+    so the px->cm conversion and each derived stat has exactly one definition.
+    """
+    conv = 10.0 / px_per_10cm
+    speeds_cm = [s * conv for s in speeds_px]
+
+    speed_mean_cm, speed_median_cm = compute_speed_stats(speeds_cm)
+    speed_mean_px, speed_median_px = compute_speed_stats(speeds_px)
+    tortuosity = (
+        compute_tortuosity(dist_px, initial_pos, final_pos)
+        if initial_pos and final_pos
+        else 0.0
+    )
+
+    return {
+        "distance_px": dist_px,
+        "distance_cm": dist_px * conv,
+        "speed_mean_px": speed_mean_px,
+        "speed_mean_cm": speed_mean_cm,
+        "speed_median_px": speed_median_px,
+        "speed_median_cm": speed_median_cm,
+        "speed_max_px": compute_speed_max(speeds_px),
+        "speed_max_cm": compute_speed_max(speeds_cm),
+        "immobility_seconds": compute_immobility_seconds(speeds_cm, immobility_threshold_cm),
+        "path_tortuosity": tortuosity,
+        "thigmotaxis_pct": compute_thigmotaxis_pct(nframe_peripheral, nframe_detected),
+        "speeds_cm": speeds_cm,
+        "conv": conv,
+    }

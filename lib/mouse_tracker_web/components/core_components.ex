@@ -88,26 +88,47 @@ defmodule MouseTrackerWeb.CoreComponents do
   ## Examples
 
       <.button>Send!</.button>
-      <.button phx-click="go" variant="primary">Send!</.button>
+      <.button phx-click="go" variant="secondary">Send!</.button>
       <.button navigate={~p"/"}>Home</.button>
+      <.button variant="primary" size="lg" shadow class="w-full">Upload</.button>
   """
-  attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
-  attr :class, :any
-  attr :variant, :string, values: ~w(primary)
+  attr :rest, :global, include: ~w(href navigate patch method download name value disabled type)
+  attr :class, :any, default: nil
+
+  attr :variant, :string,
+    values: ~w(primary secondary secondary_accent danger),
+    default: "primary"
+
+  attr :size, :string, values: ~w(sm md lg), default: "md"
+  attr :shadow, :boolean, default: false
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
+    base =
+      "inline-flex items-center justify-center gap-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+
     variants = %{
-      "primary" =>
-        "inline-flex items-center justify-center gap-1.5 rounded-[8px] bg-[#CC5500] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#b34a00] disabled:cursor-not-allowed disabled:opacity-50",
-      nil =>
-        "inline-flex items-center justify-center gap-1.5 rounded-[8px] border border-[#f0d3b8] bg-[#fbeee4] px-4 py-2 text-[13px] font-semibold text-[#b34a00] hover:bg-[#f6e2cf] disabled:cursor-not-allowed disabled:opacity-50"
+      "primary" => "bg-[#CC5500] text-white hover:bg-[#b34a00]",
+      "secondary" => "border border-[#e7e9ee] text-[#344054] hover:border-[#d4d8df]",
+      "secondary_accent" =>
+        "border border-[#e7e9ee] bg-white text-[#344054] hover:border-[#CC5500]",
+      "danger" => "border border-[#fca5a5] text-[#b42318] hover:bg-[#fdecec]"
+    }
+
+    sizes = %{
+      "sm" => "rounded-[8px] px-3 py-2 text-[12.5px]",
+      "md" => "rounded-[8px] px-4 py-2.5 text-[13px]",
+      "lg" => "rounded-[8px] px-3.5 py-2.5 text-[13px]"
     }
 
     assigns =
-      assign_new(assigns, :class, fn ->
-        Map.fetch!(variants, assigns[:variant])
-      end)
+      assign(assigns, :class, [
+        base,
+        Map.fetch!(variants, assigns.variant),
+        Map.fetch!(sizes, assigns.size),
+        assigns.shadow && "shadow-[0_1px_2px_rgba(204,85,0,.3)]",
+        assigns.class
+      ])
 
     if rest[:href] || rest[:navigate] || rest[:patch] do
       ~H"""
@@ -434,6 +455,74 @@ defmodule MouseTrackerWeb.CoreComponents do
         </div>
       </li>
     </ul>
+    """
+  end
+
+  @doc """
+  Dashed empty-state box used by list-like screens (no results after a
+  search/filter, or nothing to show yet). Pass `title`/`subtitle`, an
+  optional `icon` (rendered inside a circle above the title), and any CTA
+  markup as the default slot.
+
+  ## Examples
+
+      <.empty_state icon="hero-beaker" title="No experiments yet" subtitle="..." />
+
+      <.empty_state :if={@videos == []} class="mt-6" title="No videos yet">
+        <.link navigate={~p"/experiments/new"}>Upload a video</.link>
+      </.empty_state>
+  """
+  attr :icon, :string, default: nil
+  attr :title, :string, required: true
+  attr :subtitle, :string, default: nil
+  attr :class, :any, default: nil
+  slot :inner_block
+
+  def empty_state(assigns) do
+    ~H"""
+    <div class={[
+      "flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center",
+      @class
+    ]}>
+      <div
+        :if={@icon}
+        class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]"
+      >
+        <.icon name={@icon} class="size-6" />
+      </div>
+      <h2 class={["text-[15px] font-bold text-[#0f1729]", @icon && "mt-4"]}>{@title}</h2>
+      <p :if={@subtitle} class="mt-1 max-w-sm text-[13px] text-[#667085]">{@subtitle}</p>
+      {render_slot(@inner_block)}
+    </div>
+    """
+  end
+
+  @doc """
+  Search box (`phx-change="search"`, submitting a `query` param) used by list
+  screens (Experiments, Datasets, Pipeline Settings).
+  """
+  attr :id, :string, default: nil
+  attr :query, :string, required: true
+  attr :placeholder, :string, default: "Search"
+  attr :class, :any, default: "relative w-full max-w-[320px]"
+
+  def search_input(assigns) do
+    ~H"""
+    <form id={@id} phx-change="search" class={@class}>
+      <.icon
+        name="hero-magnifying-glass-micro"
+        class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#98a2b3]"
+      />
+      <input
+        type="text"
+        name="query"
+        value={@query}
+        phx-debounce="200"
+        placeholder={@placeholder}
+        autocomplete="off"
+        class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+      />
+    </form>
     """
   end
 

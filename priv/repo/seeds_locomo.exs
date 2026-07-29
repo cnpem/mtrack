@@ -12,6 +12,7 @@
 alias MouseTracker.Accounts
 alias MouseTracker.Accounts.Scope
 alias MouseTracker.Experiments
+alias MouseTracker.Experiments.{Calibrations, Rois, Subjects}
 
 demo_email = "demo@locomo.dev"
 demo_password = "locomo-demo-123!"
@@ -42,7 +43,7 @@ if Enum.any?(Experiments.list_experiments(scope), &(&1.name == "Open Field — p
   IO.puts("Demo experiment already present — nothing to do.")
 else
   {:ok, calibration} =
-    Experiments.create_calibration(scope, %{
+    Calibrations.create_calibration(scope, %{
       name: "Open field 60cm",
       cage_side_cm: 60.0,
       px_per_10cm: 42.0,
@@ -55,7 +56,7 @@ else
     })
 
   {:ok, roi_center} =
-    Experiments.create_roi(scope, %{
+    Rois.create_roi(scope, %{
       name: "Center",
       shape: "rectangle",
       x: 210,
@@ -65,7 +66,7 @@ else
     })
 
   {:ok, roi_zone} =
-    Experiments.create_roi(scope, %{
+    Rois.create_roi(scope, %{
       name: "Corner target",
       shape: "circle",
       x: 90,
@@ -80,7 +81,7 @@ else
     })
 
   {:ok, subject_a} =
-    Experiments.create_subject(scope, %{
+    Subjects.create_subject(scope, %{
       name: "M-01",
       sex: "M",
       age_days: 70,
@@ -89,7 +90,7 @@ else
     })
 
   {:ok, subject_b} =
-    Experiments.create_subject(scope, %{
+    Subjects.create_subject(scope, %{
       name: "M-02",
       sex: "F",
       age_days: 72,
@@ -116,8 +117,8 @@ else
           calibration_id: calibration.id
         })
 
-      :ok = Experiments.attach_roi_to_video(video, roi_center)
-      :ok = Experiments.attach_roi_to_video(video, roi_zone)
+      :ok = Rois.attach_roi_to_video(video, roi_center)
+      :ok = Rois.attach_roi_to_video(video, roi_zone)
       {:ok, video} = Experiments.update_video(video, %{status: status})
       video
     end
@@ -142,8 +143,8 @@ else
       processed_at: DateTime.utc_now() |> DateTime.truncate(:second)
     })
 
-  {:ok, _} = Experiments.create_roi_time(roi_center, result, %{frame_count: 2100, seconds: 70.0})
-  {:ok, _} = Experiments.create_roi_time(roi_zone, result, %{frame_count: 540, seconds: 18.0})
+  {:ok, _} = Rois.create_roi_time(roi_center, result, %{frame_count: 2100, seconds: 70.0})
+  {:ok, _} = Rois.create_roi_time(roi_zone, result, %{frame_count: 540, seconds: 18.0})
 
   IO.puts("Seeded experiment '#{experiment.name}' with #{length(created)} videos.")
   IO.puts("Log in at /users/log-in as #{demo_email} / #{demo_password}")

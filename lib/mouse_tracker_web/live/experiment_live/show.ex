@@ -2,17 +2,15 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
-  alias MouseTracker.Workers.VideoProcessingWorker
+  alias MouseTracker.Experiments.Subjects
+  alias MouseTrackerWeb.VideoStatusSync
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
     experiment = Experiments.get_experiment_with_details!(socket.assigns.current_scope, id)
 
     if connected?(socket) do
-      Enum.each(
-        experiment.videos,
-        &Phoenix.PubSub.subscribe(MouseTracker.PubSub, VideoProcessingWorker.topic(&1.id))
-      )
+      VideoStatusSync.subscribe_all(experiment.videos)
     end
 
     {:ok,
@@ -24,10 +22,10 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   @impl true
   def handle_event("update_subject_notes", %{"subject-id" => id, "value" => notes}, socket) do
-    subject = Experiments.get_subject!(socket.assigns.current_scope, id)
+    subject = Subjects.get_subject!(socket.assigns.current_scope, id)
 
     {:ok, updated} =
-      Experiments.update_subject(socket.assigns.current_scope, subject, %{notes: notes})
+      Subjects.update_subject(socket.assigns.current_scope, subject, %{notes: notes})
 
     {:noreply,
      update(socket, :experiment_subjects, fn subjects ->
@@ -39,16 +37,11 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
   def handle_info({:status, video_id, status}, socket) do
     {:noreply,
      update(socket, :experiment, fn exp ->
-       %{exp | videos: Enum.map(exp.videos, &patch_status(&1, video_id, status))}
+       %{exp | videos: Enum.map(exp.videos, &VideoStatusSync.patch_status(&1, video_id, status))}
      end)}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
-
-  defp patch_status(video, video_id, status) when video.id == video_id,
-    do: %{video | status: status}
-
-  defp patch_status(video, _video_id, _status), do: video
 
   @impl true
   def render(assigns) do
@@ -182,34 +175,28 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   defp video_action(%{video: %{status: "done"}} = assigns) do
     ~H"""
-    <.link
+    <.button
+      size="sm"
       navigate={~p"/experiments/#{@experiment.id}/results?#{[video: @video.id]}"}
-      class="rounded-[8px] bg-[#CC5500] px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-[#b34a00]"
     >
       View results
-    </.link>
+    </.button>
     """
   end
 
   defp video_action(%{video: %{status: "processing"}} = assigns) do
     ~H"""
-    <.link
-      navigate={~p"/videos/#{@video.id}/processing"}
-      class="rounded-[8px] border border-[#e7e9ee] px-3 py-2 text-[12.5px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-    >
+    <.button variant="secondary" size="sm" navigate={~p"/videos/#{@video.id}/processing"}>
       View progress
-    </.link>
+    </.button>
     """
   end
 
   defp video_action(%{video: %{status: "error"}} = assigns) do
     ~H"""
-    <.link
-      navigate={~p"/videos/#{@video.id}/processing"}
-      class="rounded-[8px] border border-[#fca5a5] px-3 py-2 text-[12.5px] font-semibold text-[#b42318] hover:bg-[#fdecec]"
-    >
+    <.button variant="danger" size="sm" navigate={~p"/videos/#{@video.id}/processing"}>
       View error
-    </.link>
+    </.button>
     """
   end
 

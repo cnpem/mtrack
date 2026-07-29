@@ -18,18 +18,49 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Accounts
-  alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.{Calibrations, Rois, Subjects}
 
   @tabs [{"calibrations", "Calibrations"}, {"rois", "ROIs"}, {"subjects", "Subjects"}]
+
+  # Drives the generic rename/delete handlers below: one entry per renamable
+  # resource, keyed by the singular name already used in each event ("rename_roi",
+  # "delete_subject", ...), so a 3rd copy-pasted `handle_event` clause per
+  # resource never needs to happen again if a 4th resource shows up here.
+  @resources %{
+    "calibration" => %{
+      assign_key: :calibrations,
+      usage_key: :calibration_usage,
+      label: "Calibration",
+      get: &Calibrations.get_calibration!/2,
+      update: &Calibrations.update_calibration/3,
+      delete: &Calibrations.delete_calibration/2
+    },
+    "roi" => %{
+      assign_key: :rois,
+      usage_key: :roi_usage,
+      label: "ROI",
+      get: &Rois.get_roi!/2,
+      update: &Rois.update_roi/3,
+      delete: &Rois.delete_roi/2
+    },
+    "subject" => %{
+      assign_key: :subjects,
+      usage_key: :subject_usage,
+      label: "Subject",
+      get: &Subjects.get_subject!/2,
+      update: &Subjects.update_subject/3,
+      delete: &Subjects.delete_subject/2
+    }
+  }
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
     user = scope.user
 
-    calibrations = Experiments.list_calibrations(scope)
-    rois = Experiments.list_rois(scope)
-    subjects = Experiments.list_subjects(scope)
+    calibrations = Calibrations.list_calibrations(scope)
+    rois = Rois.list_rois(scope)
+    subjects = Subjects.list_subjects(scope)
 
     {:ok,
      socket
@@ -40,10 +71,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
      |> assign(:subjects, subjects)
      |> assign(
        :calibration_usage,
-       usage_map(calibrations, &Experiments.count_videos_using_calibration/1)
+       usage_map(calibrations, &Calibrations.count_videos_using_calibration/1)
      )
-     |> assign(:roi_usage, usage_map(rois, &Experiments.count_videos_using_roi/1))
-     |> assign(:subject_usage, usage_map(subjects, &Experiments.count_videos_using_subject/1))
+     |> assign(:roi_usage, usage_map(rois, &Rois.count_videos_using_roi/1))
+     |> assign(:subject_usage, usage_map(subjects, &Subjects.count_videos_using_subject/1))
      |> assign(:defaults_form, to_form(Accounts.change_user_pipeline_defaults(user)))}
   end
 
@@ -85,30 +116,8 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     {:noreply, socket |> assign(:query, query) |> assign_derived()}
   end
 
-  def handle_event("rename_calibration", %{"id" => id, "value" => name}, socket) do
-    rename(
-      socket,
-      :calibrations,
-      &Experiments.get_calibration!/2,
-      &Experiments.update_calibration/3,
-      id,
-      name
-    )
-  end
-
-  def handle_event("rename_roi", %{"id" => id, "value" => name}, socket) do
-    rename(socket, :rois, &Experiments.get_roi!/2, &Experiments.update_roi/3, id, name)
-  end
-
-  def handle_event("rename_subject", %{"id" => id, "value" => name}, socket) do
-    rename(
-      socket,
-      :subjects,
-      &Experiments.get_subject!/2,
-      &Experiments.update_subject/3,
-      id,
-      name
-    )
+  def handle_event("rename_" <> key, %{"id" => id, "value" => name}, socket) do
+    rename(socket, Map.fetch!(@resources, key), id, name)
   end
 
   def handle_event("update_subject_sex", %{"subject_id" => id, "value" => sex}, socket) do
@@ -119,47 +128,15 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     update_subject_field(socket, id, %{genotype: normalize_blank(genotype)})
   end
 
-  def handle_event("delete_calibration", %{"id" => id}, socket) do
-    delete(
-      socket,
-      :calibrations,
-      :calibration_usage,
-      &Experiments.get_calibration!/2,
-      &Experiments.delete_calibration/2,
-      id,
-      "Calibration"
-    )
-  end
-
-  def handle_event("delete_roi", %{"id" => id}, socket) do
-    delete(
-      socket,
-      :rois,
-      :roi_usage,
-      &Experiments.get_roi!/2,
-      &Experiments.delete_roi/2,
-      id,
-      "ROI"
-    )
-  end
-
-  def handle_event("delete_subject", %{"id" => id}, socket) do
-    delete(
-      socket,
-      :subjects,
-      :subject_usage,
-      &Experiments.get_subject!/2,
-      &Experiments.delete_subject/2,
-      id,
-      "Subject"
-    )
+  def handle_event("delete_" <> key, %{"id" => id}, socket) do
+    delete(socket, Map.fetch!(@resources, key), id)
   end
 
   def handle_event("duplicate_roi", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
-    roi = Experiments.get_roi!(scope, id)
+    roi = Rois.get_roi!(scope, id)
 
-    case Experiments.duplicate_roi(scope, roi) do
+    case Rois.duplicate_roi(scope, roi) do
       {:ok, duplicate} ->
         socket =
           socket
@@ -202,15 +179,15 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     end
   end
 
-  defp rename(socket, assign_key, get_fn, update_fn, id, name) do
+  defp rename(socket, resource, id, name) do
     scope = socket.assigns.current_scope
-    resource = get_fn.(scope, id)
+    item = resource.get.(scope, id)
 
-    case update_fn.(scope, resource, %{name: name}) do
+    case resource.update.(scope, item, %{name: name}) do
       {:ok, updated} ->
         socket =
           socket
-          |> update(assign_key, &replace(&1, updated))
+          |> update(resource.assign_key, &replace(&1, updated))
           |> assign_derived()
 
         {:noreply, socket}
@@ -225,9 +202,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   defp update_subject_field(socket, id, attrs) do
     scope = socket.assigns.current_scope
-    subject = Experiments.get_subject!(scope, id)
+    subject = Subjects.get_subject!(scope, id)
 
-    case Experiments.update_subject(scope, subject, attrs) do
+    case Subjects.update_subject(scope, subject, attrs) do
       {:ok, updated} ->
         {:noreply, socket |> update(:subjects, &replace(&1, updated)) |> assign_derived()}
 
@@ -246,23 +223,25 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     end
   end
 
-  defp delete(socket, assign_key, usage_key, get_fn, delete_fn, id, label) do
+  defp delete(socket, resource, id) do
     scope = socket.assigns.current_scope
-    resource = get_fn.(scope, id)
-    usage = Map.get(socket.assigns[usage_key], resource.id, 0)
+    item = resource.get.(scope, id)
+    usage = Map.get(socket.assigns[resource.usage_key], item.id, 0)
 
     if usage > 0 do
-      msg = "#{label} is attached to #{usage} video(s) — remove it from those videos first."
+      msg =
+        "#{resource.label} is attached to #{usage} video(s) — remove it from those videos first."
+
       {:noreply, put_flash(socket, :error, msg)}
     else
-      {:ok, _} = delete_fn.(scope, resource)
+      {:ok, _} = resource.delete.(scope, item)
 
       socket =
         socket
-        |> update(assign_key, fn list -> Enum.reject(list, &(&1.id == resource.id)) end)
-        |> update(usage_key, &Map.delete(&1, resource.id))
+        |> update(resource.assign_key, fn list -> Enum.reject(list, &(&1.id == item.id)) end)
+        |> update(resource.usage_key, &Map.delete(&1, item.id))
         |> assign_derived()
-        |> put_flash(:info, "#{label} deleted.")
+        |> put_flash(:info, "#{resource.label} deleted.")
 
       {:noreply, socket}
     end
@@ -305,30 +284,21 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             </button>
           </div>
 
-          <form
-            id="pipeline-settings-search"
-            phx-change="search"
-            class="relative w-full max-w-[320px]"
-          >
-            <.icon
-              name="hero-magnifying-glass-micro"
-              class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#98a2b3]"
-            />
-            <input
-              type="text"
-              name="query"
-              value={@query}
-              phx-debounce="200"
-              placeholder="Search by name"
-              autocomplete="off"
-              class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
-            />
-          </form>
+          <.search_input id="pipeline-settings-search" query={@query} placeholder="Search by name" />
         </div>
 
-        <div :if={@visible == []} class="mt-4">
-          <.empty_library tab={@tab} has_query={@query != ""} />
-        </div>
+        <.empty_state
+          :if={@visible == []}
+          class="mt-4"
+          icon="hero-archive-box"
+          title={if @query != "", do: "No matches", else: "No #{empty_noun(@tab)} yet"}
+          subtitle={
+            if @query != "",
+              do: "Try a different search.",
+              else:
+                "Created from the upload wizard's step 2 (ROI & scale) and step 3 (review) — reuse them across experiments."
+          }
+        />
 
         <.calibration_table
           :if={@tab == "calibrations" and @visible != []}
@@ -396,12 +366,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         </label>
 
         <div class="col-span-2">
-          <button
-            type="submit"
-            class="inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-[#b34a00]"
-          >
+          <.button type="submit" size="sm">
             Save defaults
-          </button>
+          </.button>
         </div>
       </.form>
     </div>
@@ -433,7 +400,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-[18px] py-3">
               <.rename_input event="rename_calibration" id={cal.id} name={cal.name} />
             </td>
-            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt_num(cal.px_per_10cm)}</td>
+            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.px_per_10cm)}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.threshold}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.min_area}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
@@ -634,28 +601,6 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     """
   end
 
-  attr :tab, :string, required: true
-  attr :has_query, :boolean, required: true
-
-  defp empty_library(assigns) do
-    ~H"""
-    <div class="flex flex-col items-center rounded-[13px] border border-dashed border-[#d4d8df] bg-white px-6 py-16 text-center">
-      <div class="flex size-12 items-center justify-center rounded-full bg-[#f2f4f7] text-[#98a2b3]">
-        <.icon name="hero-archive-box" class="size-6" />
-      </div>
-      <h2 class="mt-4 text-[15px] font-bold text-[#0f1729]">
-        {if @has_query, do: "No matches", else: "No #{empty_noun(@tab)} yet"}
-      </h2>
-      <p class="mt-1 max-w-sm text-[13px] text-[#667085]">
-        {if @has_query,
-          do: "Try a different search.",
-          else:
-            "Created from the upload wizard's step 2 (ROI & scale) and step 3 (review) — reuse them across experiments."}
-      </p>
-    </div>
-    """
-  end
-
   defp empty_noun("calibrations"), do: "calibrations"
   defp empty_noun("rois"), do: "ROIs"
   defp empty_noun("subjects"), do: "subjects"
@@ -667,10 +612,6 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   defp usage_label(0), do: "—"
   defp usage_label(1), do: "1 video"
   defp usage_label(n), do: "#{n} videos"
-
-  defp fmt_num(n) when is_float(n), do: :erlang.float_to_binary(n, decimals: 1)
-  defp fmt_num(n) when is_integer(n), do: Integer.to_string(n)
-  defp fmt_num(_), do: "—"
 
   defp field_error(%Phoenix.HTML.FormField{} = field) do
     if Phoenix.Component.used_input?(field) and field.errors != [] do

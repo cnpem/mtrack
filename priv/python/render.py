@@ -12,6 +12,36 @@ from .metrics import distance
 
 
 # ---------------------------------------------------------------------------
+# Interactive tracking-loop debug drawing (OpenCV)
+# ---------------------------------------------------------------------------
+
+
+def draw_detection_box(frame, x, y, w, h):
+    """Green bounding box around the contour picked as the tracked animal."""
+    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+
+def draw_position_marker(frame, pos, moved):
+    """Small square at `pos` marking a position-update sample — green if the
+    displacement since the last sample counted as movement, red otherwise."""
+    color = (0, 255, 0) if moved else (0, 0, 255)
+    cv2.rectangle(
+        frame,
+        (int(pos[0] - 1), int(pos[1] - 1)),
+        (int(pos[0] + 1), int(pos[1] + 1)),
+        color,
+        2,
+    )
+
+
+def show_debug_windows(frame_delta, frame, thresh):
+    """The 3 live debug windows shown while tracking in interactive mode."""
+    cv2.imshow("Frame Delta", frame_delta)
+    cv2.imshow("Video", frame)
+    cv2.imshow("Thresh", thresh)
+
+
+# ---------------------------------------------------------------------------
 # Interactive setup windows (OpenCV)
 # ---------------------------------------------------------------------------
 
