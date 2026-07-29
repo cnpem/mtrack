@@ -566,3 +566,25 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
   `py_compile` dos dois arquivos, já que o projeto não tem `pytest` como dependência
   declarada (`priv/python/tests/test_equivalence.py` existe mas compara só
   `priv/mouse_tracker.py` (deprecated) com `detector.py`/`metrics.py`, não `run.py`).
+
+### Próximos passos de legibilidade (identificados, ainda não feitos)
+
+Dois candidatos concretos levantados numa revisão do estado do código, ainda
+pendentes:
+
+- [ ] **`priv/python/analyzer.py`'s `process/9`** (loop principal de tracking, ~170
+  linhas): mistura 5 responsabilidades numa função só — diff de frame, amostragem de
+  posição/velocidade, checagem de ROI, tigmotaxia, e desenho OpenCV só-interativo
+  (`if not headless: cv2.rectangle(...)` espalhado pelo meio). Sem cobertura de teste
+  direta hoje (`test_equivalence.py` só cobre `detector.py`/`metrics.py`, não
+  `analyzer.py`) — mais arriscado que o resto da limpeza já feita; considerar
+  adicionar testes de caracterização antes de separar (ex.: extrair o desenho
+  interativo para um helper próprio, ou separar "rastrear posição" de "classificar
+  zona").
+- [ ] **Duplicação de classes Tailwind em botões HEEx**: o par de botões "← Back" /
+  "Continue →" (`rounded-[8px] border ... hover:border-[#d4d8df]` vs
+  `bg-[#CC5500] ... hover:bg-[#b34a00]`) se repete quase idêntico em `new.ex`,
+  `roi_edit.ex`, `results.ex`, etc. Um componente `<.button variant={:primary |
+  :secondary}>` (ou `<.wizard_nav>`) em `core_components.ex` removeria essa
+  cópia-e-cola — mesmo espírito do Sprint 1, extração puramente mecânica, baixo
+  risco.

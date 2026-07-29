@@ -159,13 +159,11 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       html = render(lv)
 
       assert html =~ ~r/value="Zone 1"/
-      refute html =~ ~s(phx-value-step="review" disabled)
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
     end
 
     test "calibration alone (no ROI) is enough to continue", %{lv: lv} do
-      html = render(lv)
-
-      refute html =~ ~s(phx-value-step="review" disabled)
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
     end
 
     test "shows why Continue is disabled when a ROI name is blanked out", %{lv: lv, ref: ref} do
@@ -180,7 +178,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html = render(lv)
 
-      assert html =~ ~s(phx-value-step="review" disabled)
+      assert has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
       assert html =~ "missing a name"
       refute ref == nil
     end
@@ -262,9 +260,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
     end
 
     test "Continue stays disabled while the second segment is missing", %{lv: lv} do
-      html = render(lv)
-
-      assert html =~ ~s(phx-value-step="review" disabled)
+      assert has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
     end
   end
 
@@ -354,7 +350,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
          %{lv: lv, ref_a: ref_a, ref_b: ref_b} do
       html = render(lv)
       assert html =~ "no reference"
-      assert html =~ ~s(phx-value-step="review" disabled)
+      assert has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
 
       lv
       |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
@@ -362,7 +358,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html = render(lv)
       assert html =~ "inherits from a.mp4"
-      refute html =~ ~s(phx-value-step="review" disabled)
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
     end
 
     test "picking a ROI reference in the dropdown resolves inheritance", %{
@@ -383,7 +379,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html = render(lv)
       assert html =~ "inherits from a.mp4"
-      refute html =~ ~s(phx-value-step="review" disabled)
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
     end
   end
 

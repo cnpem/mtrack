@@ -175,34 +175,28 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   defp video_action(%{video: %{status: "done"}} = assigns) do
     ~H"""
-    <.link
+    <.button
+      size="sm"
       navigate={~p"/experiments/#{@experiment.id}/results?#{[video: @video.id]}"}
-      class="rounded-[8px] bg-[#CC5500] px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-[#b34a00]"
     >
       View results
-    </.link>
+    </.button>
     """
   end
 
   defp video_action(%{video: %{status: "processing"}} = assigns) do
     ~H"""
-    <.link
-      navigate={~p"/videos/#{@video.id}/processing"}
-      class="rounded-[8px] border border-[#e7e9ee] px-3 py-2 text-[12.5px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-    >
+    <.button variant="secondary" size="sm" navigate={~p"/videos/#{@video.id}/processing"}>
       View progress
-    </.link>
+    </.button>
     """
   end
 
   defp video_action(%{video: %{status: "error"}} = assigns) do
     ~H"""
-    <.link
-      navigate={~p"/videos/#{@video.id}/processing"}
-      class="rounded-[8px] border border-[#fca5a5] px-3 py-2 text-[12.5px] font-semibold text-[#b42318] hover:bg-[#fdecec]"
-    >
+    <.button variant="danger" size="sm" navigate={~p"/videos/#{@video.id}/processing"}>
       View error
-    </.link>
+    </.button>
     """
   end
 

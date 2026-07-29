@@ -26,15 +26,12 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
           name={@form[:remember_me].name}
           value="true"
           phx-disable-with="Confirming..."
-          class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
+          class="w-full"
         >
           Confirm and stay logged in
         </.button>
 
-        <.button
-          phx-disable-with="Confirming..."
-          class="mt-2 w-full rounded-[8px] border border-[#e7e9ee] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#CC5500]"
-        >
+        <.button variant="secondary_accent" phx-disable-with="Confirming..." class="mt-2 w-full">
           Confirm and log in only this time
         </.button>
       </.form>
@@ -51,10 +48,7 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
       >
         <input type="hidden" name={@form[:token].name} value={@form[:token].value} />
         <%= if @current_scope do %>
-          <.button
-            phx-disable-with="Logging in..."
-            class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-          >
+          <.button phx-disable-with="Logging in..." class="w-full">
             Log in
           </.button>
         <% else %>
@@ -62,15 +56,12 @@ defmodule MouseTrackerWeb.UserLive.Confirmation do
             name={@form[:remember_me].name}
             value="true"
             phx-disable-with="Logging in..."
-            class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
+            class="w-full"
           >
             Keep me logged in on this device
           </.button>
 
-          <.button
-            phx-disable-with="Logging in..."
-            class="mt-2 w-full rounded-[8px] border border-[#e7e9ee] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#CC5500]"
-          >
+          <.button variant="secondary_accent" phx-disable-with="Logging in..." class="mt-2 w-full">
             Log me in only this time
           </.button>
         <% end %>

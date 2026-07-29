@@ -265,18 +265,12 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
           </div>
 
           <div class="mt-6 flex items-center justify-between">
-            <.link
-              navigate={~p"/experiments/#{@video.experiment_id}"}
-              class="rounded-[8px] border border-[#e7e9ee] px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#d4d8df]"
-            >
+            <.button variant="secondary" navigate={~p"/experiments/#{@video.experiment_id}"}>
               Cancel
-            </.link>
-            <button
-              type="submit"
-              class="rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-            >
+            </.button>
+            <.button type="submit">
               Save
-            </button>
+            </.button>
           </div>
         </form>
       </div>

@@ -148,12 +148,9 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
               Raw videos and tracked trajectories from every experiment.
             </p>
           </div>
-          <.link
-            navigate={~p"/experiments/new"}
-            class="inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(204,85,0,.3)] hover:bg-[#b34a00]"
-          >
+          <.button size="lg" shadow navigate={~p"/experiments/new"}>
             <.icon name="hero-arrow-up-tray-micro" class="size-4" /> Upload video
-          </.link>
+          </.button>
         </div>
 
         <div class="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -233,13 +230,14 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
               else: "Upload locomotion videos through an experiment to build your library."
           }
         >
-          <.link
+          <.button
             :if={@query == "" and @status_filter == "all"}
+            size="lg"
+            class="mt-5"
             navigate={~p"/experiments/new"}
-            class="mt-5 inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
           >
             <.icon name="hero-arrow-up-tray-micro" class="size-4" /> Upload your first video
-          </.link>
+          </.button>
         </.empty_state>
 
         <div :if={@videos != [] and @view == "video"} class="mt-4">

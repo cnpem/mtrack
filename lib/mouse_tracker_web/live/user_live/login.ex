@@ -59,7 +59,7 @@ defmodule MouseTrackerWeb.UserLive.Login do
           phx-mounted={JS.focus()}
           class={@input_class}
         />
-        <.button class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]">
+        <.button class="w-full">
           Log in with email <span aria-hidden="true">→</span>
         </.button>
       </.form>
@@ -96,15 +96,11 @@ defmodule MouseTrackerWeb.UserLive.Login do
           spellcheck="false"
           class={@input_class}
         />
-        <.button
-          class="w-full rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
-          name={@form[:remember_me].name}
-          value="true"
-        >
+        <.button class="w-full" name={@form[:remember_me].name} value="true">
           Log in and stay logged in <span aria-hidden="true">→</span>
         </.button>
 
-        <.button class="mt-2 w-full rounded-[8px] border border-[#e7e9ee] bg-white px-4 py-2.5 text-[13px] font-semibold text-[#344054] hover:border-[#CC5500]">
+        <.button variant="secondary_accent" class="mt-2 w-full">
           Log in only this time
         </.button>
       </.form>

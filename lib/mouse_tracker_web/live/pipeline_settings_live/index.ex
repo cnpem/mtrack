@@ -366,12 +366,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         </label>
 
         <div class="col-span-2">
-          <button
-            type="submit"
-            class="inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-[#b34a00]"
-          >
+          <.button type="submit" size="sm">
             Save defaults
-          </button>
+          </.button>
         </div>
       </.form>
     </div>

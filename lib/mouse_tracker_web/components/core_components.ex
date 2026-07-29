@@ -88,26 +88,47 @@ defmodule MouseTrackerWeb.CoreComponents do
   ## Examples
 
       <.button>Send!</.button>
-      <.button phx-click="go" variant="primary">Send!</.button>
+      <.button phx-click="go" variant="secondary">Send!</.button>
       <.button navigate={~p"/"}>Home</.button>
+      <.button variant="primary" size="lg" shadow class="w-full">Upload</.button>
   """
-  attr :rest, :global, include: ~w(href navigate patch method download name value disabled)
-  attr :class, :any
-  attr :variant, :string, values: ~w(primary)
+  attr :rest, :global, include: ~w(href navigate patch method download name value disabled type)
+  attr :class, :any, default: nil
+
+  attr :variant, :string,
+    values: ~w(primary secondary secondary_accent danger),
+    default: "primary"
+
+  attr :size, :string, values: ~w(sm md lg), default: "md"
+  attr :shadow, :boolean, default: false
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
+    base =
+      "inline-flex items-center justify-center gap-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+
     variants = %{
-      "primary" =>
-        "inline-flex items-center justify-center gap-1.5 rounded-[8px] bg-[#CC5500] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#b34a00] disabled:cursor-not-allowed disabled:opacity-50",
-      nil =>
-        "inline-flex items-center justify-center gap-1.5 rounded-[8px] border border-[#f0d3b8] bg-[#fbeee4] px-4 py-2 text-[13px] font-semibold text-[#b34a00] hover:bg-[#f6e2cf] disabled:cursor-not-allowed disabled:opacity-50"
+      "primary" => "bg-[#CC5500] text-white hover:bg-[#b34a00]",
+      "secondary" => "border border-[#e7e9ee] text-[#344054] hover:border-[#d4d8df]",
+      "secondary_accent" =>
+        "border border-[#e7e9ee] bg-white text-[#344054] hover:border-[#CC5500]",
+      "danger" => "border border-[#fca5a5] text-[#b42318] hover:bg-[#fdecec]"
+    }
+
+    sizes = %{
+      "sm" => "rounded-[8px] px-3 py-2 text-[12.5px]",
+      "md" => "rounded-[8px] px-4 py-2.5 text-[13px]",
+      "lg" => "rounded-[8px] px-3.5 py-2.5 text-[13px]"
     }
 
     assigns =
-      assign_new(assigns, :class, fn ->
-        Map.fetch!(variants, assigns[:variant])
-      end)
+      assign(assigns, :class, [
+        base,
+        Map.fetch!(variants, assigns.variant),
+        Map.fetch!(sizes, assigns.size),
+        assigns.shadow && "shadow-[0_1px_2px_rgba(204,85,0,.3)]",
+        assigns.class
+      ])
 
     if rest[:href] || rest[:navigate] || rest[:patch] do
       ~H"""

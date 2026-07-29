@@ -85,12 +85,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
               )} in this workspace
             </p>
           </div>
-          <.link
-            navigate={~p"/experiments/new"}
-            class="inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(204,85,0,.3)] hover:bg-[#b34a00]"
-          >
+          <.button size="lg" shadow navigate={~p"/experiments/new"}>
             <.icon name="hero-plus-micro" class="size-4" /> New Experiment
-          </.link>
+          </.button>
         </div>
 
         <div class="mt-5 flex flex-wrap items-center justify-between gap-3">
@@ -128,13 +125,14 @@ defmodule MouseTrackerWeb.ExperimentLive.Index do
               else: "Upload locomotion videos to run the tracking pipeline and review metrics."
           }
         >
-          <.link
+          <.button
             :if={@query == "" and @status_filter == "all"}
+            size="lg"
+            class="mt-5"
             navigate={~p"/experiments/new"}
-            class="mt-5 inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3.5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#b34a00]"
           >
             <.icon name="hero-plus-micro" class="size-4" /> Create your first experiment
-          </.link>
+          </.button>
         </.empty_state>
 
         <ul :if={@experiments != []} class="mt-4 space-y-2.5">
