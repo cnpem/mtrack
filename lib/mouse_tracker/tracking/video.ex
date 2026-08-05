@@ -17,6 +17,8 @@ defmodule MouseTracker.Experiments.Video do
     field :height, :integer
     field :file_size_bytes, :integer
     field :background_frame, :integer, default: 0
+    field :start_time_seconds, :float, default: 0.0
+    field :end_time_seconds, :float
     field :status, :string, default: "pending"
 
     belongs_to :experiment, Experiment
@@ -41,6 +43,8 @@ defmodule MouseTracker.Experiments.Video do
       :height,
       :file_size_bytes,
       :background_frame,
+      :start_time_seconds,
+      :end_time_seconds,
       :status,
       :experiment_id,
       :calibration_id,

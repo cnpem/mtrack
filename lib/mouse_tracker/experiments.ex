@@ -213,6 +213,8 @@ defmodule MouseTracker.Experiments do
         filename: v.filename,
         filepath: v.filepath,
         background_frame: Map.get(v, :background_frame, 0),
+        start_time_seconds: Map.get(v, :start_time_seconds) || 0.0,
+        end_time_seconds: Map.get(v, :end_time_seconds),
         file_size_bytes: Map.get(v, :file_size_bytes),
         fps: Map.get(v, :fps),
         duration_seconds: Map.get(v, :duration_seconds),

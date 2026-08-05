@@ -168,6 +168,21 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
     end
 
+    test "set_trim stores the analysis window (clamped) without blocking Continue",
+         %{lv: lv, ref: ref} do
+      render_hook(lv, "set_trim", %{"ref" => ref, "start" => "5", "end" => "30"})
+
+      # The window is optional, so it never disables Continue.
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
+
+      # end <= start collapses to open-ended (nil == "to the end").
+      render_hook(lv, "set_trim", %{"ref" => ref, "start" => "40", "end" => "20"})
+
+      lv |> element("button", "Continue → Review") |> render_click()
+
+      assert render(lv) =~ "0:40 → end"
+    end
+
     test "shows why Continue is disabled when a ROI name is blanked out", %{lv: lv, ref: ref} do
       render_hook(lv, "shape_drawn", %{
         "kind" => "roi_polygon",

@@ -59,6 +59,10 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
       "thigmotaxis_margin_pct" => cal.peripheral_pct / 100,
       "immobility_threshold_cm" => cal.immobility_threshold_cm,
       "background_frame" => video.background_frame || 0,
+      # Analysis window (seconds). 0/nil for end_time means "to the end", which
+      # is exactly what `_run_headless` expects (len_frames <= 0 => full video).
+      "start_time" => video.start_time_seconds || 0,
+      "end_time" => video.end_time_seconds || 0,
       "rois" => Enum.map(video.rois, &roi_to_list/1),
       "heatmap" => output_path(video, "heatmap.png"),
       "speed_profile" => output_path(video, "speed_profile.png")

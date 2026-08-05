@@ -127,6 +127,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     {:noreply, set_reference_frame(socket, ref, frame)}
   end
 
+  def handle_event("set_trim", %{"ref" => ref} = params, socket) do
+    {:noreply, set_trim(socket, ref, params["start"], params["end"])}
+  end
+
   def handle_event("toggle_ref", %{"ref" => ref}, socket) do
     {:noreply, toggle_ref(socket, ref)}
   end
@@ -263,6 +267,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           v
           |> Map.put(:frame_url, frame_url)
           |> Map.merge(meta)
+          # Analysis window defaults to the full video (start 0, end nil). The
+          # start/end preview thumbnails are extracted lazily, on first trim.
+          |> Map.put(:start_time_seconds, 0.0)
+          |> Map.put(:end_time_seconds, nil)
+          |> Map.put(:start_frame_url, nil)
+          |> Map.put(:end_frame_url, nil)
         end,
         max_concurrency: System.schedulers_online(),
         timeout: :timer.seconds(30),
@@ -316,6 +326,128 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       end
     else
       _ -> socket
+    end
+  end
+
+  # Sets the per-video analysis window (start/end in seconds). The window is
+  # optional (defaults to the whole video) so it never blocks Continue. Values
+  # are clamped server-side and only the changed edge's preview frame is
+  # re-extracted. `end` blank/nil means "to the end of the video".
+  defp set_trim(socket, ref, start_str, end_str) do
+    case Enum.find(socket.assigns.saved_videos, &(&1.ref == ref)) do
+      nil ->
+        socket
+
+      video ->
+        duration = trim_duration(video)
+        start_s = (parse_seconds(start_str) || 0.0) |> max(0.0) |> min_dur(duration)
+
+        end_s =
+          case parse_seconds(end_str) do
+            nil ->
+              nil
+
+            e ->
+              e = min_dur(e, duration)
+              if e <= start_s, do: nil, else: e
+          end
+
+        old_start = Map.get(video, :start_time_seconds)
+        old_end = Map.get(video, :end_time_seconds)
+
+        socket
+        |> update_saved_video(ref, fn v ->
+          v
+          |> Map.put(:start_time_seconds, start_s)
+          |> Map.put(:end_time_seconds, end_s)
+        end)
+        |> maybe_trim_frame(ref, video, :start, start_s, start_s != old_start)
+        |> maybe_trim_frame(ref, video, :end, end_s, end_s != old_end)
+    end
+  end
+
+  defp maybe_trim_frame(socket, _ref, _video, _kind, _seconds, false), do: socket
+
+  defp maybe_trim_frame(socket, ref, _video, kind, nil, true) do
+    # Edge cleared (e.g. end back to full video): drop its preview thumbnail.
+    update_saved_video(socket, ref, &Map.put(&1, frame_url_key(kind), nil))
+  end
+
+  defp maybe_trim_frame(socket, ref, video, kind, seconds, true) do
+    n = Wizard.clamp_frame(round(seconds * trim_fps(video)), video)
+    token = socket.assigns.upload_token
+    frame_path = Path.join([static_dir(), "uploads", "frames", token, "#{ref}-#{kind}-#{n}.png"])
+
+    case FrameExtractor.extract_first_frame(video.filepath, frame_path, n) do
+      {:ok, _} ->
+        url = "/uploads/frames/#{token}/#{ref}-#{kind}-#{n}.png"
+        update_saved_video(socket, ref, &Map.put(&1, frame_url_key(kind), url))
+
+      {:error, _} ->
+        socket
+    end
+  end
+
+  defp frame_url_key(:start), do: :start_frame_url
+  defp frame_url_key(:end), do: :end_frame_url
+
+  defp parse_seconds(nil), do: nil
+  defp parse_seconds(n) when is_number(n), do: n * 1.0
+  defp parse_seconds(""), do: nil
+
+  defp parse_seconds(str) when is_binary(str) do
+    case Float.parse(str) do
+      {f, _} -> f
+      :error -> nil
+    end
+  end
+
+  defp min_dur(v, nil), do: v
+  defp min_dur(v, dur), do: min(v, dur)
+
+  # Duration/fps used by the trimmer, with fallbacks for codecs that don't
+  # expose duration directly (derive from frame_count/fps).
+  defp trim_duration(video) do
+    case Map.get(video, :duration_seconds) do
+      d when is_number(d) and d > 0 ->
+        d
+
+      _ ->
+        fc = Map.get(video, :frame_count)
+        fps = trim_fps(video)
+        if is_number(fc) and fps > 0, do: fc / fps, else: nil
+    end
+  end
+
+  defp trim_fps(video) do
+    case Map.get(video, :fps) do
+      fps when is_number(fps) and fps > 0 ->
+        fps
+
+      _ ->
+        fc = Map.get(video, :frame_count)
+        dur = Map.get(video, :duration_seconds)
+        if is_number(fc) and is_number(dur) and dur > 0, do: fc / dur, else: 30.0
+    end
+  end
+
+  defp format_seconds(nil), do: "—"
+
+  defp format_seconds(s) when is_number(s) do
+    total = round(s)
+    m = div(total, 60)
+    sec = rem(total, 60)
+    "#{m}:#{String.pad_leading(Integer.to_string(sec), 2, "0")}"
+  end
+
+  defp trim_summary(v) do
+    start_s = Map.get(v, :start_time_seconds) || 0.0
+    end_s = Map.get(v, :end_time_seconds)
+
+    if start_s <= 0.0 and is_nil(end_s) do
+      "Whole video"
+    else
+      "#{format_seconds(start_s)} → #{if end_s, do: format_seconds(end_s), else: "end"}"
     end
   end
 
@@ -434,6 +566,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             filename: v.filename,
             filepath: v.filepath,
             background_frame: Map.get(v, :background_frame, 0),
+            start_time_seconds: Map.get(v, :start_time_seconds) || 0.0,
+            end_time_seconds: Map.get(v, :end_time_seconds),
             file_size_bytes: Map.get(v, :file_size_bytes),
             fps: Map.get(v, :fps),
             duration_seconds: Map.get(v, :duration_seconds),
@@ -754,6 +888,156 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         active_ref={@active_ref}
         active_video={@active_video}
       />
+
+      <.trim_control
+        :if={@active_video && @active_video.frame_url}
+        active_ref={@active_ref}
+        active_video={@active_video}
+      />
+    </div>
+    """
+  end
+
+  attr :active_ref, :string, required: true
+  attr :active_video, :map, required: true
+
+  # Per-video analysis window (start/end in seconds). A dual-handle slider
+  # (VideoTrimmer JS hook) synced with numeric inputs, plus start/end preview
+  # thumbnails so the user can trim out the moments the animal is placed in /
+  # removed from the arena (which show up as speed spikes). The window is
+  # per-video (not inherited like scale/ROI) and optional — it never blocks
+  # Continue. `background_frame` (the detection/heatmap background) is a
+  # separate control; this only bounds *which* frames get analyzed.
+  defp trim_control(assigns) do
+    duration = trim_duration(assigns.active_video)
+    start_s = Map.get(assigns.active_video, :start_time_seconds) || 0.0
+    end_s = Map.get(assigns.active_video, :end_time_seconds)
+
+    assigns =
+      assign(assigns,
+        duration: duration,
+        start_s: start_s,
+        end_s: end_s,
+        full?: start_s <= 0.0 and is_nil(end_s),
+        start_url: Map.get(assigns.active_video, :start_frame_url),
+        end_url: Map.get(assigns.active_video, :end_frame_url)
+      )
+
+    ~H"""
+    <div
+      :if={@duration && @duration > 0}
+      class="mt-4 rounded-[10px] border border-[#f4f5f7] bg-[#fafbfc] p-3"
+    >
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+          Analysis window
+        </span>
+
+        <span class="font-data text-[11px] text-[#8a93a3]">total {format_seconds(@duration)}</span>
+      </div>
+
+      <div
+        id={"trim-#{@active_ref}"}
+        phx-hook="VideoTrimmer"
+        data-ref={@active_ref}
+        data-duration={@duration}
+        data-start={@start_s}
+        data-end={@end_s || ""}
+        class="mt-3 select-none"
+      >
+        <div data-role="track" class="relative h-2 w-full rounded-full bg-[#e7e9ee]">
+          <div data-role="range" class="absolute h-full rounded-full bg-[#CC5500]"></div>
+
+          <button
+            type="button"
+            data-role="handle-start"
+            class="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#CC5500] bg-white shadow cursor-grab touch-none"
+            aria-label="Analysis start"
+          ></button>
+
+          <button
+            type="button"
+            data-role="handle-end"
+            class="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#CC5500] bg-white shadow cursor-grab touch-none"
+            aria-label="Analysis end"
+          ></button>
+        </div>
+
+        <div class="mt-2 flex justify-between font-data text-[11px] text-[#667085]">
+          <span data-role="label-start">{format_seconds(@start_s)}</span>
+
+          <span data-role="label-end">
+            {if @end_s, do: format_seconds(@end_s), else: format_seconds(@duration)}
+          </span>
+        </div>
+      </div>
+
+      <form
+        id={"trim-form-#{@active_ref}"}
+        phx-change="set_trim"
+        phx-debounce="blur"
+        class="mt-2 flex flex-wrap items-end gap-2"
+      >
+        <input type="hidden" name="ref" value={@active_ref} />
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Start (s)</span>
+          <input
+            type="number"
+            name="start"
+            min="0"
+            step="1"
+            value={round(@start_s)}
+            class="mt-1 w-24 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">End (s)</span>
+          <input
+            type="number"
+            name="end"
+            min="0"
+            step="1"
+            value={@end_s && round(@end_s)}
+            placeholder={round(@duration)}
+            class="mt-1 w-24 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <span class="pb-1.5 font-data text-[11px] text-[#98a2b3]">
+          {if @full?, do: "full video", else: "trimmed"}
+        </span>
+      </form>
+
+      <div :if={@start_url || @end_url} class="mt-3 grid grid-cols-2 gap-2">
+        <div>
+          <div class="mb-1 font-data text-[10.5px] text-[#98a2b3]">
+            Start · {format_seconds(@start_s)}
+          </div>
+
+          <img
+            :if={@start_url}
+            src={@start_url}
+            class="block w-full rounded-[6px] border border-[#e7e9ee]"
+          />
+        </div>
+
+        <div>
+          <div class="mb-1 font-data text-[10.5px] text-[#98a2b3]">
+            End · {if @end_s, do: format_seconds(@end_s), else: "end"}
+          </div>
+
+          <img
+            :if={@end_url}
+            src={@end_url}
+            class="block w-full rounded-[6px] border border-[#e7e9ee]"
+          />
+        </div>
+      </div>
+
+      <p :if={@full?} class="mt-2 text-[11px] text-[#8a93a3]">
+        Analyzing the whole video. Drag the handles (or type below) to trim out the moments the animal is placed in / removed from the arena.
+      </p>
     </div>
     """
   end
@@ -1114,7 +1398,11 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           :for={v <- @saved_videos}
           class="grid grid-cols-[1.6fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] px-4 py-3 last:border-0"
         >
-          <div class="truncate font-data text-[12.5px] text-[#0f1729]">{v.filename}</div>
+          <div>
+            <div class="truncate font-data text-[12.5px] text-[#0f1729]">{v.filename}</div>
+
+            <div class="mt-0.5 font-data text-[11px] text-[#8a93a3]">{trim_summary(v)}</div>
+          </div>
 
           <div class="space-y-1.5">
             <select

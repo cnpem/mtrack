@@ -80,6 +80,21 @@ defmodule MouseTrackerWeb.ExperimentLive.ShowTest do
     assert updated.notes == "manqueira na pata esquerda"
   end
 
+  test "shows the animal's group next to its name on the video card", %{conn: conn, user: user} do
+    experiment = experiment_fixture(user)
+    grouped = subject_fixture(user, %{name: "M-grouped", group: "Control"})
+    ungrouped = subject_fixture(user, %{name: "M-ungrouped"})
+
+    video_fixture(experiment, nil, %{subject_id: grouped.id, filename: "a.mp4"})
+    video_fixture(experiment, nil, %{subject_id: ungrouped.id, filename: "b.mp4"})
+
+    {:ok, _lv, html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    assert html =~ "M-grouped (Control)"
+    assert html =~ "M-ungrouped"
+    refute html =~ "M-ungrouped ("
+  end
+
   test "updates the video status live when it changes via PubSub", %{
     conn: conn,
     experiment: experiment,

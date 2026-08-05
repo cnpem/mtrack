@@ -116,6 +116,41 @@ defmodule MouseTracker.ExperimentsWizardTest do
       assert v2.background_frame == 0
     end
 
+    test "persists the per-video analysis window, defaulting to the whole video",
+         %{scope: scope} do
+      payload = %{
+        name: "Trim batch",
+        calibrations: %{"r1" => cal_params()},
+        rois: %{},
+        videos: [
+          %{
+            filename: "trimmed.mp4",
+            filepath: "/tmp/trimmed.mp4",
+            subject_ref: nil,
+            cal_ref: "r1",
+            roi_ref: nil,
+            start_time_seconds: 12.0,
+            end_time_seconds: 105.0
+          },
+          %{
+            filename: "full.mp4",
+            filepath: "/tmp/full.mp4",
+            subject_ref: nil,
+            cal_ref: "r1",
+            roi_ref: nil
+          }
+        ]
+      }
+
+      assert {:ok, {_experiment, [v1, v2]}} =
+               Experiments.create_experiment_with_videos(scope, payload)
+
+      assert v1.start_time_seconds == 12.0
+      assert v1.end_time_seconds == 105.0
+      assert v2.start_time_seconds == 0.0
+      assert v2.end_time_seconds == nil
+    end
+
     test "stores a polygon ROI with its four vertices", %{scope: scope} do
       poly = %{
         "name" => "Quad",

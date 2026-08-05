@@ -215,7 +215,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   defp video_meta_line(video) do
     [
-      video.subject && video.subject.name,
+      video.subject && subject_label(video.subject),
       video.fps && "#{video.fps} fps",
       video.duration_seconds && "#{round(video.duration_seconds)}s"
     ]
@@ -225,6 +225,11 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
       parts -> Enum.join(parts, " · ")
     end
   end
+
+  defp subject_label(%{name: name, group: group}) when is_binary(group) and group != "",
+    do: "#{name} (#{group})"
+
+  defp subject_label(%{name: name}), do: name
 
   defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %d, %Y")
 end
