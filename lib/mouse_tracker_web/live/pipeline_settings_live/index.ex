@@ -323,7 +323,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     <div class="mt-5 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <h2 class="text-[15px] font-bold text-[#0f1729]">Pipeline defaults</h2>
       <p class="mt-1 text-[12.5px] text-[#667085]">
-        Prefill threshold and min area on step 2 of the upload wizard. Leave a field blank to fall back to the built-in default (threshold 80, min area 250).
+        Prefill threshold, min area, peripheral zone and immobility threshold on step 2 of the upload wizard. Leave a field blank to fall back to the built-in default (threshold 80, min area 250, peripheral 20%, immobility 2 cm/s).
       </p>
 
       <.form
@@ -365,6 +365,40 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
           </span>
         </label>
 
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Default peripheral %</span>
+          <input
+            type="number"
+            step="0.1"
+            name={@form[:default_peripheral_pct].name}
+            value={@form[:default_peripheral_pct].value}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+          <span
+            :if={msg = field_error(@form[:default_peripheral_pct])}
+            class="mt-1 block text-[11px] text-[#b42318]"
+          >
+            {msg}
+          </span>
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Default immobility threshold (cm/s)</span>
+          <input
+            type="number"
+            step="0.1"
+            name={@form[:default_immobility_threshold_cm].name}
+            value={@form[:default_immobility_threshold_cm].value}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+          <span
+            :if={msg = field_error(@form[:default_immobility_threshold_cm])}
+            class="mt-1 block text-[11px] text-[#b42318]"
+          >
+            {msg}
+          </span>
+        </label>
+
         <div class="col-span-2">
           <.button type="submit" size="sm">
             Save defaults
@@ -381,13 +415,15 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   defp calibration_table(assigns) do
     ~H"""
     <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-      <table class="w-full min-w-[700px] text-left text-[12.5px]">
+      <table class="w-full min-w-[850px] text-left text-[12.5px]">
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
             <th class="px-3 py-3">px / 10cm</th>
             <th class="px-3 py-3">Threshold</th>
             <th class="px-3 py-3">Min area</th>
+            <th class="px-3 py-3">Peripheral %</th>
+            <th class="px-3 py-3">Immobility (cm/s)</th>
             <th class="px-3 py-3">Used in</th>
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
@@ -403,6 +439,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.px_per_10cm)}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.threshold}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.min_area}</td>
+            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.peripheral_pct)}</td>
+            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
+              {fmt(cal.immobility_threshold_cm)}
+            </td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {usage_label(usage_count(@usage, cal.id))}
             </td>

@@ -19,6 +19,8 @@ defmodule MouseTracker.ExperimentsWizardTest do
       "px_per_10cm" => "50",
       "threshold" => "80",
       "min_area" => "250",
+      "peripheral_pct" => "20",
+      "immobility_threshold_cm" => "2",
       "valid_region_x" => "0",
       "valid_region_y" => "0",
       "valid_region_w" => "100",

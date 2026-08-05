@@ -49,6 +49,8 @@ else
       px_per_10cm: 42.0,
       threshold: 80,
       min_area: 250,
+      peripheral_pct: 20.0,
+      immobility_threshold_cm: 2.0,
       valid_region_x: 40,
       valid_region_y: 30,
       valid_region_w: 560,

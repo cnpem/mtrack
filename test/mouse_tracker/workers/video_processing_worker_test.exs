@@ -44,6 +44,8 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
         assert is_list(params["valid_region"])
         assert params["rois"] == [[10, 10, 100, 100]]
         assert params["background_frame"] == 12
+        assert params["thigmotaxis_margin_pct"] == 0.2
+        assert params["immobility_threshold_cm"] == 2.0
         assert is_function(on_progress, 1)
 
         {:ok,

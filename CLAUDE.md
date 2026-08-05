@@ -537,6 +537,18 @@ contagem de antes, refactor puro de estrutura):
   contagem exata de 357, confirmando que nenhuma lógica mudou de comportamento no
   processo.
 
+Sprint 7 — feito, ad-hoc (segundo item da lista de "Próximos passos de
+legibilidade" abaixo; refactor puro de markup):
+- [x] **`<.button variant={...} size={...}>`** (`core_components.ex`): componentiza
+  o par de botões "← Back" / "Continue →" (e variantes danger/secondary_accent) que
+  se repetia quase idêntico em `new.ex`, `roi_edit.ex`, `results.ex` e outras telas —
+  4 variantes (`primary`/`secondary`/`secondary_accent`/`danger`) × 3 tamanhos
+  (`sm`/`md`/`lg`), com suporte a `shadow` e a `<.link>` automático quando
+  `href`/`navigate`/`patch` está presente. 26 call-sites migrados (`dataset_live`,
+  `experiment_live/{index,new,roi_edit,show}`, `pipeline_settings_live`,
+  `user_live/{confirmation,login,registration}`, `video_live/processing`) para o
+  novo componente, removendo a string Tailwind hand-rolled de cada um.
+
 ## Completed Features
 
 ### Métricas de rastreamento (Python)
@@ -569,8 +581,8 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
 
 ### Próximos passos de legibilidade (identificados, ainda não feitos)
 
-Dois candidatos concretos levantados numa revisão do estado do código, ainda
-pendentes:
+Um candidato concreto levantado numa revisão do estado do código, ainda pendente
+(o outro, componentizar `<.button>`, foi feito no Sprint 7 acima):
 
 - [ ] **`priv/python/analyzer.py`'s `process/9`** (loop principal de tracking, ~170
   linhas): mistura 5 responsabilidades numa função só — diff de frame, amostragem de
@@ -581,10 +593,3 @@ pendentes:
   adicionar testes de caracterização antes de separar (ex.: extrair o desenho
   interativo para um helper próprio, ou separar "rastrear posição" de "classificar
   zona").
-- [ ] **Duplicação de classes Tailwind em botões HEEx**: o par de botões "← Back" /
-  "Continue →" (`rounded-[8px] border ... hover:border-[#d4d8df]` vs
-  `bg-[#CC5500] ... hover:bg-[#b34a00]`) se repete quase idêntico em `new.ex`,
-  `roi_edit.ex`, `results.ex`, etc. Um componente `<.button variant={:primary |
-  :secondary}>` (ou `<.wizard_nav>`) em `core_components.ex` removeria essa
-  cópia-e-cola — mesmo espírito do Sprint 1, extração puramente mecânica, baixo
-  risco.

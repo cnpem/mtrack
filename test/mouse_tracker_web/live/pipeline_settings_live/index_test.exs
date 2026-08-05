@@ -223,7 +223,14 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     {:ok, lv, _html} = live(conn, ~p"/pipeline-settings")
 
     lv
-    |> form("#pipeline-defaults-form", user: %{default_threshold: "60", default_min_area: "400"})
+    |> form("#pipeline-defaults-form",
+      user: %{
+        default_threshold: "60",
+        default_min_area: "400",
+        default_peripheral_pct: "15",
+        default_immobility_threshold_cm: "3"
+      }
+    )
     |> render_submit()
 
     assert render(lv) =~ "Pipeline defaults saved."
@@ -231,5 +238,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     reloaded = Repo.get!(MouseTracker.Accounts.User, user.id)
     assert reloaded.default_threshold == 60
     assert reloaded.default_min_area == 400
+    assert reloaded.default_peripheral_pct == 15.0
+    assert reloaded.default_immobility_threshold_cm == 3.0
   end
 end

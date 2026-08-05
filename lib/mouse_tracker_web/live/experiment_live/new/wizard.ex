@@ -34,7 +34,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
       scale2: nil,
       scale_cm2: "",
       threshold: defaults.threshold,
-      min_area: defaults.min_area
+      min_area: defaults.min_area,
+      peripheral_pct: defaults.peripheral_pct,
+      immobility_threshold_cm: defaults.immobility_threshold_cm
     }
   end
 
@@ -282,6 +284,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
         "px_per_10cm" => summary.avg,
         "threshold" => cal.threshold,
         "min_area" => cal.min_area,
+        "peripheral_pct" => cal.peripheral_pct,
+        "immobility_threshold_cm" => cal.immobility_threshold_cm,
         "valid_region_x" => vr.x,
         "valid_region_y" => vr.y,
         "valid_region_w" => vr.w,

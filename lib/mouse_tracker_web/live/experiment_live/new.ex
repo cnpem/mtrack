@@ -30,7 +30,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
     pipeline_defaults = %{
       threshold: to_string(user.default_threshold || 80),
-      min_area: to_string(user.default_min_area || 250)
+      min_area: to_string(user.default_min_area || 250),
+      peripheral_pct: to_string(user.default_peripheral_pct || 20),
+      immobility_threshold_cm: to_string(user.default_immobility_threshold_cm || 2)
     }
 
     {:ok,
@@ -152,9 +154,22 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     {:noreply, update_calibration(socket, socket.assigns.active_ref, &%{&1 | scale_cm2: value})}
   end
 
-  def handle_event("cal_setting", %{"threshold" => th, "min_area" => ma}, socket) do
+  def handle_event(
+        "cal_setting",
+        %{
+          "threshold" => th,
+          "min_area" => ma,
+          "peripheral_pct" => pp,
+          "immobility_threshold_cm" => it
+        },
+        socket
+      ) do
     {:noreply,
-     update_calibration(socket, socket.assigns.active_ref, &%{&1 | threshold: th, min_area: ma})}
+     update_calibration(
+       socket,
+       socket.assigns.active_ref,
+       &%{&1 | threshold: th, min_area: ma, peripheral_pct: pp, immobility_threshold_cm: it}
+     )}
   end
 
   def handle_event("set_roi_name", %{"index" => idx, "value" => value}, socket) do
@@ -892,6 +907,28 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             type="number"
             name="min_area"
             value={Wizard.cal_field(@calibrations, @active_ref, :min_area)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Peripheral %</span>
+          <input
+            type="number"
+            step="0.1"
+            name="peripheral_pct"
+            value={Wizard.cal_field(@calibrations, @active_ref, :peripheral_pct)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Immobility threshold (cm/s)</span>
+          <input
+            type="number"
+            step="0.1"
+            name="immobility_threshold_cm"
+            value={Wizard.cal_field(@calibrations, @active_ref, :immobility_threshold_cm)}
             class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
           />
         </label>

@@ -159,6 +159,37 @@ defmodule MouseTracker.AccountsTest do
 
       assert errors_on(changeset).default_min_area != []
     end
+
+    test "updates default_peripheral_pct and default_immobility_threshold_cm" do
+      user = user_fixture()
+
+      {:ok, updated} =
+        Accounts.update_user_pipeline_defaults(user, %{
+          default_peripheral_pct: 15.0,
+          default_immobility_threshold_cm: 3.0
+        })
+
+      assert updated.default_peripheral_pct == 15.0
+      assert updated.default_immobility_threshold_cm == 3.0
+    end
+
+    test "rejects peripheral_pct out of the 0..50 range" do
+      user = user_fixture()
+
+      {:error, changeset} =
+        Accounts.update_user_pipeline_defaults(user, %{default_peripheral_pct: 51.0})
+
+      assert errors_on(changeset).default_peripheral_pct != []
+    end
+
+    test "rejects immobility_threshold_cm <= 0" do
+      user = user_fixture()
+
+      {:error, changeset} =
+        Accounts.update_user_pipeline_defaults(user, %{default_immobility_threshold_cm: 0.0})
+
+      assert errors_on(changeset).default_immobility_threshold_cm != []
+    end
   end
 
   describe "sudo_mode?/2" do

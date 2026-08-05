@@ -9,7 +9,9 @@ defmodule MouseTracker.Experiments.CalibrationTest do
     cage_side_cm: 30.0,
     px_per_10cm: 50.0,
     threshold: 80,
-    min_area: 250
+    min_area: 250,
+    peripheral_pct: 20.0,
+    immobility_threshold_cm: 2.0
   }
 
   describe "changeset/2" do
@@ -85,6 +87,26 @@ defmodule MouseTracker.Experiments.CalibrationTest do
       assert "can't be blank" in errors_on(changeset).min_area
     end
 
+    test "inválido sem peripheral_pct", %{user: user} do
+      changeset =
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.delete(@valid_attrs, :peripheral_pct)
+        )
+
+      assert "can't be blank" in errors_on(changeset).peripheral_pct
+    end
+
+    test "inválido sem immobility_threshold_cm", %{user: user} do
+      changeset =
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.delete(@valid_attrs, :immobility_threshold_cm)
+        )
+
+      assert "can't be blank" in errors_on(changeset).immobility_threshold_cm
+    end
+
     test "cage_side_cm <= 0 é inválido", %{user: user} do
       changeset =
         Calibration.changeset(
@@ -130,6 +152,36 @@ defmodule MouseTracker.Experiments.CalibrationTest do
         Calibration.changeset(%Calibration{user_id: user.id}, Map.put(@valid_attrs, :min_area, 0))
 
       assert errors_on(changeset).min_area != []
+    end
+
+    test "peripheral_pct <= 0 é inválido", %{user: user} do
+      changeset =
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :peripheral_pct, 0.0)
+        )
+
+      assert errors_on(changeset).peripheral_pct != []
+    end
+
+    test "peripheral_pct > 50 é inválido", %{user: user} do
+      changeset =
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :peripheral_pct, 50.1)
+        )
+
+      assert errors_on(changeset).peripheral_pct != []
+    end
+
+    test "immobility_threshold_cm <= 0 é inválido", %{user: user} do
+      changeset =
+        Calibration.changeset(
+          %Calibration{user_id: user.id},
+          Map.put(@valid_attrs, :immobility_threshold_cm, 0.0)
+        )
+
+      assert errors_on(changeset).immobility_threshold_cm != []
     end
 
     test "coordenadas parciais são inválidas (all-or-nothing)", %{user: user} do

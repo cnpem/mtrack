@@ -51,16 +51,20 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       %{html: html}
     end
 
-    test "uses the built-in 80/250 when the user has no custom defaults", %{html: html} do
+    test "uses the built-in 80/250/20/2 when the user has no custom defaults", %{html: html} do
       assert html =~ ~s(name="threshold" value="80")
       assert html =~ ~s(name="min_area" value="250")
+      assert html =~ ~s(name="peripheral_pct" value="20")
+      assert html =~ ~s(name="immobility_threshold_cm" value="2")
     end
 
     test "uses the user's saved defaults instead", %{conn: conn, user: user} do
       {:ok, _user} =
         MouseTracker.Accounts.update_user_pipeline_defaults(user, %{
           default_threshold: 60,
-          default_min_area: 400
+          default_min_area: 400,
+          default_peripheral_pct: 15,
+          default_immobility_threshold_cm: 3
         })
 
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")
@@ -86,6 +90,8 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       assert html =~ ~s(name="threshold" value="60")
       assert html =~ ~s(name="min_area" value="400")
+      assert html =~ ~s(name="peripheral_pct" value="15.0")
+      assert html =~ ~s(name="immobility_threshold_cm" value="3.0")
     end
   end
 
