@@ -157,7 +157,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
         |> element("button[phx-value-subject='#{subject.id}']")
         |> render_click()
 
-      assert html =~ "No subject selected"
+      assert html =~ "No subject or group selected"
     end
 
     test "comparing two subjects overlays both series and lists both subjects' sessions", %{
@@ -360,5 +360,74 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
     {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{other_subject.id}")
     refute html =~ "Not mine"
     assert html =~ "No subjects yet"
+  end
+
+  describe "group trend line" do
+    setup %{user: user} do
+      s1 = subject_fixture(user, %{name: "M-01", group: "Control"})
+      s2 = subject_fixture(user, %{name: "M-02", group: "Control"})
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+
+      v1 =
+        video_fixture(experiment, cal, %{status: "done", subject_id: s1.id, filename: "a1.mp4"})
+
+      v2 =
+        video_fixture(experiment, cal, %{status: "done", subject_id: s2.id, filename: "b1.mp4"})
+
+      tracking_result_fixture(v1, %{distance_cm: 10.0})
+      tracking_result_fixture(v2, %{distance_cm: 30.0})
+
+      %{s1: s1, s2: s2, experiment: experiment}
+    end
+
+    test "toggling a group chip adds a mean series to the chart", %{conn: conn} do
+      {:ok, lv, html} = live(conn, ~p"/analyses?subjects=")
+      refute html =~ "Control (mean)"
+
+      html =
+        lv
+        |> form("#analyses-group-picker", %{"group" => "Control"})
+        |> render_change()
+
+      assert html =~ "<svg"
+      assert html =~ "Control (mean)"
+    end
+
+    test "an unknown group in the URL is ignored", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=&groups=Nonexistent")
+
+      refute html =~ "Nonexistent"
+      assert html =~ "No subject or group selected"
+    end
+
+    test "the chart renders with only a group selected (no subjects)", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=&groups=Control")
+
+      assert html =~ "<svg"
+      assert html =~ "Control (mean)"
+    end
+
+    test "a subject and a group can be compared on the same chart simultaneously", %{
+      conn: conn,
+      s1: s1
+    } do
+      {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{s1.id}&groups=Control")
+
+      assert html =~ "M-01"
+      assert html =~ "Control (mean)"
+    end
+
+    test "removing the group chip removes its series", %{conn: conn} do
+      {:ok, lv, html} = live(conn, ~p"/analyses?groups=Control")
+      assert html =~ "Control (mean)"
+
+      html =
+        lv
+        |> element("button[phx-value-group='Control']")
+        |> render_click()
+
+      refute html =~ "Control (mean)"
+    end
   end
 end

@@ -147,7 +147,7 @@ defmodule MouseTracker.Experiments do
         videos: [
           %{
             filename: "...", filepath: "/abs/path",
-            subject_ref: {:existing, id} | {:new, "M-01"} | nil,
+            subject_ref: {:existing, id} | {:new, "M-01", "control"} | {:new, "M-01", nil} | nil,
             cal_ref: ref,   # which calibration reference this video uses
             roi_ref: ref    # which ROI reference this video uses (nil => no ROIs)
           }
@@ -171,17 +171,19 @@ defmodule MouseTracker.Experiments do
     end)
   end
 
-  # Only `{:new, name}` entries need creating; `{:existing, id}` entries
-  # already reference a real Subject row and require no insert.
+  # Only `{:new, name, group}` entries need creating; `{:existing, id}` entries
+  # already reference a real Subject row and require no insert. When the same
+  # new name appears on multiple videos with conflicting groups, the last one
+  # in `videos` order wins (same "last write wins" rule already implicit for
+  # name-only duplicates before `group` existed).
   defp create_wizard_subjects(scope, videos) do
     videos
     |> Enum.map(& &1.subject_ref)
-    |> Enum.filter(&match?({:new, _name}, &1))
-    |> Enum.map(fn {:new, name} -> name end)
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.uniq()
-    |> Map.new(fn name ->
-      {name, insert_or_rollback(Subjects.create_subject(scope, %{name: name}))}
+    |> Enum.filter(&match?({:new, _name, _group}, &1))
+    |> Enum.reject(fn {:new, name, _group} -> name in [nil, ""] end)
+    |> Map.new(fn {:new, name, group} -> {name, group} end)
+    |> Map.new(fn {name, group} ->
+      {name, insert_or_rollback(Subjects.create_subject(scope, %{name: name, group: group}))}
     end)
   end
 
@@ -229,9 +231,11 @@ defmodule MouseTracker.Experiments do
   end
 
   defp resolve_wizard_subject_id({:existing, id}, _new_subjects), do: id
-  defp resolve_wizard_subject_id({:new, name}, _new_subjects) when name in [nil, ""], do: nil
 
-  defp resolve_wizard_subject_id({:new, name}, new_subjects),
+  defp resolve_wizard_subject_id({:new, name, _group}, _new_subjects) when name in [nil, ""],
+    do: nil
+
+  defp resolve_wizard_subject_id({:new, name, _group}, new_subjects),
     do: Map.fetch!(new_subjects, name).id
 
   defp resolve_wizard_subject_id(nil, _new_subjects), do: nil

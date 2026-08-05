@@ -162,6 +162,27 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     assert Repo.get!(Experiments.Subject, subject.id).genotype == "C57BL/6J"
   end
 
+  test "edits a subject's group on blur", %{conn: conn, subject: subject} do
+    {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    html =
+      lv
+      |> element("input[phx-value-id='#{subject.id}'][phx-blur='update_subject_group']")
+      |> render_blur(%{"value" => "Control"})
+
+    assert html =~ "Control"
+    assert Repo.get!(Experiments.Subject, subject.id).group == "Control"
+  end
+
+  test "renders group suggestions in the datalist", %{conn: conn, user: user} do
+    subject_fixture(user, %{name: "M-02", group: "Treated"})
+
+    {:ok, _lv, html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    assert html =~ ~s(<datalist id="subject-groups-datalist">)
+    assert html =~ ~s(value="Treated")
+  end
+
   test "deletes a calibration that is not attached to any video", %{conn: conn, cal: cal} do
     {:ok, lv, _html} = live(conn, ~p"/pipeline-settings")
 

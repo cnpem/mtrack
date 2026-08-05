@@ -50,14 +50,14 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_ref: {:new, "M-01"},
+            subject_ref: {:new, "M-01", "Control"},
             cal_ref: "r1",
             roi_ref: "r1"
           },
           %{
             filename: "b.mp4",
             filepath: "/tmp/b.mp4",
-            subject_ref: {:new, "M-02"},
+            subject_ref: {:new, "M-02", nil},
             cal_ref: "r1",
             roi_ref: "r1"
           }
@@ -79,6 +79,10 @@ defmodule MouseTracker.ExperimentsWizardTest do
 
       # One subject per distinct name.
       assert length(Subjects.list_subjects(scope)) == 2
+
+      subjects = Subjects.list_subjects(scope)
+      assert Enum.find(subjects, &(&1.name == "M-01")).group == "Control"
+      assert Enum.find(subjects, &(&1.name == "M-02")).group == nil
     end
 
     test "persists the chosen background_frame per video, defaulting to 0", %{scope: scope} do
@@ -210,7 +214,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_ref: {:new, "M-01"},
+            subject_ref: {:new, "M-01", nil},
             cal_ref: "r1",
             roi_ref: nil
           }

@@ -204,4 +204,152 @@ defmodule MouseTrackerWeb.ExperimentLive.ResultsTest do
       refute html =~ "a.mp4"
     end
   end
+
+  describe "por group tab" do
+    setup %{user: user} do
+      s1 = subject_fixture(user, %{name: "M-01", group: "Control"})
+      s2 = subject_fixture(user, %{name: "M-02", group: "Control"})
+      cal = calibration_fixture(user, %{name: "Campo A"})
+      experiment = experiment_fixture(user)
+
+      v1 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: s1.id,
+          filename: "a.mp4",
+          duration_seconds: 100.0
+        })
+
+      v2 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: s2.id,
+          filename: "b.mp4",
+          duration_seconds: 100.0
+        })
+
+      tracking_result_fixture(v1, %{
+        distance_cm: 100.0,
+        heatmap_path: "/uploads/results/#{v1.id}/heatmap.png"
+      })
+
+      tracking_result_fixture(v2, %{
+        distance_cm: 300.0,
+        heatmap_path: "/uploads/results/#{v2.id}/heatmap.png"
+      })
+
+      %{s1: s1, s2: s2, cal: cal, experiment: experiment, v1: v1, v2: v2}
+    end
+
+    test "defaults to the experiment's own group and shows heatmaps grouped by calibration", %{
+      conn: conn,
+      experiment: experiment,
+      v1: v1,
+      v2: v2
+    } do
+      {:ok, _lv, html} = live(conn, ~p"/experiments/#{experiment.id}/results?tab=group")
+
+      assert html =~ "Campo A"
+      assert html =~ "/uploads/results/#{v1.id}/heatmap.png"
+      assert html =~ "/uploads/results/#{v2.id}/heatmap.png"
+      # mean = (100+300)/2 = 200
+      assert html =~ "200.0"
+    end
+
+    test "switching to per-video shows a Subject column with each subject's own metrics", %{
+      conn: conn,
+      experiment: experiment
+    } do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}/results?tab=group")
+
+      html =
+        lv
+        |> element("button[phx-value-view='per_video']")
+        |> render_click()
+
+      assert html =~ "M-01"
+      assert html =~ "M-02"
+      assert html =~ "100.0 cm"
+      assert html =~ "300.0 cm"
+    end
+
+    test "the experiment scope filter narrows the group's videos to one experiment", %{
+      conn: conn,
+      user: user,
+      s1: s1,
+      cal: cal,
+      experiment: experiment
+    } do
+      other_experiment = experiment_fixture(user)
+
+      v3 =
+        video_fixture(other_experiment, cal, %{
+          status: "done",
+          subject_id: s1.id,
+          filename: "c.mp4",
+          duration_seconds: 100.0
+        })
+
+      tracking_result_fixture(v3, %{
+        distance_cm: 500.0,
+        heatmap_path: "/uploads/results/#{v3.id}/heatmap.png"
+      })
+
+      {:ok, lv, html} = live(conn, ~p"/experiments/#{experiment.id}/results?tab=group")
+      assert html =~ "c.mp4"
+
+      html =
+        lv
+        |> form("form[phx-change='set_group_scope_experiment']", %{
+          "scope_experiment" => to_string(experiment.id)
+        })
+        |> render_change()
+
+      refute html =~ "c.mp4"
+    end
+
+    test "picking a different group chip swaps which group's data is shown", %{
+      conn: conn,
+      user: user,
+      cal: cal,
+      experiment: experiment
+    } do
+      other_subject = subject_fixture(user, %{name: "M-03", group: "Treated"})
+
+      v4 =
+        video_fixture(experiment, cal, %{
+          status: "done",
+          subject_id: other_subject.id,
+          filename: "d.mp4",
+          duration_seconds: 100.0
+        })
+
+      tracking_result_fixture(v4, %{
+        distance_cm: 999.0,
+        heatmap_path: "/uploads/results/#{v4.id}/heatmap.png"
+      })
+
+      {:ok, lv, html} = live(conn, ~p"/experiments/#{experiment.id}/results?tab=group")
+      assert html =~ "Control"
+
+      html =
+        lv
+        |> element("button[phx-value-group='Treated']")
+        |> render_click()
+
+      assert html =~ "d.mp4"
+    end
+
+    test "shows an empty state when the experiment has no grouped subjects", %{
+      conn: conn,
+      user: user
+    } do
+      experiment = experiment_fixture(user)
+      video_fixture(experiment, nil, %{status: "done", filename: "no_group.mp4"})
+
+      {:ok, _lv, html} = live(conn, ~p"/experiments/#{experiment.id}/results?tab=group")
+
+      assert html =~ "No group to show"
+    end
+  end
 end

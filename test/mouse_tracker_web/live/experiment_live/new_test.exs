@@ -435,11 +435,26 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       assert [subject] = Subjects.list_subjects(scope)
       assert subject.name == "a"
     end
+
+    test "creating a new subject with a group persists it", %{lv: lv, ref: ref, scope: scope} do
+      lv
+      |> form("form[phx-submit='create']", %{"subject_new_group" => %{ref => "Control"}})
+      |> render_change()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Grouped run"})
+      |> render_submit()
+
+      assert [subject] = Subjects.list_subjects(scope)
+      assert subject.group == "Control"
+    end
   end
 
   describe "step 3 review — reusing an existing subject" do
     setup %{conn: conn, user: user} do
-      subject = subject_fixture(user, %{name: "M-existing"})
+      subject = subject_fixture(user, %{name: "M-existing", group: "Treated"})
 
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")
 
@@ -498,6 +513,13 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       %{lv: lv, ref: ref, subject: subject}
     end
 
+    test "renders the subject's existing group in the datalist", %{lv: lv} do
+      html = render(lv)
+
+      assert html =~ ~s(<datalist id="subject-groups-datalist">)
+      assert html =~ ~s(value="Treated")
+    end
+
     test "shows the existing subject in the dropdown and reuses it without duplicating", %{
       lv: lv,
       ref: ref,
@@ -522,6 +544,109 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [experiment] = Experiments.list_experiments(scope)
       [video] = Experiments.list_videos(experiment)
       assert video.subject_id == subject.id
+    end
+  end
+
+  describe "step 3 review — two videos creating the same new subject with different groups" do
+    setup %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp_a = Path.join(System.tmp_dir!(), "wizard-a-#{System.unique_integer([:positive])}.mp4")
+      tmp_b = Path.join(System.tmp_dir!(), "wizard-b-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp_a, "video a bytes")
+      File.write!(tmp_b, "video b bytes")
+
+      video_a =
+        file_input(lv, "form", :videos, [
+          %{name: "a.mp4", content: File.read!(tmp_a), type: "video/mp4"}
+        ])
+
+      render_upload(video_a, "a.mp4")
+
+      video_b =
+        file_input(lv, "form", :videos, [
+          %{name: "b.mp4", content: File.read!(tmp_b), type: "video/mp4"}
+        ])
+
+      render_upload(video_b, "b.mp4")
+
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      ref_a = video_ref(lv, "a.mp4")
+      ref_b = video_ref(lv, "b.mp4")
+
+      lv |> element("li[phx-value-ref='#{ref_a}']") |> render_click()
+      lv |> element("#ref-own-#{ref_a}") |> render_click()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm']", %{"value" => "10"})
+      |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"})
+      |> render_change()
+
+      # switch the active video to b.mp4, which starts without any reference
+      lv |> element("li[phx-value-ref='#{ref_b}']") |> render_click()
+
+      lv
+      |> form("form[phx-change='set_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> render_change()
+
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      %{lv: lv, ref_a: ref_a, ref_b: ref_b}
+    end
+
+    test "the last video in the batch wins the group for the shared new subject", %{
+      lv: lv,
+      ref_a: ref_a,
+      ref_b: ref_b,
+      scope: scope
+    } do
+      lv
+      |> form("form[phx-submit='create']", %{
+        "subject" => %{ref_a => "new", ref_b => "new"},
+        "subject_new_name" => %{ref_a => "Shared", ref_b => "Shared"},
+        "subject_new_group" => %{ref_a => "GroupA", ref_b => "GroupB"}
+      })
+      |> render_change()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Batch run"})
+      |> render_submit()
+
+      assert [subject] = Subjects.list_subjects(scope)
+      assert subject.name == "Shared"
+      # deterministic given @saved_videos order — whichever video is last to
+      # be folded into the dedup map wins (see create_wizard_subjects/2)
+      assert subject.group == "GroupA"
     end
   end
 

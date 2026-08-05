@@ -30,6 +30,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
      |> assign(:page_title, "Datasets")
      |> assign(:query, "")
      |> assign(:status_filter, "all")
+     |> assign(:group_filter, "all")
      |> assign(:view, "video")
      |> assign(:all_videos, videos)
      |> assign_thumbnails(videos)
@@ -45,7 +46,12 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     {:noreply, socket |> assign(:status_filter, status) |> assign_derived()}
   end
 
-  def handle_event("switch_view", %{"view" => view}, socket) when view in ["video", "subject"] do
+  def handle_event("filter_group", %{"group" => group}, socket) do
+    {:noreply, socket |> assign(:group_filter, group) |> assign_derived()}
+  end
+
+  def handle_event("switch_view", %{"view" => view}, socket)
+      when view in ["video", "subject", "group"] do
     {:noreply, assign(socket, :view, view)}
   end
 
@@ -62,23 +68,35 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
   # Header stat cards are computed over *all* videos; the list/groups reflect
   # the active search + status filter.
   defp assign_derived(socket) do
-    %{all_videos: videos, query: query, status_filter: status} = socket.assigns
+    %{all_videos: videos, query: query, status_filter: status, group_filter: group} =
+      socket.assigns
+
     q = query |> String.trim() |> String.downcase()
 
     filtered =
       videos
       |> Enum.filter(fn v -> status == "all" or v.status == status end)
+      |> Enum.filter(fn v -> group == "all" or video_group(v) == group end)
       |> Enum.filter(fn v -> q == "" or matches_query?(v, q) end)
 
     socket
     |> assign(:summary, Reporting.datasets_summary(videos))
     |> assign(:videos, filtered)
     |> assign(:subject_groups, Reporting.subject_groups(filtered))
+    |> assign(:groups_summary, Reporting.groups_summary(filtered))
+    |> assign(:available_groups, available_groups(videos))
   end
 
   defp matches_query?(video, q) do
     [video.filename, video.subject && video.subject.name, video.experiment.name]
     |> Enum.any?(fn s -> s && String.contains?(String.downcase(s), q) end)
+  end
+
+  defp video_group(%{subject: %{group: g}}) when is_binary(g) and g != "", do: g
+  defp video_group(_), do: nil
+
+  defp available_groups(videos) do
+    videos |> Enum.map(&video_group/1) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
   end
 
   # --- Thumbnails (async, cached per video on disk) ---
@@ -176,7 +194,13 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
           <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
             <button
-              :for={{value, label} <- [{"video", "By video"}, {"subject", "By subject"}]}
+              :for={
+                {value, label} <- [
+                  {"video", "By video"},
+                  {"subject", "By subject"},
+                  {"group", "By group"}
+                ]
+              }
               type="button"
               phx-click="switch_view"
               phx-value-view={value}
@@ -196,6 +220,18 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
               query={@query}
               placeholder="Search by file, subject or experiment"
             />
+
+            <form id="dataset-group-filter" phx-change="filter_group">
+              <select
+                name="group"
+                class="rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2 text-[12.5px] text-[#344054] focus:border-[#CC5500] focus:outline-none"
+              >
+                <option value="all" selected={@group_filter == "all"}>All groups</option>
+                <option :for={g <- @available_groups} value={g} selected={@group_filter == g}>
+                  {g}
+                </option>
+              </select>
+            </form>
 
             <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
               <button
@@ -246,6 +282,10 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
 
         <div :if={@videos != [] and @view == "subject"} class="mt-4 space-y-4">
           <.subject_group :for={group <- @subject_groups} group={group} />
+        </div>
+
+        <div :if={@videos != [] and @view == "group"} class="mt-4 space-y-4">
+          <.group_card :for={g <- @groups_summary} group={g} />
         </div>
       </div>
     </Layouts.locomo>
@@ -315,6 +355,9 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                   <div :if={v.subject.genotype} class="truncate text-[10.5px] text-[#98a2b3]">
                     {v.subject.genotype}
                   </div>
+                  <div :if={v.subject.group} class="truncate text-[10.5px] text-[#98a2b3]">
+                    {v.subject.group}
+                  </div>
                 </div>
               </div>
               <span :if={!v.subject} class="text-[12px] text-[#98a2b3]">—</span>
@@ -373,6 +416,9 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <span :if={@group.subject && @group.subject.genotype} class="text-[11.5px] text-[#98a2b3]">
           {@group.subject.genotype}
         </span>
+        <span :if={@group.subject && @group.subject.group} class="text-[11.5px] text-[#98a2b3]">
+          {@group.subject.group}
+        </span>
         <span class="ml-auto font-data text-[11.5px] text-[#8a93a3]">
           {length(@group.videos)} video(s) · {@group.aggregate.n} tracked
         </span>
@@ -394,6 +440,54 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
           <.status_pill status={v.status} />
           <span class="min-w-0 flex-1 truncate font-data text-[12px] text-[#344054]">{v.filename}</span>
+          <span class="hidden font-data text-[11.5px] text-[#8a93a3] sm:inline">{duration_fps(v)}</span>
+          <.link
+            navigate={~p"/experiments/#{v.experiment.id}"}
+            class="truncate text-[11.5px] text-[#475467] hover:text-[#0f1729]"
+          >
+            {v.experiment.name}
+          </.link>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # --- By-group card ---
+
+  attr :group, :map, required: true
+
+  defp group_card(assigns) do
+    ~H"""
+    <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+      <div class="flex items-center gap-2">
+        <span class="font-data text-[14px] font-bold text-[#0f1729]">
+          {@group.group || "Ungrouped"}
+        </span>
+        <span class="text-[11.5px] text-[#98a2b3]">{length(@group.subjects)} subject(s)</span>
+        <span class="ml-auto font-data text-[11.5px] text-[#8a93a3]">
+          {length(@group.videos)} video(s) · {@group.aggregate.n} tracked
+        </span>
+      </div>
+
+      <.metric_stat_cards
+        :if={@group.aggregate.n > 0}
+        metrics={@group.aggregate.metrics}
+        fields={[
+          %{key: :distance_cm, label: "Distance", unit: "cm"},
+          %{key: :speed_mean_cm, label: "Mean speed", unit: "cm/s"},
+          %{key: :thigmotaxis_pct, label: "Thigmotaxis", unit: "%"},
+          %{key: :immobility_seconds, label: "Immobility", unit: "s"}
+        ]}
+        class="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4"
+      />
+
+      <div class="mt-3 divide-y divide-[#f4f5f7]">
+        <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
+          <.status_pill status={v.status} />
+          <span class="min-w-0 flex-1 truncate font-data text-[12px] text-[#344054]">
+            <span :if={v.subject}>{v.subject.name} · </span>{v.filename}
+          </span>
           <span class="hidden font-data text-[11.5px] text-[#8a93a3] sm:inline">{duration_fps(v)}</span>
           <.link
             navigate={~p"/experiments/#{v.experiment.id}"}

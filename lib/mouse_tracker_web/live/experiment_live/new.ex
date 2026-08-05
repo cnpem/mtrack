@@ -49,6 +49,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:experiment_name, "")
      |> assign(:pipeline_defaults, pipeline_defaults)
      |> assign(:existing_subjects, Subjects.list_subjects(socket.assigns.current_scope))
+     |> assign(:subject_groups, Subjects.list_subject_groups(socket.assigns.current_scope))
      |> allow_upload(:videos, upload_opts())}
   end
 
@@ -185,12 +186,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   def handle_event("update_review", params, socket) do
     subject_sel = params["subject"] || %{}
     subject_new_names = params["subject_new_name"] || %{}
+    subject_new_groups = params["subject_new_group"] || %{}
 
     specs =
       Enum.reduce(subject_sel, socket.assigns.specs, fn {ref, value}, acc ->
         case acc do
           %{^ref => spec} ->
-            ref_value = Wizard.parse_subject_ref(value, Map.get(subject_new_names, ref, ""))
+            ref_value =
+              Wizard.parse_subject_ref(
+                value,
+                Map.get(subject_new_names, ref, ""),
+                Map.get(subject_new_groups, ref, "")
+              )
+
             Map.put(acc, ref, %{spec | subject_ref: ref_value})
 
           _ ->
@@ -448,14 +456,25 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
          |> put_flash(:info, "Experiment created — processing started.")
          |> push_navigate(to: ~p"/experiments/#{experiment.id}")}
 
-      {:error, _changeset} ->
+      {:error, changeset} ->
         {:noreply,
          put_flash(
            socket,
            :error,
-           "Could not create the experiment. Check the drawn regions and try again."
+           "Could not create the experiment: #{changeset_error_summary(changeset)}"
          )}
     end
+  end
+
+  # `create_experiment_with_videos/2` rolls back with whichever changeset
+  # (Experiment/Calibration/Roi/Subject/Video) first failed validation —
+  # surfacing its actual errors instead of a generic message is what makes the
+  # failure actionable instead of a dead end.
+  defp changeset_error_summary(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(&translate_error/1)
+    |> Enum.flat_map(fn {field, msgs} -> Enum.map(msgs, &"#{field} #{&1}") end)
+    |> Enum.join("; ")
   end
 
   # --- Render ---
@@ -1067,6 +1086,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp review_step(assigns) do
     ~H"""
     <form phx-change="update_review" phx-submit="create">
+      <datalist id="subject-groups-datalist">
+        <option :for={g <- @subject_groups} value={g} />
+      </datalist>
+
       <label class="block text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
         Experiment name
       </label>
@@ -1108,17 +1131,27 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
                 {s.name}
               </option>
 
-              <option value="new" selected={match?({:new, _}, @specs[v.ref].subject_ref)}>
+              <option value="new" selected={match?({:new, _, _}, @specs[v.ref].subject_ref)}>
                 + New subject
               </option>
             </select>
 
             <input
-              :if={match?({:new, _}, @specs[v.ref].subject_ref)}
+              :if={match?({:new, _, _}, @specs[v.ref].subject_ref)}
               type="text"
               name={"subject_new_name[#{v.ref}]"}
               value={Wizard.subject_new_name(@specs[v.ref].subject_ref)}
               placeholder="New subject name"
+              class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+            />
+
+            <input
+              :if={match?({:new, _, _}, @specs[v.ref].subject_ref)}
+              type="text"
+              name={"subject_new_group[#{v.ref}]"}
+              value={Wizard.subject_new_group(@specs[v.ref].subject_ref)}
+              list="subject-groups-datalist"
+              placeholder="Group"
               class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
             />
           </div>

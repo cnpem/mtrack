@@ -89,6 +89,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               <span class="size-2 rounded-full" style={"background:#{subject_color(subject.id)}"}></span>
               <span class="font-data text-[12px] font-medium text-[#344054]">{subject.name}</span>
               <span :if={subject.genotype} class="text-[11px] text-[#98a2b3]">{subject.genotype}</span>
+              <span :if={subject.group} class="text-[11px] text-[#98a2b3]">
+                <span :if={subject.genotype}> · </span>{subject.group}
+              </span>
             </div>
             <textarea
               name="notes"

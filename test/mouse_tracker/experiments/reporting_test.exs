@@ -1,10 +1,15 @@
 defmodule MouseTracker.Experiments.ReportingTest do
   use MouseTracker.DataCase, async: true
 
+  import Ecto.Query
   import MouseTracker.AccountsFixtures
   import MouseTracker.ExperimentsFixtures
 
-  alias MouseTracker.Experiments.{Reporting, Rois}
+  alias MouseTracker.Experiments.{Reporting, Rois, Video}
+
+  defp set_inserted_at(video, %DateTime{} = dt) do
+    Repo.update_all(from(v in Video, where: v.id == ^video.id), set: [inserted_at: dt])
+  end
 
   # ---------------------------------------------------------------------------
   # Subject results aggregation (Results "Por subject" tab)
@@ -82,6 +87,76 @@ defmodule MouseTracker.Experiments.ReportingTest do
       video_fixture(exp_a, cal, %{status: "done", subject_id: subject.id})
 
       assert Enum.map(Reporting.subject_experiments(scope, subject.id), & &1.id) ==
+               [exp_a.id, exp_b.id]
+    end
+  end
+
+  describe "group_result_videos/3" do
+    test "retorna apenas vídeos done cujo subject pertence ao group informado" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      cal = calibration_fixture(user)
+
+      s1 = subject_fixture(user, %{name: "M-01", group: "Control"})
+      s2 = subject_fixture(user, %{name: "M-02", group: "Control"})
+      s3 = subject_fixture(user, %{name: "M-03", group: "Treated"})
+
+      exp1 = experiment_fixture(user)
+      exp2 = experiment_fixture(user)
+
+      v1 = video_fixture(exp1, cal, %{status: "done", subject_id: s1.id})
+      v2 = video_fixture(exp2, cal, %{status: "done", subject_id: s2.id})
+      _pending = video_fixture(exp1, cal, %{status: "pending", subject_id: s1.id})
+      _other_group = video_fixture(exp1, cal, %{status: "done", subject_id: s3.id})
+
+      tracking_result_fixture(v1)
+      tracking_result_fixture(v2)
+
+      videos = Reporting.group_result_videos(scope, "Control")
+
+      assert Enum.map(videos, & &1.id) |> Enum.sort() == Enum.sort([v1.id, v2.id])
+      assert Enum.all?(videos, & &1.tracking_result)
+      assert Enum.all?(videos, & &1.subject)
+    end
+
+    test "filtra por experiment_id quando informado" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      cal = calibration_fixture(user)
+      subject = subject_fixture(user, %{group: "Control"})
+
+      exp1 = experiment_fixture(user)
+      exp2 = experiment_fixture(user)
+
+      v1 = video_fixture(exp1, cal, %{status: "done", subject_id: subject.id})
+      _v2 = video_fixture(exp2, cal, %{status: "done", subject_id: subject.id})
+
+      videos = Reporting.group_result_videos(scope, "Control", exp1.id)
+
+      assert Enum.map(videos, & &1.id) == [v1.id]
+    end
+
+    test "vazio para um group desconhecido" do
+      scope = user_scope_fixture(user_fixture())
+      assert Reporting.group_result_videos(scope, "Nonexistent") == []
+    end
+  end
+
+  describe "group_experiments/2" do
+    test "retorna experimentos distintos (com vídeo done no group) ordenados por nome" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      cal = calibration_fixture(user)
+      s1 = subject_fixture(user, %{group: "Control"})
+      s2 = subject_fixture(user, %{group: "Control"})
+
+      exp_b = experiment_fixture(user, %{name: "B experimento"})
+      exp_a = experiment_fixture(user, %{name: "A experimento"})
+
+      video_fixture(exp_b, cal, %{status: "done", subject_id: s1.id})
+      video_fixture(exp_a, cal, %{status: "done", subject_id: s2.id})
+
+      assert Enum.map(Reporting.group_experiments(scope, "Control"), & &1.id) ==
                [exp_a.id, exp_b.id]
     end
   end
@@ -260,6 +335,46 @@ defmodule MouseTracker.Experiments.ReportingTest do
     end
   end
 
+  describe "groups_summary/1" do
+    test "agrupa por subject.group (nil/vazio por último), com aggregate sobre os vídeos done" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      control = subject_fixture(user, %{name: "M-01", group: "Control"})
+      no_group_subject = subject_fixture(user, %{name: "M-02", group: ""})
+
+      v1 = video_fixture(exp, nil, %{status: "done", subject_id: control.id})
+      v2_pending = video_fixture(exp, nil, %{status: "pending", subject_id: control.id})
+      v3_no_group = video_fixture(exp, nil, %{status: "done", subject_id: no_group_subject.id})
+      v4_no_subject = video_fixture(exp, nil, %{status: "done"})
+
+      tracking_result_fixture(v1, %{distance_cm: 42.0})
+
+      videos =
+        Repo.preload([v1, v2_pending, v3_no_group, v4_no_subject], [
+          :subject,
+          tracking_result: [roi_times: :roi]
+        ])
+
+      assert [
+               %{group: "Control", aggregate: aggregate} = control_group,
+               %{group: nil} = nil_group
+             ] =
+               Reporting.groups_summary(videos)
+
+      assert Enum.map(control_group.videos, & &1.id) |> Enum.sort() ==
+               Enum.sort([v1.id, v2_pending.id])
+
+      # só o vídeo "done" entra no aggregate do grupo
+      assert aggregate.n == 1
+      assert aggregate.metrics.distance_cm.mean == 42.0
+
+      # vídeos sem group (string vazia normalizada) e sem subject caem no
+      # mesmo bucket nil
+      assert Enum.map(nil_group.videos, & &1.id) |> Enum.sort() ==
+               Enum.sort([v3_no_group.id, v4_no_subject.id])
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Per-video helpers (Results screen)
   # ---------------------------------------------------------------------------
@@ -329,6 +444,90 @@ defmodule MouseTracker.Experiments.ReportingTest do
       videos = Repo.preload([video], [:experiment, tracking_result: [roi_times: :roi]])
 
       assert Reporting.metric_series(videos, "path_tortuosity") == []
+    end
+  end
+
+  describe "group_metric_series/4" do
+    test "faz a média por índice de sessão entre os subjects do group" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      s1 = subject_fixture(user, %{group: "Control"})
+      s2 = subject_fixture(user, %{group: "Control"})
+
+      s1v1 = video_fixture(exp, nil, %{status: "done", subject_id: s1.id})
+      s1v2 = video_fixture(exp, nil, %{status: "done", subject_id: s1.id})
+      s2v1 = video_fixture(exp, nil, %{status: "done", subject_id: s2.id})
+      s2v2 = video_fixture(exp, nil, %{status: "done", subject_id: s2.id})
+
+      set_inserted_at(s1v1, ~U[2026-01-01 00:00:00Z])
+      set_inserted_at(s1v2, ~U[2026-01-02 00:00:00Z])
+      set_inserted_at(s2v1, ~U[2026-01-01 00:00:00Z])
+      set_inserted_at(s2v2, ~U[2026-01-02 00:00:00Z])
+
+      tracking_result_fixture(s1v1, %{distance_cm: 10.0})
+      tracking_result_fixture(s1v2, %{distance_cm: 30.0})
+      tracking_result_fixture(s2v1, %{distance_cm: 20.0})
+      tracking_result_fixture(s2v2, %{distance_cm: 50.0})
+
+      series = Reporting.group_metric_series(scope, "Control", "distance_cm")
+
+      assert [
+               %{index: 0, value: 15.0, n: 2, sd: sd0},
+               %{index: 1, value: 40.0, n: 2, sd: sd1}
+             ] = series
+
+      assert sd0 != nil
+      assert sd1 != nil
+    end
+
+    test "para de contribuir quando um subject acaba as sessões (sem preencher/repetir)" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp = experiment_fixture(user)
+      s1 = subject_fixture(user, %{group: "Control"})
+      s2 = subject_fixture(user, %{group: "Control"})
+
+      s1v1 = video_fixture(exp, nil, %{status: "done", subject_id: s1.id})
+      s2v1 = video_fixture(exp, nil, %{status: "done", subject_id: s2.id})
+      s2v2 = video_fixture(exp, nil, %{status: "done", subject_id: s2.id})
+
+      set_inserted_at(s1v1, ~U[2026-01-01 00:00:00Z])
+      set_inserted_at(s2v1, ~U[2026-01-01 00:00:00Z])
+      set_inserted_at(s2v2, ~U[2026-01-02 00:00:00Z])
+
+      tracking_result_fixture(s1v1, %{distance_cm: 10.0})
+      tracking_result_fixture(s2v1, %{distance_cm: 20.0})
+      tracking_result_fixture(s2v2, %{distance_cm: 40.0})
+
+      series = Reporting.group_metric_series(scope, "Control", "distance_cm")
+
+      assert [%{index: 0, value: 15.0, n: 2, sd: _}, %{index: 1, value: 40.0, n: 1, sd: nil}] =
+               series
+    end
+
+    test "vazio quando o group não tem subjects ou sessões" do
+      scope = user_scope_fixture(user_fixture())
+      assert Reporting.group_metric_series(scope, "Nonexistent", "distance_cm") == []
+    end
+
+    test "respeita o filtro por experiment_id" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      subject = subject_fixture(user, %{group: "Control"})
+
+      exp1 = experiment_fixture(user)
+      exp2 = experiment_fixture(user)
+
+      v1 = video_fixture(exp1, nil, %{status: "done", subject_id: subject.id})
+      v2 = video_fixture(exp2, nil, %{status: "done", subject_id: subject.id})
+
+      tracking_result_fixture(v1, %{distance_cm: 10.0})
+      tracking_result_fixture(v2, %{distance_cm: 20.0})
+
+      series = Reporting.group_metric_series(scope, "Control", "distance_cm", exp1.id)
+
+      assert [%{value: 10.0, n: 1}] = series
     end
   end
 end

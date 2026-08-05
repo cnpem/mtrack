@@ -19,6 +19,22 @@ defmodule MouseTracker.Experiments.Subjects do
     Repo.get_by!(Subject, id: id, user_id: user.id)
   end
 
+  @doc """
+  Distinct, non-blank `group` values already used by this user's subjects,
+  alphabetically sorted — populates the group datalist/autocomplete (wizard
+  new subject field, Pipeline Settings inline edit) and the group filter
+  dropdowns (Datasets, Results, Analyses).
+  """
+  def list_subject_groups(%Scope{user: user}) do
+    Repo.all(
+      from s in Subject,
+        where: s.user_id == ^user.id and not is_nil(s.group) and s.group != "",
+        distinct: true,
+        order_by: s.group,
+        select: s.group
+    )
+  end
+
   def create_subject(%Scope{user: user}, attrs) do
     %Subject{user_id: user.id}
     |> Subject.changeset(attrs)

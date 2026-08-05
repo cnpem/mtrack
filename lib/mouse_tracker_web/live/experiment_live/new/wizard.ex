@@ -18,7 +18,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   def default_spec(filename) do
     %{
-      subject_ref: {:new, Path.rootname(filename)},
+      subject_ref: {:new, Path.rootname(filename), nil},
       is_ref?: false,
       source: nil
     }
@@ -214,18 +214,30 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   def parse_float(_), do: 0.0
 
-  def parse_subject_ref("new", name) do
+  def parse_subject_ref("new", name, group) do
     case String.trim(name || "") do
-      "" -> {:new, ""}
-      n -> {:new, n}
+      "" -> {:new, "", normalize_group(group)}
+      n -> {:new, n, normalize_group(group)}
     end
   end
 
-  def parse_subject_ref("", _name), do: nil
-  def parse_subject_ref(id_str, _name), do: {:existing, String.to_integer(id_str)}
+  def parse_subject_ref("", _name, _group), do: nil
+  def parse_subject_ref(id_str, _name, _group), do: {:existing, String.to_integer(id_str)}
 
-  def subject_new_name({:new, name}), do: name
+  defp normalize_group(nil), do: nil
+
+  defp normalize_group(g) do
+    case String.trim(g) do
+      "" -> nil
+      t -> t
+    end
+  end
+
+  def subject_new_name({:new, name, _group}), do: name
   def subject_new_name(_), do: nil
+
+  def subject_new_group({:new, _name, group}), do: group
+  def subject_new_group(_), do: nil
 
   # --- px_per_10cm derivation ---
 

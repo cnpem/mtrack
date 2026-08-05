@@ -75,6 +75,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
      )
      |> assign(:roi_usage, usage_map(rois, &Rois.count_videos_using_roi/1))
      |> assign(:subject_usage, usage_map(subjects, &Subjects.count_videos_using_subject/1))
+     |> assign(:subject_groups, Subjects.list_subject_groups(scope))
      |> assign(:defaults_form, to_form(Accounts.change_user_pipeline_defaults(user)))}
   end
 
@@ -126,6 +127,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   def handle_event("update_subject_genotype", %{"id" => id, "value" => genotype}, socket) do
     update_subject_field(socket, id, %{genotype: normalize_blank(genotype)})
+  end
+
+  def handle_event("update_subject_group", %{"id" => id, "value" => group}, socket) do
+    update_subject_field(socket, id, %{group: normalize_blank(group)})
   end
 
   def handle_event("delete_" <> key, %{"id" => id}, socket) do
@@ -311,6 +316,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
           subjects={@visible}
           usage={@subject_usage}
         />
+
+        <datalist id="subject-groups-datalist">
+          <option :for={g <- @subject_groups} value={g} />
+        </datalist>
       </div>
     </Layouts.locomo>
     """
@@ -516,12 +525,13 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   defp subject_table(assigns) do
     ~H"""
     <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-      <table class="w-full min-w-[700px] text-left text-[12.5px]">
+      <table class="w-full min-w-[780px] text-left text-[12.5px]">
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
             <th class="px-3 py-3">Sex</th>
             <th class="px-3 py-3">Genotype</th>
+            <th class="px-3 py-3">Group</th>
             <th class="px-3 py-3">Used in</th>
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
@@ -542,6 +552,14 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
                 event="update_subject_genotype"
                 id={subject.id}
                 value={subject.genotype}
+              />
+            </td>
+            <td class="px-3 py-3">
+              <.text_field_input
+                event="update_subject_group"
+                id={subject.id}
+                value={subject.group}
+                list="subject-groups-datalist"
               />
             </td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
@@ -582,6 +600,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   attr :event, :string, required: true
   attr :id, :integer, required: true
   attr :value, :string, default: nil
+  attr :list, :string, default: nil
 
   defp text_field_input(assigns) do
     ~H"""
@@ -591,6 +610,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       value={@value}
       phx-blur={@event}
       phx-value-id={@id}
+      list={@list}
       placeholder="—"
       class="w-full min-w-[110px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12px] text-[#344054] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
     />

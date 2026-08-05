@@ -29,6 +29,39 @@ defmodule MouseTrackerWeb.ExperimentLive.ShowTest do
     assert html =~ "olho direito nublado"
   end
 
+  test "shows the subject's group next to the name, with a separator dot when genotype is also present",
+       %{conn: conn, user: user} do
+    experiment = experiment_fixture(user)
+
+    both =
+      subject_fixture(user, %{name: "M-both", genotype: "WT", group: "Control"})
+
+    only_group = subject_fixture(user, %{name: "M-group", group: "Treated"})
+
+    video_fixture(experiment, nil, %{subject_id: both.id, status: "processing"})
+    video_fixture(experiment, nil, %{subject_id: only_group.id, status: "processing"})
+
+    {:ok, _lv, html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    assert html =~ "Control"
+    assert html =~ "Treated"
+    # separator between genotype and group only appears when both are present
+    assert html =~ ~r/WT.*·.*Control/s
+  end
+
+  test "does not show a separator when only the group is present", %{conn: conn, user: user} do
+    experiment = experiment_fixture(user)
+    subject = subject_fixture(user, %{name: "M-group-only", group: "Treated"})
+    video_fixture(experiment, nil, %{subject_id: subject.id, status: "processing"})
+
+    {:ok, _lv, html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    assert html =~ "Treated"
+    # only the page <title>'s own " · Phoenix Framework" suffix contains a
+    # dot — the subject card itself must not show a leading separator
+    refute html =~ ~r/·\s*Treated/
+  end
+
   test "editing the notes textarea persists the observation", %{
     conn: conn,
     experiment: experiment,

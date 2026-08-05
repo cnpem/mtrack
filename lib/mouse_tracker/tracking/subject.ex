@@ -11,6 +11,7 @@ defmodule MouseTracker.Experiments.Subject do
     field :age_days, :integer
     field :weight_g, :float
     field :genotype, :string
+    field :group, :string
     field :notes, :string
 
     belongs_to :user, User
@@ -21,7 +22,7 @@ defmodule MouseTracker.Experiments.Subject do
 
   def changeset(subject, attrs) do
     subject
-    |> cast(attrs, [:name, :sex, :age_days, :weight_g, :genotype, :notes])
+    |> cast(attrs, [:name, :sex, :age_days, :weight_g, :genotype, :group, :notes])
     |> validate_required([:name])
     |> validate_length(:name, max: 255)
     |> validate_inclusion(:sex, ["M", "F"])
