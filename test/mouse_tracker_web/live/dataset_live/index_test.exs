@@ -90,14 +90,14 @@ defmodule MouseTrackerWeb.DatasetLive.IndexTest do
     assert html =~ "1 tracked"
   end
 
-  test "filters by group", %{conn: conn, user: user, subject: subject} do
+  test "the search bar also matches by subject group", %{conn: conn, user: user, subject: subject} do
     {:ok, _} = Subjects.update_subject(Scope.for_user(user), subject, %{group: "Control"})
 
     {:ok, lv, _html} = live(conn, ~p"/datasets")
 
     html =
       lv
-      |> form("#dataset-group-filter", %{"group" => "Control"})
+      |> form("form[phx-change='search']", %{"query" => "Control"})
       |> render_change()
 
     assert html =~ "trial1.mp4"

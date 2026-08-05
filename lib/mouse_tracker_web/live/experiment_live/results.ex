@@ -678,8 +678,8 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
     />
 
     <div :if={@group_videos != []}>
-      <div class="mt-4 flex flex-wrap gap-6">
-        <div :for={{calibration, videos} <- @calibration_groups} class="w-full sm:w-[380px]">
+      <div class="mt-4 flex flex-col gap-6">
+        <div :for={{calibration, videos} <- @calibration_groups} class="w-full">
           <div class="mb-2 flex items-center gap-2 text-[13px] font-bold text-[#0f1729]">
             <.icon name="hero-squares-2x2" class="size-4 text-[#98a2b3]" /> {calibration_label(
               calibration
@@ -689,7 +689,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
             </span>
           </div>
 
-          <div class="grid grid-cols-1 gap-4">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <.plot_card
               :for={v <- videos}
               title={v.filename}
