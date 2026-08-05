@@ -45,7 +45,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html =
         lv
-        |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+        |> element("#ref-own-#{ref}")
         |> render_click()
 
       %{html: html}
@@ -85,7 +85,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html =
         lv
-        |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+        |> element("#ref-own-#{ref}")
         |> render_click()
 
       assert html =~ ~s(name="threshold" value="60")
@@ -114,11 +114,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
-      |> render_click()
-
-      lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_roi_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -239,7 +235,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -302,11 +298,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       lv |> element("li[phx-value-ref='#{ref_a}']") |> render_click()
 
       lv
-      |> element("button[phx-value-ref='#{ref_a}'][phx-click='toggle_cal_ref']")
-      |> render_click()
-
-      lv
-      |> element("button[phx-value-ref='#{ref_a}'][phx-click='toggle_roi_ref']")
+      |> element("#ref-own-#{ref_a}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -352,35 +344,14 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       %{lv: lv, ref_a: ref_a, ref_b: ref_b}
     end
 
-    test "picking a calibration reference in the dropdown resolves inheritance and unblocks Continue",
+    test "picking a reference in the dropdown resolves inheritance (scale + ROI together) and unblocks Continue",
          %{lv: lv, ref_a: ref_a, ref_b: ref_b} do
       html = render(lv)
       assert html =~ "no reference"
       assert has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
 
       lv
-      |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
-      |> render_change()
-
-      html = render(lv)
-      assert html =~ "inherits from a.mp4"
-      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
-    end
-
-    test "picking a ROI reference in the dropdown resolves inheritance", %{
-      lv: lv,
-      ref_a: ref_a,
-      ref_b: ref_b
-    } do
-      lv
-      |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
-      |> render_change()
-
-      html = render(lv)
-      assert html =~ "no reference"
-
-      lv
-      |> form("form[phx-change='set_roi_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> form("form[phx-change='set_source']", %{"ref" => ref_b, "source" => ref_a})
       |> render_change()
 
       html = render(lv)
@@ -408,7 +379,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -487,7 +458,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
