@@ -62,6 +62,35 @@ defmodule MouseTracker.Experiments.ExportTest do
       assert Enum.at(Enum.at(rows, 1), idx) == nil
     end
 
+    test "same ROI name across different videos shares one column" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      cal = calibration_fixture(user)
+      exp = experiment_fixture(user, %{name: "Shared ROI"})
+
+      s1 = subject_fixture(user, %{name: "A01"})
+      s2 = subject_fixture(user, %{name: "A02"})
+
+      v1 = video_fixture(exp, cal, %{status: "done", subject_id: s1.id})
+      tr1 = tracking_result_fixture(v1)
+      roi_time_fixture(roi_fixture(v1, %{name: "centro"}), tr1, %{seconds: 3.0})
+
+      v2 = video_fixture(exp, cal, %{status: "done", subject_id: s2.id})
+      tr2 = tracking_result_fixture(v2)
+      # ROI distinta (outro id), mesmo nome — câmera deslocou entre gravações
+      roi_time_fixture(roi_fixture(v2, %{name: "centro"}), tr2, %{seconds: 7.0})
+
+      experiment = Experiments.get_experiment_for_export!(scope, exp.id)
+      {headers, rows} = Export.build_rows(experiment, @all_opts)
+
+      # uma única coluna "tempo_centro_s" para os dois vídeos
+      assert Enum.count(headers, &(&1 == "tempo_centro_s")) == 1
+      idx = Enum.find_index(headers, &(&1 == "tempo_centro_s"))
+      # ordenado por nome de subject: A01 (3.0) antes de A02 (7.0)
+      assert Enum.at(List.first(rows), idx) == 3.0
+      assert Enum.at(Enum.at(rows, 1), idx) == 7.0
+    end
+
     test "calibration group is omitted when disabled", %{experiment: experiment} do
       {headers, _rows} = Export.build_rows(experiment, %{@all_opts | calibration: false})
 

@@ -230,6 +230,31 @@ defmodule MouseTracker.Experiments.ReportingTest do
       assert [%{name: "Centro", avg_seconds: 40.0, avg_share_pct: 25.0, n: 2}] =
                Reporting.subject_metric_aggregate(videos).roi_zones
     end
+
+    test "usa a janela recortada como denominador do share, não o vídeo inteiro" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      cal = calibration_fixture(user)
+
+      # vídeo de 600s, analisado só de 100s a 200s (janela de 100s)
+      video =
+        video_fixture(exp, cal, %{
+          status: "done",
+          duration_seconds: 600.0,
+          start_time_seconds: 100.0,
+          end_time_seconds: 200.0
+        })
+
+      roi = roi_fixture(video, %{name: "Centro"})
+      result = tracking_result_fixture(video)
+      roi_time_fixture(roi, result, %{seconds: 50.0})
+
+      videos = Repo.preload([video], tracking_result: [roi_times: :roi])
+
+      # 50s numa janela de 100s = 50%, não 50/600 ≈ 8.3%
+      assert [%{name: "Centro", avg_share_pct: 50.0}] =
+               Reporting.subject_metric_aggregate(videos).roi_zones
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -410,6 +435,40 @@ defmodule MouseTracker.Experiments.ReportingTest do
       assert Reporting.share_of_session(20.0, nil) == nil
       assert Reporting.share_of_session(20.0, 0) == nil
       assert Reporting.share_of_session(20.0, 0.0) == nil
+    end
+  end
+
+  describe "session_seconds/1" do
+    test "usa a janela recortada (end - start), não o vídeo inteiro" do
+      assert Reporting.session_seconds(%{
+               start_time_seconds: 100.0,
+               end_time_seconds: 200.0,
+               duration_seconds: 600.0
+             }) == 100.0
+    end
+
+    test "sem recorte, cai na duração total (start 0, end nil)" do
+      assert Reporting.session_seconds(%{
+               start_time_seconds: 0.0,
+               end_time_seconds: nil,
+               duration_seconds: 600.0
+             }) == 600.0
+    end
+
+    test "nil quando não há fim conhecido nem duração" do
+      assert Reporting.session_seconds(%{
+               start_time_seconds: 0.0,
+               end_time_seconds: nil,
+               duration_seconds: nil
+             }) == nil
+    end
+
+    test "nil quando a janela é não-positiva" do
+      assert Reporting.session_seconds(%{
+               start_time_seconds: 200.0,
+               end_time_seconds: 200.0,
+               duration_seconds: 600.0
+             }) == nil
     end
   end
 

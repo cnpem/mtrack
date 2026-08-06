@@ -913,12 +913,14 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
   defp tabs, do: @tabs
 
   # Bar width falls back to 0 when the session's share can't be computed
-  # (older videos may lack `duration_seconds`) — see `Reporting.share_of_session/2`.
+  # (older videos may lack a known duration) — see `Reporting.share_of_session/2`.
+  # Denominator is the trimmed analysis window (`session_seconds/1`), not the
+  # whole video, so the % is correct when the video was trimmed.
   defp share_pct(seconds, video),
-    do: Reporting.share_of_session(seconds, video.duration_seconds) || 0.0
+    do: Reporting.share_of_session(seconds, Reporting.session_seconds(video)) || 0.0
 
   defp share_label(seconds, video) do
-    case Reporting.share_of_session(seconds, video.duration_seconds) do
+    case Reporting.share_of_session(seconds, Reporting.session_seconds(video)) do
       nil -> "—"
       pct -> "#{fmt(pct)}%"
     end

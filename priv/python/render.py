@@ -185,16 +185,62 @@ def calibrate(frame, cage_side_cm):
 # ---------------------------------------------------------------------------
 
 
-def plot_heatmap(heatmap, fps, background, max_time, fn_plot):
-    """Save an occupancy heatmap overlaid on the background image."""
-    from matplotlib import pyplot as plt # Lazy import 
+# Distinct colors cycled per ROI so overlapping (dashed) outlines stay apart.
+_ROI_COLORS = ["#ff3b30", "#34c759", "#0a84ff", "#ffcc00", "#af52de", "#ff9500"]
+
+
+def _roi_patch(roi, ox, oy, color):
+    """A dashed, unfilled matplotlib patch for one ROI, with its coordinates
+    shifted by the crop origin (ox, oy). Shape is inferred from the flat list's
+    length, matching metrics.is_pt_in_shape: 3 → circle, 4 → rectangle,
+    ≥6 even → polygon. Returns None for anything unrecognized."""
+    from matplotlib import patches
+
+    style = dict(fill=False, edgecolor=color, linewidth=1.8, linestyle="--")
+    n = len(roi)
+
+    if n == 3:
+        cx, cy, r = roi
+        return patches.Circle((cx - ox, cy - oy), r, **style)
+    if n == 4:
+        x, y, w, h = roi
+        return patches.Rectangle((x - ox, y - oy), w, h, **style)
+    if n >= 6 and n % 2 == 0:
+        pts = [(roi[i] - ox, roi[i + 1] - oy) for i in range(0, n, 2)]
+        return patches.Polygon(pts, closed=True, **style)
+    return None
+
+
+def plot_heatmap(heatmap, fps, background, max_time, fn_plot, valid_region=None, rois=None):
+    """Save an occupancy heatmap. When `valid_region` ([x, y, w, h]) is given,
+    the plot is cropped to that box instead of showing the whole video frame;
+    `rois`, if given, are outlined with dashed borders so overlapping zones
+    stay distinguishable."""
+    from matplotlib import pyplot as plt  # Lazy import
+
+    ox, oy = 0, 0
+    if valid_region:
+        x, y, w, h = (int(v) for v in valid_region)
+        ox, oy = x, y
+        background = background[y : y + h, x : x + w]
+        heatmap = heatmap[y : y + h, x : x + w]
+
+    # Copy before poking the (0, 0) scale pixel so we never mutate the caller's
+    # array — cropping above returns a view into the original heatmap.
+    heatmap = heatmap.copy()
+    heatmap[0, 0] = max_time
 
     plt.figure()
-    heatmap[0, 0] = max_time
     plt.imshow(background, cmap="gray")
     im = plt.imshow(heatmap / fps, cmap="nipy_spectral", alpha=0.85)
     cbar = plt.colorbar(im, orientation="vertical")
     cbar.ax.set_ylabel("seconds")
+
+    for i, roi in enumerate(rois or []):
+        patch = _roi_patch(roi, ox, oy, _ROI_COLORS[i % len(_ROI_COLORS)])
+        if patch is not None:
+            plt.gca().add_patch(patch)
+
     plt.title("Occupancy Heatmap")
     plt.axis("off")
     plt.savefig(fn_plot)

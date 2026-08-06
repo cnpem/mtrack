@@ -263,10 +263,28 @@ defmodule MouseTracker.Experiments.Reporting do
   def total_roi_seconds(_), do: 0.0
 
   @doc """
-  Percentage of a session spent in a zone, or `nil` if `duration_seconds` is
+  Duration in seconds of the analysed window of a video — the *trimmed* time
+  (`end_time_seconds || duration_seconds` minus `start_time_seconds`), not the
+  whole video. This is the correct denominator for "share of session"
+  percentages, since the Python side only counts frames inside the trimmed
+  window (`start_time`/`end_time` are applied in `run.py`). Returns `nil` when
+  it can't be computed (no known end/duration, or a non-positive window), which
+  `share_of_session/2` and `roi_zone_aggregate/1` treat as "unavailable".
+  """
+  def session_seconds(video) do
+    start = video.start_time_seconds || 0.0
+    finish = video.end_time_seconds || video.duration_seconds
+
+    if is_number(finish) and finish - start > 0, do: finish - start, else: nil
+  end
+
+  @doc """
+  Percentage of a session spent in a zone, or `nil` if the session duration is
   missing/zero (older videos may lack it) — the same nil convention
   `roi_zone_aggregate/1` already uses for `avg_share_pct`, so a caller only
   has one rule to remember for "can this video's share be computed at all".
+  Pass the trimmed session duration from `session_seconds/1`, not the whole
+  video length.
   """
   def share_of_session(_seconds, duration) when duration in [nil, 0, 0.0], do: nil
 
@@ -349,7 +367,7 @@ defmodule MouseTracker.Experiments.Reporting do
   defp roi_zone_aggregate(videos_with_results) do
     videos_with_results
     |> Enum.flat_map(fn video ->
-      duration = video.duration_seconds
+      duration = session_seconds(video)
 
       Enum.map(video.tracking_result.roi_times, fn rt ->
         share = if is_number(duration) and duration > 0, do: rt.seconds / duration * 100

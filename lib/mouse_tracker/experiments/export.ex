@@ -131,8 +131,14 @@ defmodule MouseTracker.Experiments.Export do
     do: Enum.map(@calibration_fields, fn {_h, f} -> Map.get(cal, f) end)
 
   defp roi_seconds_cells(result, roi_names) do
+    # ROI names can repeat now (see MakeRoiNamesDuplicable) — if a single video
+    # has two same-named zones, sum their seconds into the one shared column
+    # instead of letting one silently overwrite the other. Names absent from
+    # this video stay nil (they belong to a column from another video).
     by_name =
-      Map.new(result.roi_times, fn rt -> {rt.roi.name, rt.seconds} end)
+      Enum.reduce(result.roi_times, %{}, fn rt, acc ->
+        Map.update(acc, rt.roi.name, rt.seconds, &(&1 + rt.seconds))
+      end)
 
     Enum.map(roi_names, &Map.get(by_name, &1))
   end
