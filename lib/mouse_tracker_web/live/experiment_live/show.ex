@@ -91,14 +91,13 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               {@experiment.description}
             </p>
           </div>
-          <div class="relative shrink-0">
+          <div class="relative shrink-0" phx-click-away={@export_open && "close_export"}>
             <.button size="sm" type="button" phx-click="toggle_export">
               <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Exportar
             </.button>
 
             <div
               :if={@export_open}
-              phx-click-away="close_export"
               class="absolute right-0 z-20 mt-2 w-72 rounded-[12px] border border-[#e7e9ee] bg-white p-4 text-left shadow-[0_8px_24px_rgba(16,24,40,.12)]"
             >
               <div class="text-[13px] font-bold text-[#0f1729]">Exportar dados</div>

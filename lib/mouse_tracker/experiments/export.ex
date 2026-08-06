@@ -75,11 +75,19 @@ defmodule MouseTracker.Experiments.Export do
     {headers, rows}
   end
 
-  @doc "Encodes a `{headers, rows}` table as RFC4180 CSV (`,` separator, `.` decimal)."
+  # UTF-8 byte-order mark. Prepended to the CSV so Excel (notably pt-BR/Windows,
+  # which otherwise assumes Windows-1252) detects UTF-8 and renders accented
+  # headers/labels (e.g. "distância_cm") correctly.
+  @utf8_bom "﻿"
+
+  @doc "Encodes a `{headers, rows}` table as RFC4180 CSV (`,` separator, `.` decimal), BOM-prefixed for Excel."
   def to_csv({headers, rows}) do
-    [headers | rows]
-    |> Enum.map(fn row -> Enum.map(row, &csv_cell/1) end)
-    |> CSV.dump_to_iodata()
+    body =
+      [headers | rows]
+      |> Enum.map(fn row -> Enum.map(row, &csv_cell/1) end)
+      |> CSV.dump_to_iodata()
+
+    [@utf8_bom | body]
   end
 
   @doc "Encodes a `{headers, rows}` table as an `.xlsx` binary (single sheet)."

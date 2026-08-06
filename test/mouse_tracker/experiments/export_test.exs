@@ -88,8 +88,12 @@ defmodule MouseTracker.Experiments.ExportTest do
     } do
       csv = experiment |> Export.build_rows(@all_opts) |> Export.to_csv() |> IO.iodata_to_binary()
 
+      # UTF-8 BOM so Excel (pt-BR/Windows) renders the accented headers correctly.
+      assert String.starts_with?(csv, "﻿")
+
       lines =
         csv
+        |> String.trim_leading("﻿")
         |> String.split(~r/\r?\n/, trim: true)
 
       # header + 2 data rows
