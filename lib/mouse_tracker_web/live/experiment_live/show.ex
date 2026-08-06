@@ -101,7 +101,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
           </div>
           <div class="relative shrink-0" phx-click-away={@export_open && "close_export"}>
             <.button size="sm" type="button" phx-click="toggle_export">
-              <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Exportar
+              <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Export
             </.button>
 
             <div
