@@ -43,7 +43,6 @@ defmodule MouseTracker.Experiments.Roi do
     |> validate_inclusion(:shape, @valid_shapes)
     |> validate_shape_fields()
     |> foreign_key_constraint(:user_id)
-    |> unique_constraint(:name, name: :rois_user_id_name_index)
   end
 
   defp validate_shape_fields(changeset) do

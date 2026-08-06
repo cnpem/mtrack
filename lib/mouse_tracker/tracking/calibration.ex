@@ -20,6 +20,8 @@ defmodule MouseTracker.Experiments.Calibration do
     field :px_per_10cm, :float
     field :threshold, :integer
     field :min_area, :integer
+    field :peripheral_pct, :float
+    field :immobility_threshold_cm, :float
     field :valid_region_x, :integer
     field :valid_region_y, :integer
     field :valid_region_w, :integer
@@ -48,17 +50,28 @@ defmodule MouseTracker.Experiments.Calibration do
       :px_per_10cm,
       :threshold,
       :min_area,
+      :peripheral_pct,
+      :immobility_threshold_cm,
       :valid_region_x,
       :valid_region_y,
       :valid_region_w,
       :valid_region_h
     ])
-    |> validate_required([:cage_side_cm, :px_per_10cm, :threshold, :min_area])
+    |> validate_required([
+      :cage_side_cm,
+      :px_per_10cm,
+      :threshold,
+      :min_area,
+      :peripheral_pct,
+      :immobility_threshold_cm
+    ])
     |> validate_number(:cage_side_cm, greater_than: 0)
     |> validate_number(:scale_cm_2, greater_than: 0)
     |> validate_number(:px_per_10cm, greater_than: 0)
     |> validate_number(:threshold, greater_than_or_equal_to: 0, less_than_or_equal_to: 255)
     |> validate_number(:min_area, greater_than: 0)
+    |> validate_number(:peripheral_pct, greater_than: 0, less_than_or_equal_to: 50)
+    |> validate_number(:immobility_threshold_cm, greater_than: 0)
     |> validate_coordinates_together()
     |> validate_coordinates2_together()
     |> validate_valid_region_together()

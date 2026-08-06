@@ -8,6 +8,8 @@ defmodule MouseTracker.Accounts.User do
     field :institution, :string
     field :default_threshold, :integer
     field :default_min_area, :integer
+    field :default_peripheral_pct, :float
+    field :default_immobility_threshold_cm, :float
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :confirmed_at, :utc_datetime
@@ -93,19 +95,28 @@ defmodule MouseTracker.Accounts.User do
   end
 
   @doc """
-  A user changeset for changing pipeline processing defaults (threshold/min_area).
+  A user changeset for changing pipeline processing defaults (threshold/
+  min_area/peripheral_pct/immobility_threshold_cm).
 
-  Both fields are optional — leaving one blank clears it back to `nil`, which
-  means the built-in default (80/250) is used instead.
+  All fields are optional — leaving one blank clears it back to `nil`, which
+  means the built-in default (threshold 80, min area 250, peripheral 20%,
+  immobility 2 cm/s) is used instead.
   """
   def pipeline_defaults_changeset(user, attrs) do
     user
-    |> cast(attrs, [:default_threshold, :default_min_area])
+    |> cast(attrs, [
+      :default_threshold,
+      :default_min_area,
+      :default_peripheral_pct,
+      :default_immobility_threshold_cm
+    ])
     |> validate_number(:default_threshold,
       greater_than_or_equal_to: 0,
       less_than_or_equal_to: 255
     )
     |> validate_number(:default_min_area, greater_than: 0)
+    |> validate_number(:default_peripheral_pct, greater_than: 0, less_than_or_equal_to: 50)
+    |> validate_number(:default_immobility_threshold_cm, greater_than: 0)
   end
 
   @doc """

@@ -128,24 +128,24 @@ defmodule MouseTracker.Experiments.RoiTest do
       assert errors_on(changeset).shape != []
     end
 
-    test "nome duplicado para o mesmo usuário falha no banco", %{user: user} do
+    test "nome duplicado para o mesmo usuário é permitido", %{user: user} do
       %Roi{user_id: user.id}
-      |> Roi.changeset(%{name: "ROI Único", shape: "rectangle", x: 0, y: 0, w: 10, h: 10})
+      |> Roi.changeset(%{name: "ROI Repetida", shape: "rectangle", x: 0, y: 0, w: 10, h: 10})
       |> Repo.insert!()
 
-      assert {:error, changeset} =
+      # câmera desloca um pouco entre gravações → mesma ROI, mesmo nome, posição
+      # ligeiramente diferente (cai na mesma coluna do export)
+      assert {:ok, _second} =
                %Roi{user_id: user.id}
                |> Roi.changeset(%{
-                 name: "ROI Único",
+                 name: "ROI Repetida",
                  shape: "rectangle",
-                 x: 0,
-                 y: 0,
+                 x: 5,
+                 y: 5,
                  w: 10,
                  h: 10
                })
                |> Repo.insert()
-
-      assert "has already been taken" in errors_on(changeset).name
     end
 
     test "mesmo nome para usuários diferentes é permitido" do

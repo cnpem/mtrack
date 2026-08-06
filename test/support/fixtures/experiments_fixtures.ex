@@ -18,7 +18,9 @@ defmodule MouseTracker.ExperimentsFixtures do
         cage_side_cm: 30.0,
         px_per_10cm: 50.0,
         threshold: 80,
-        min_area: 250
+        min_area: 250,
+        peripheral_pct: 20.0,
+        immobility_threshold_cm: 2.0
       })
 
     %Calibration{user_id: user.id}

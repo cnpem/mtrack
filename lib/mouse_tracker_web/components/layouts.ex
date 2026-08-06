@@ -38,7 +38,7 @@ defmodule MouseTrackerWeb.Layouts do
           <.icon name="hero-viewfinder-circle" class="size-5" />
         </div>
         <div class="text-left leading-tight">
-          <div class="text-[15px] font-semibold text-[#0f1729]">Locomo</div>
+          <div class="text-[15px] font-semibold text-[#0f1729]">MTrack</div>
           <div class="font-data text-[10.5px] text-[#8a93a3]">locomotion tracking</div>
         </div>
       </.link>
@@ -94,7 +94,7 @@ defmodule MouseTrackerWeb.Layouts do
             <.icon name="hero-viewfinder-circle" class="size-5" />
           </div>
           <div class="leading-tight">
-            <div class="text-[13.5px] font-semibold text-white">Locomo</div>
+            <div class="text-[13.5px] font-semibold text-white">MTrack</div>
             <div class="font-data text-[10.5px] text-[#7e8794]">locomotion tracking</div>
           </div>
         </div>

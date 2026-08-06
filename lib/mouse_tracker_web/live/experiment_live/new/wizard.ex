@@ -18,11 +18,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   def default_spec(filename) do
     %{
-      subject_ref: {:new, Path.rootname(filename)},
-      roi_ref?: false,
-      cal_ref?: false,
-      roi_source: nil,
-      cal_source: nil
+      subject_ref: {:new, Path.rootname(filename), nil},
+      is_ref?: false,
+      source: nil
     }
   end
 
@@ -34,64 +32,60 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
       scale2: nil,
       scale_cm2: "",
       threshold: defaults.threshold,
-      min_area: defaults.min_area
+      min_area: defaults.min_area,
+      peripheral_pct: defaults.peripheral_pct,
+      immobility_threshold_cm: defaults.immobility_threshold_cm
     }
   end
 
-  def ref_flag(%{roi_ref?: v}, :roi), do: v
-  def ref_flag(%{cal_ref?: v}, :cal), do: v
-  def put_ref_flag(spec, :roi, v), do: %{spec | roi_ref?: v}
-  def put_ref_flag(spec, :cal, v), do: %{spec | cal_ref?: v}
-  def source_of(%{roi_source: s}, :roi), do: s
-  def source_of(%{cal_source: s}, :cal), do: s
-  def put_source(spec, :roi, s), do: %{spec | roi_source: s}
-  def put_source(spec, :cal, s), do: %{spec | cal_source: s}
+  def is_ref?(%{is_ref?: v}), do: v
+  def put_ref_flag(spec, v), do: %{spec | is_ref?: v}
+  def source_of(%{source: s}), do: s
+  def put_source(spec, s), do: %{spec | source: s}
 
   # --- Reference/inheritance resolution ---
 
-  def live_refs(assigns, kind) do
-    Enum.filter(entry_refs(assigns), fn r ->
-      assigns.specs[r] && ref_flag(assigns.specs[r], kind)
-    end)
+  def live_refs(assigns) do
+    Enum.filter(entry_refs(assigns), fn r -> assigns.specs[r] && is_ref?(assigns.specs[r]) end)
   end
 
   def entry_refs(assigns), do: Enum.map(assigns.saved_videos, & &1.ref)
 
-  # Options for the reference dropdown: every video currently flagged as a
-  # `kind` reference, excluding the active video itself (it isn't a candidate
-  # for its own dropdown, since inherit_control only renders for non-references).
-  def source_options(assigns, kind) do
+  # Options for the reference dropdown: every video currently marked as a
+  # reference, excluding the active video itself (it isn't a candidate for
+  # its own dropdown, since inherit_control only renders for non-references).
+  def source_options(assigns) do
     Enum.map(
-      live_refs(assigns, kind),
+      live_refs(assigns),
       &%{ref: &1, filename: ref_filename(&1, assigns.saved_videos)}
     )
   end
 
-  def current_source_ref(spec, kind) do
-    case source_of(spec, kind) do
+  def current_source_ref(spec) do
+    case source_of(spec) do
       {:inherit, r} -> r
       _ -> nil
     end
   end
 
-  def resolve_ref(ref, specs, kind) do
+  def resolve_ref(ref, specs) do
     spec = specs[ref]
 
     cond do
       is_nil(spec) -> nil
-      ref_flag(spec, kind) -> ref
-      match?({:inherit, _}, source_of(spec, kind)) -> resolve_inherit(spec, specs, kind)
+      is_ref?(spec) -> ref
+      match?({:inherit, _}, source_of(spec)) -> resolve_inherit(spec, specs)
       true -> nil
     end
   end
 
-  defp resolve_inherit(spec, specs, kind) do
-    {:inherit, r} = source_of(spec, kind)
-    if specs[r] && ref_flag(specs[r], kind), do: r, else: nil
+  defp resolve_inherit(spec, specs) do
+    {:inherit, r} = source_of(spec)
+    if specs[r] && is_ref?(specs[r]), do: r, else: nil
   end
 
-  def resolve_label(ref, specs, kind, videos) do
-    case resolve_ref(ref, specs, kind) do
+  def resolve_label(ref, specs, videos) do
+    case resolve_ref(ref, specs) do
       nil -> nil
       ^ref -> "★ reference"
       other -> "inherits from #{ref_filename(other, videos)}"
@@ -114,25 +108,27 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   def scale_status(calibrations, ref) do
     case Map.get(calibrations, ref) do
-      %{valid_region: vr, scale: s1, scale2: s2} = cal ->
-        parts = [
-          if(vr, do: "region ✓", else: "region —"),
-          if(s1, do: "scale 1 ✓", else: "scale 1 —"),
-          if(s2, do: "scale 2 ✓", else: "scale 2 —")
-        ]
-
-        px =
-          case derive_px_per_10cm_pair(cal) do
-            %{avg: avg, divergence_pct: pct} -> " · px_per_10cm=#{avg} (div #{pct}%)"
-            nil -> ""
-          end
-
-        Enum.join(parts, " · ") <> px
+      %{} = cal ->
+        case derive_px_per_10cm_pair(cal) do
+          %{avg: avg, divergence_pct: pct} -> "px_per_10cm=#{avg} (div #{pct}%)"
+          nil -> ""
+        end
 
       _ ->
-        "region — · scale 1 — · scale 2 —"
+        ""
     end
   end
+
+  # Whether a given required shape has already been drawn for a video's own
+  # calibration — drives the checkmark shown inside its mode_button.
+  def shape_done?(calibrations, ref, "valid_region"),
+    do: not is_nil(cal_field(calibrations, ref, :valid_region))
+
+  def shape_done?(calibrations, ref, "scale"),
+    do: not is_nil(cal_field(calibrations, ref, :scale))
+
+  def shape_done?(calibrations, ref, "scale2"),
+    do: not is_nil(cal_field(calibrations, ref, :scale2))
 
   # --- Step validation ---
 
@@ -144,21 +140,20 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   def step2_valid?(assigns) do
     refs = entry_refs(assigns)
-    roi_refs = live_refs(assigns, :roi)
-    roi_names = for r <- roi_refs, roi <- Map.get(assigns.rois, r, []), do: roi.name
+    live = live_refs(assigns)
+    roi_names = for r <- live, roi <- Map.get(assigns.rois, r, []), do: roi.name
 
     refs != [] and
       Enum.all?(refs, fn r ->
-        case resolve_ref(r, assigns.specs, :cal) do
+        case resolve_ref(r, assigns.specs) do
           nil -> false
           cal_ref -> cal_complete?(assigns.calibrations[cal_ref])
         end
       end) and
-      Enum.all?(roi_refs, fn r ->
+      Enum.all?(live, fn r ->
         Enum.all?(Map.get(assigns.rois, r, []), &present?(&1.name))
       end) and
-      Enum.all?(roi_names, &present?/1) and
-      length(roi_names) == length(Enum.uniq(roi_names))
+      Enum.all?(roi_names, &present?/1)
   end
 
   # Human-readable breakdown of step2_valid?/1, shown next to the disabled
@@ -167,32 +162,26 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
   def step2_missing_reasons(assigns) do
     videos = assigns.saved_videos
     refs = entry_refs(assigns)
-    roi_refs = live_refs(assigns, :roi)
+    live = live_refs(assigns)
 
     cal_msgs =
       for r <- refs,
-          cal_ref = resolve_ref(r, assigns.specs, :cal),
+          cal_ref = resolve_ref(r, assigns.specs),
           is_nil(cal_ref) or not cal_complete?(assigns.calibrations[cal_ref]) do
         "#{ref_filename(r, videos)}: scale/valid region incomplete"
       end
 
     roi_name_msgs =
-      for r <- roi_refs,
+      for r <- live,
           roi <- Map.get(assigns.rois, r, []),
           not present?(roi.name) do
         "#{ref_filename(r, videos)}: one ROI zone is missing a name"
       end
 
-    roi_names = for r <- roi_refs, roi <- Map.get(assigns.rois, r, []), do: roi.name
-
-    dup_msgs =
-      if length(roi_names) != length(Enum.uniq(roi_names)) do
-        ["Two ROI zones share the same name — names must be unique"]
-      else
-        []
-      end
-
-    (cal_msgs ++ roi_name_msgs ++ dup_msgs) |> Enum.uniq()
+    # Duplicate ROI names are intentional now — two recordings of the "same"
+    # zone (camera nudged between sessions) share a name so they land in the
+    # same exported column. So no uniqueness check here.
+    (cal_msgs ++ roi_name_msgs) |> Enum.uniq()
   end
 
   def cal_complete?(nil), do: false
@@ -218,18 +207,30 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   def parse_float(_), do: 0.0
 
-  def parse_subject_ref("new", name) do
+  def parse_subject_ref("new", name, group) do
     case String.trim(name || "") do
-      "" -> {:new, ""}
-      n -> {:new, n}
+      "" -> {:new, "", normalize_group(group)}
+      n -> {:new, n, normalize_group(group)}
     end
   end
 
-  def parse_subject_ref("", _name), do: nil
-  def parse_subject_ref(id_str, _name), do: {:existing, String.to_integer(id_str)}
+  def parse_subject_ref("", _name, _group), do: nil
+  def parse_subject_ref(id_str, _name, _group), do: {:existing, String.to_integer(id_str)}
 
-  def subject_new_name({:new, name}), do: name
+  defp normalize_group(nil), do: nil
+
+  defp normalize_group(g) do
+    case String.trim(g) do
+      "" -> nil
+      t -> t
+    end
+  end
+
+  def subject_new_name({:new, name, _group}), do: name
   def subject_new_name(_), do: nil
+
+  def subject_new_group({:new, _name, group}), do: group
+  def subject_new_group(_), do: nil
 
   # --- px_per_10cm derivation ---
 
@@ -269,7 +270,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
   # --- Create payload ---
 
   def build_calibrations(assigns) do
-    for ref <- live_refs(assigns, :cal), into: %{} do
+    for ref <- live_refs(assigns), into: %{} do
       cal = assigns.calibrations[ref]
       vr = cal.valid_region
       s1 = cal.scale
@@ -282,6 +283,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
         "px_per_10cm" => summary.avg,
         "threshold" => cal.threshold,
         "min_area" => cal.min_area,
+        "peripheral_pct" => cal.peripheral_pct,
+        "immobility_threshold_cm" => cal.immobility_threshold_cm,
         "valid_region_x" => vr.x,
         "valid_region_y" => vr.y,
         "valid_region_w" => vr.w,
@@ -301,7 +304,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
   end
 
   def build_rois(assigns) do
-    for ref <- live_refs(assigns, :roi), into: %{} do
+    for ref <- live_refs(assigns), into: %{} do
       {ref, Enum.map(Map.get(assigns.rois, ref, []), &roi_to_params/1)}
     end
   end

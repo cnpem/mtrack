@@ -45,22 +45,26 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html =
         lv
-        |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+        |> element("#ref-own-#{ref}")
         |> render_click()
 
       %{html: html}
     end
 
-    test "uses the built-in 80/250 when the user has no custom defaults", %{html: html} do
+    test "uses the built-in 80/250/20/2 when the user has no custom defaults", %{html: html} do
       assert html =~ ~s(name="threshold" value="80")
       assert html =~ ~s(name="min_area" value="250")
+      assert html =~ ~s(name="peripheral_pct" value="20")
+      assert html =~ ~s(name="immobility_threshold_cm" value="2")
     end
 
     test "uses the user's saved defaults instead", %{conn: conn, user: user} do
       {:ok, _user} =
         MouseTracker.Accounts.update_user_pipeline_defaults(user, %{
           default_threshold: 60,
-          default_min_area: 400
+          default_min_area: 400,
+          default_peripheral_pct: 15,
+          default_immobility_threshold_cm: 3
         })
 
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")
@@ -81,11 +85,13 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
       html =
         lv
-        |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+        |> element("#ref-own-#{ref}")
         |> render_click()
 
       assert html =~ ~s(name="threshold" value="60")
       assert html =~ ~s(name="min_area" value="400")
+      assert html =~ ~s(name="peripheral_pct" value="15.0")
+      assert html =~ ~s(name="immobility_threshold_cm" value="3.0")
     end
   end
 
@@ -108,11 +114,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
-      |> render_click()
-
-      lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_roi_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -164,6 +166,21 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
 
     test "calibration alone (no ROI) is enough to continue", %{lv: lv} do
       refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
+    end
+
+    test "set_trim stores the analysis window (clamped) without blocking Continue",
+         %{lv: lv, ref: ref} do
+      render_hook(lv, "set_trim", %{"ref" => ref, "start" => "5", "end" => "30"})
+
+      # The window is optional, so it never disables Continue.
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
+
+      # end <= start collapses to open-ended (nil == "to the end").
+      render_hook(lv, "set_trim", %{"ref" => ref, "start" => "40", "end" => "20"})
+
+      lv |> element("button", "Continue → Review") |> render_click()
+
+      assert render(lv) =~ "0:40 → end"
     end
 
     test "shows why Continue is disabled when a ROI name is blanked out", %{lv: lv, ref: ref} do
@@ -233,7 +250,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -296,11 +313,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       lv |> element("li[phx-value-ref='#{ref_a}']") |> render_click()
 
       lv
-      |> element("button[phx-value-ref='#{ref_a}'][phx-click='toggle_cal_ref']")
-      |> render_click()
-
-      lv
-      |> element("button[phx-value-ref='#{ref_a}'][phx-click='toggle_roi_ref']")
+      |> element("#ref-own-#{ref_a}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -346,35 +359,14 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       %{lv: lv, ref_a: ref_a, ref_b: ref_b}
     end
 
-    test "picking a calibration reference in the dropdown resolves inheritance and unblocks Continue",
+    test "picking a reference in the dropdown resolves inheritance (scale + ROI together) and unblocks Continue",
          %{lv: lv, ref_a: ref_a, ref_b: ref_b} do
       html = render(lv)
       assert html =~ "no reference"
       assert has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
 
       lv
-      |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
-      |> render_change()
-
-      html = render(lv)
-      assert html =~ "inherits from a.mp4"
-      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
-    end
-
-    test "picking a ROI reference in the dropdown resolves inheritance", %{
-      lv: lv,
-      ref_a: ref_a,
-      ref_b: ref_b
-    } do
-      lv
-      |> form("form[phx-change='set_cal_source']", %{"ref" => ref_b, "source" => ref_a})
-      |> render_change()
-
-      html = render(lv)
-      assert html =~ "no reference"
-
-      lv
-      |> form("form[phx-change='set_roi_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> form("form[phx-change='set_source']", %{"ref" => ref_b, "source" => ref_a})
       |> render_change()
 
       html = render(lv)
@@ -402,7 +394,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -458,11 +450,26 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       assert [subject] = Subjects.list_subjects(scope)
       assert subject.name == "a"
     end
+
+    test "creating a new subject with a group persists it", %{lv: lv, ref: ref, scope: scope} do
+      lv
+      |> form("form[phx-submit='create']", %{"subject_new_group" => %{ref => "Control"}})
+      |> render_change()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Grouped run"})
+      |> render_submit()
+
+      assert [subject] = Subjects.list_subjects(scope)
+      assert subject.group == "Control"
+    end
   end
 
   describe "step 3 review — reusing an existing subject" do
     setup %{conn: conn, user: user} do
-      subject = subject_fixture(user, %{name: "M-existing"})
+      subject = subject_fixture(user, %{name: "M-existing", group: "Treated"})
 
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")
 
@@ -481,7 +488,7 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
 
       lv
-      |> element("button[phx-value-ref='#{ref}'][phx-click='toggle_cal_ref']")
+      |> element("#ref-own-#{ref}")
       |> render_click()
 
       render_hook(lv, "shape_drawn", %{
@@ -521,6 +528,13 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       %{lv: lv, ref: ref, subject: subject}
     end
 
+    test "renders the subject's existing group in the datalist", %{lv: lv} do
+      html = render(lv)
+
+      assert html =~ ~s(<datalist id="subject-groups-datalist">)
+      assert html =~ ~s(value="Treated")
+    end
+
     test "shows the existing subject in the dropdown and reuses it without duplicating", %{
       lv: lv,
       ref: ref,
@@ -545,6 +559,109 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
       [experiment] = Experiments.list_experiments(scope)
       [video] = Experiments.list_videos(experiment)
       assert video.subject_id == subject.id
+    end
+  end
+
+  describe "step 3 review — two videos creating the same new subject with different groups" do
+    setup %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      tmp_a = Path.join(System.tmp_dir!(), "wizard-a-#{System.unique_integer([:positive])}.mp4")
+      tmp_b = Path.join(System.tmp_dir!(), "wizard-b-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp_a, "video a bytes")
+      File.write!(tmp_b, "video b bytes")
+
+      video_a =
+        file_input(lv, "form", :videos, [
+          %{name: "a.mp4", content: File.read!(tmp_a), type: "video/mp4"}
+        ])
+
+      render_upload(video_a, "a.mp4")
+
+      video_b =
+        file_input(lv, "form", :videos, [
+          %{name: "b.mp4", content: File.read!(tmp_b), type: "video/mp4"}
+        ])
+
+      render_upload(video_b, "b.mp4")
+
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      ref_a = video_ref(lv, "a.mp4")
+      ref_b = video_ref(lv, "b.mp4")
+
+      lv |> element("li[phx-value-ref='#{ref_a}']") |> render_click()
+      lv |> element("#ref-own-#{ref_a}") |> render_click()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm']", %{"value" => "10"})
+      |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv
+      |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"})
+      |> render_change()
+
+      # switch the active video to b.mp4, which starts without any reference
+      lv |> element("li[phx-value-ref='#{ref_b}']") |> render_click()
+
+      lv
+      |> form("form[phx-change='set_source']", %{"ref" => ref_b, "source" => ref_a})
+      |> render_change()
+
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      %{lv: lv, ref_a: ref_a, ref_b: ref_b}
+    end
+
+    test "the last video in the batch wins the group for the shared new subject", %{
+      lv: lv,
+      ref_a: ref_a,
+      ref_b: ref_b,
+      scope: scope
+    } do
+      lv
+      |> form("form[phx-submit='create']", %{
+        "subject" => %{ref_a => "new", ref_b => "new"},
+        "subject_new_name" => %{ref_a => "Shared", ref_b => "Shared"},
+        "subject_new_group" => %{ref_a => "GroupA", ref_b => "GroupB"}
+      })
+      |> render_change()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Batch run"})
+      |> render_submit()
+
+      assert [subject] = Subjects.list_subjects(scope)
+      assert subject.name == "Shared"
+      # deterministic given @saved_videos order — whichever video is last to
+      # be folded into the dedup map wins (see create_wizard_subjects/2)
+      assert subject.group == "GroupA"
     end
   end
 

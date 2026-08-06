@@ -19,6 +19,8 @@ defmodule MouseTracker.ExperimentsWizardTest do
       "px_per_10cm" => "50",
       "threshold" => "80",
       "min_area" => "250",
+      "peripheral_pct" => "20",
+      "immobility_threshold_cm" => "2",
       "valid_region_x" => "0",
       "valid_region_y" => "0",
       "valid_region_w" => "100",
@@ -48,14 +50,14 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_ref: {:new, "M-01"},
+            subject_ref: {:new, "M-01", "Control"},
             cal_ref: "r1",
             roi_ref: "r1"
           },
           %{
             filename: "b.mp4",
             filepath: "/tmp/b.mp4",
-            subject_ref: {:new, "M-02"},
+            subject_ref: {:new, "M-02", nil},
             cal_ref: "r1",
             roi_ref: "r1"
           }
@@ -77,6 +79,10 @@ defmodule MouseTracker.ExperimentsWizardTest do
 
       # One subject per distinct name.
       assert length(Subjects.list_subjects(scope)) == 2
+
+      subjects = Subjects.list_subjects(scope)
+      assert Enum.find(subjects, &(&1.name == "M-01")).group == "Control"
+      assert Enum.find(subjects, &(&1.name == "M-02")).group == nil
     end
 
     test "persists the chosen background_frame per video, defaulting to 0", %{scope: scope} do
@@ -108,6 +114,41 @@ defmodule MouseTracker.ExperimentsWizardTest do
 
       assert v1.background_frame == 45
       assert v2.background_frame == 0
+    end
+
+    test "persists the per-video analysis window, defaulting to the whole video",
+         %{scope: scope} do
+      payload = %{
+        name: "Trim batch",
+        calibrations: %{"r1" => cal_params()},
+        rois: %{},
+        videos: [
+          %{
+            filename: "trimmed.mp4",
+            filepath: "/tmp/trimmed.mp4",
+            subject_ref: nil,
+            cal_ref: "r1",
+            roi_ref: nil,
+            start_time_seconds: 12.0,
+            end_time_seconds: 105.0
+          },
+          %{
+            filename: "full.mp4",
+            filepath: "/tmp/full.mp4",
+            subject_ref: nil,
+            cal_ref: "r1",
+            roi_ref: nil
+          }
+        ]
+      }
+
+      assert {:ok, {_experiment, [v1, v2]}} =
+               Experiments.create_experiment_with_videos(scope, payload)
+
+      assert v1.start_time_seconds == 12.0
+      assert v1.end_time_seconds == 105.0
+      assert v2.start_time_seconds == 0.0
+      assert v2.end_time_seconds == nil
     end
 
     test "stores a polygon ROI with its four vertices", %{scope: scope} do
@@ -208,7 +249,7 @@ defmodule MouseTracker.ExperimentsWizardTest do
           %{
             filename: "a.mp4",
             filepath: "/tmp/a.mp4",
-            subject_ref: {:new, "M-01"},
+            subject_ref: {:new, "M-01", nil},
             cal_ref: "r1",
             roi_ref: nil
           }

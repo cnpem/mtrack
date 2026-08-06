@@ -36,7 +36,7 @@ Key options: `-st`/`-et` (start/end seconds), `-th` (threshold, default 80), `-a
 uv run python -m priv.python.run --json '<json>'
 ```
 
-JSON obrigatório: `video`, `valid_region` (`[x, y, w, h]`). Opcionais: `start_time`, `end_time`, `threshold` (80), `min_area` (250), `px_per_10cm` (1.0), `rois` ([]), `progress_every` (50), `speed_profile`, `speed_distribution`, `heatmap`.
+JSON obrigatório: `video`, `valid_region` (`[x, y, w, h]`). Opcionais: `start_time`, `end_time`, `threshold` (80), `min_area` (250), `px_per_10cm` (1.0), `rois` ([]), `progress_every` (50), `background_frame` (0), `thigmotaxis_margin_pct` (0.20), `immobility_threshold_cm` (2.0), `arena_shape` ("rect"), `speed_profile`, `speed_distribution`, `heatmap`.
 
 Saída headless: linhas `{"type":"progress","value":42.5}` durante o processamento, seguido de `{"type":"result","distance_cm":...}` ao final.
 
@@ -537,6 +537,18 @@ contagem de antes, refactor puro de estrutura):
   contagem exata de 357, confirmando que nenhuma lógica mudou de comportamento no
   processo.
 
+Sprint 7 — feito, ad-hoc (segundo item da lista de "Próximos passos de
+legibilidade" abaixo; refactor puro de markup):
+- [x] **`<.button variant={...} size={...}>`** (`core_components.ex`): componentiza
+  o par de botões "← Back" / "Continue →" (e variantes danger/secondary_accent) que
+  se repetia quase idêntico em `new.ex`, `roi_edit.ex`, `results.ex` e outras telas —
+  4 variantes (`primary`/`secondary`/`secondary_accent`/`danger`) × 3 tamanhos
+  (`sm`/`md`/`lg`), com suporte a `shadow` e a `<.link>` automático quando
+  `href`/`navigate`/`patch` está presente. 26 call-sites migrados (`dataset_live`,
+  `experiment_live/{index,new,roi_edit,show}`, `pipeline_settings_live`,
+  `user_live/{confirmation,login,registration}`, `video_live/processing`) para o
+  novo componente, removendo a string Tailwind hand-rolled de cada um.
+
 ## Completed Features
 
 ### Métricas de rastreamento (Python)
@@ -545,8 +557,8 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
 
 | Campo | Descrição |
 |---|---|
-| `thigmotaxis_pct` | % do tempo na zona periférica (20% da borda), suporte a arenas retangulares e circulares |
-| `immobility_seconds` | Segundos totais com velocidade < 2 cm/s |
+| `thigmotaxis_pct` | % do tempo na zona periférica (margem configurável, default 20% da borda — ver "Parâmetros de tigmotaxia/imobilidade configuráveis" abaixo), suporte a arenas retangulares e circulares |
+| `immobility_seconds` | Segundos totais com velocidade abaixo de um limiar configurável (default 2 cm/s) |
 | `path_tortuosity` | Distância total / deslocamento em linha reta |
 | `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea |
 
@@ -567,10 +579,96 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
   declarada (`priv/python/tests/test_equivalence.py` existe mas compara só
   `priv/mouse_tracker.py` (deprecated) com `detector.py`/`metrics.py`, não `run.py`).
 
+### Parâmetros de tigmotaxia/imobilidade configuráveis
+
+`priv/python/run.py`'s `_run_headless` já lia `thigmotaxis_margin_pct` (default
+`0.20`) e `immobility_threshold_cm` (default `2.0`) do JSON recebido — só que
+ninguém do lado Elixir jamais populava essas duas chaves, então o fallback
+hardcoded sempre era usado. Seguindo o mesmo padrão já existente para
+`threshold`/`min_area` (campo por `Calibration`, com `User.default_*` como
+prefill do wizard, editável por vídeo/lote no passo 2 "Advanced"):
+
+- [x] **`Calibration`** (`lib/mouse_tracker/tracking/calibration.ex`) ganhou
+  `peripheral_pct` (float, percentual 0–50, ex. `20.0` = 20%) e
+  `immobility_threshold_cm` (float, cm/s) — `validate_required` junto de
+  `threshold`/`min_area`, migração `add_thigmotaxis_immobility_to_calibrations`
+  com DB default `20.0`/`2.0` (espelha o fallback do Python, sem precisar de
+  data-migration para linhas existentes).
+- [x] **`User`** (`lib/mouse_tracker/accounts/user.ex`) ganhou
+  `default_peripheral_pct`/`default_immobility_threshold_cm` (opcionais,
+  migração `add_thigmotaxis_immobility_defaults_to_users`), mesmo padrão de
+  `default_threshold`/`default_min_area` — `pipeline_defaults_changeset/2`
+  validando os dois (0–50% e >0 cm/s).
+- [x] **Pipeline Settings** (`/pipeline-settings`): 2 campos novos no card de
+  defaults + 2 colunas ("Peripheral %", "Immobility (cm/s)") na tabela de
+  calibrações reutilizáveis.
+- [x] **Wizard** (`ExperimentLive.New`, passo 2 "Advanced"): os 2 campos
+  prefillam a partir do default do usuário (`Wizard.default_cal/1`) e são
+  editáveis por vídeo/lote no mesmo `<form phx-change="cal_setting">` que já
+  tinha threshold/min_area; `Wizard.build_calibrations/1` inclui as duas
+  chaves no payload de `create_experiment_with_videos/2`.
+- [x] **`VideoProcessingWorker.build_params/1`**: passa
+  `"thigmotaxis_margin_pct" => cal.peripheral_pct / 100` (conversão % → fração
+  só na fronteira com o Python, que já espera fração) e
+  `"immobility_threshold_cm" => cal.immobility_threshold_cm`.
+- Fora de escopo (decisão explícita): `arena_shape` (retangular vs. circular)
+  — 3º parâmetro que `run.py` já lê do JSON com o mesmo padrão de fallback,
+  mas não foi pedido; nenhuma mudança no lado Python foi necessária, já que
+  `run.py`/`metrics.py` já aceitavam os dois parâmetros corretamente.
+
+### Wizard passo 2 — referência unificada + checkmarks visuais (feedback de UX)
+
+Pedido de usuários testando o wizard: os controles de referência de
+escala/ROI (2 botões estrela independentes + 2 dropdowns de herança
+separados) exigiam repetir a mesma decisão duas vezes, já que na prática o
+mesmo vídeo serve de referência para os dois ao mesmo tempo; e o status de
+"o que já foi desenhado" no card de escala era só uma linha de texto
+discreta, sem separar campos obrigatórios dos padronizados.
+
+- [x] **Referência unificada** (`Wizard` — `lib/mouse_tracker_web/live/experiment_live/new/wizard.ex`):
+  o spec por vídeo perdeu `roi_ref?`/`cal_ref?`/`roi_source`/`cal_source`
+  (independentes) e ganhou `is_ref?`/`source` (únicos) — um vídeo agora é
+  referência (ou herda) de escala **e** ROI juntos, nunca separadamente.
+  Toda a família de funções que recebia um `kind` (`:cal`/`:roi`) —
+  `ref_flag`/`put_ref_flag`/`source_of`/`put_source`/`live_refs`/
+  `source_options`/`current_source_ref`/`resolve_ref`/`resolve_label` —
+  perdeu esse parâmetro. Decisão explícita do usuário: unificação total, sem
+  escape hatch para o caso raro de referências diferentes.
+- [x] **`ExperimentLive.New`**: os 2 botões estrela ("use as scale
+  reference"/"use as ROI reference", em `canvas_section/1`) viraram 1
+  segmented switch (`reference_switch/1`) — "Use this video as reference" /
+  "Inherit from another reference" — movido para o topo da coluna direita de
+  `roi_step/1`, onde controla se `scale_card`/`roi_card` (editores) ou um
+  único `inherit_control` (dropdown) é mostrado. Os handlers
+  `toggle_cal_ref`/`toggle_roi_ref` e `set_cal_source`/`set_roi_source`
+  colapsaram em `toggle_ref`/`set_source`. O badge por vídeo em
+  `batch_list/1` (antes "Scale: X" + "ROI: Y") e a coluna de referência na
+  tabela de review (antes "ROI"/"Scale" separadas) viraram um único
+  "Reference: X".
+- [x] **Checkmarks nos botões de modo** (`mode_button/1`, novo `attr :done`):
+  os botões "Valid region"/"Scale 1"/"Scale 2" do `scale_card/1` mostram um
+  ícone de check (verde) assim que a forma correspondente já foi desenhada
+  (`Wizard.shape_done?/3`), substituindo a antiga linha de texto
+  `region ✓ · scale 1 ✓ · scale 2 —` (removida de `scale_status/2`, que
+  ficou só com o resumo de `px_per_10cm`/divergência).
+- [x] **Separação obrigatório/padronizado**: dentro de `scale_card/1`, um
+  divisor + rótulo "Required" agrupa área válida + os 2 segmentos de escala,
+  e "Standard parameters" agrupa threshold/min_area/peripheral_pct/
+  immobility_threshold_cm — os 4 campos continuam sempre visíveis (decisão
+  explícita: não virou `<details>` colapsável), só ganharam separação
+  visual.
+- Testes: `new_test.exs` atualizado (seletores `toggle_cal_ref`/
+  `toggle_roi_ref` → `#ref-own-<ref>`/`#ref-inherit-<ref>` por `id` nos
+  botões do switch, já que os 2 agora compartilham o mesmo
+  `phx-click`/`phx-value-ref`; `set_cal_source`/`set_roi_source` →
+  `set_source`; os 2 testes de dropdown do describe "reference dropdown
+  (batch)" colapsaram em 1, já que picking uma referência agora resolve
+  escala e ROI no mesmo evento).
+
 ### Próximos passos de legibilidade (identificados, ainda não feitos)
 
-Dois candidatos concretos levantados numa revisão do estado do código, ainda
-pendentes:
+Um candidato concreto levantado numa revisão do estado do código, ainda pendente
+(o outro, componentizar `<.button>`, foi feito no Sprint 7 acima):
 
 - [ ] **`priv/python/analyzer.py`'s `process/9`** (loop principal de tracking, ~170
   linhas): mistura 5 responsabilidades numa função só — diff de frame, amostragem de
@@ -581,10 +679,3 @@ pendentes:
   adicionar testes de caracterização antes de separar (ex.: extrair o desenho
   interativo para um helper próprio, ou separar "rastrear posição" de "classificar
   zona").
-- [ ] **Duplicação de classes Tailwind em botões HEEx**: o par de botões "← Back" /
-  "Continue →" (`rounded-[8px] border ... hover:border-[#d4d8df]` vs
-  `bg-[#CC5500] ... hover:bg-[#b34a00]`) se repete quase idêntico em `new.ex`,
-  `roi_edit.ex`, `results.ex`, etc. Um componente `<.button variant={:primary |
-  :secondary}>` (ou `<.wizard_nav>`) em `core_components.ex` removeria essa
-  cópia-e-cola — mesmo espírito do Sprint 1, extração puramente mecânica, baixo
-  risco.

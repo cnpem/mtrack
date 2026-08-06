@@ -75,6 +75,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
      )
      |> assign(:roi_usage, usage_map(rois, &Rois.count_videos_using_roi/1))
      |> assign(:subject_usage, usage_map(subjects, &Subjects.count_videos_using_subject/1))
+     |> assign(:subject_groups, Subjects.list_subject_groups(scope))
      |> assign(:defaults_form, to_form(Accounts.change_user_pipeline_defaults(user)))}
   end
 
@@ -126,6 +127,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
 
   def handle_event("update_subject_genotype", %{"id" => id, "value" => genotype}, socket) do
     update_subject_field(socket, id, %{genotype: normalize_blank(genotype)})
+  end
+
+  def handle_event("update_subject_group", %{"id" => id, "value" => group}, socket) do
+    update_subject_field(socket, id, %{group: normalize_blank(group)})
   end
 
   def handle_event("delete_" <> key, %{"id" => id}, socket) do
@@ -254,7 +259,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       flash={@flash}
       current_scope={@current_scope}
       active={:settings}
-      breadcrumb="Locomo"
+      breadcrumb="MTrack"
       page_title="Pipeline settings"
     >
       <div class="mx-auto max-w-[1100px]">
@@ -311,6 +316,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
           subjects={@visible}
           usage={@subject_usage}
         />
+
+        <datalist id="subject-groups-datalist">
+          <option :for={g <- @subject_groups} value={g} />
+        </datalist>
       </div>
     </Layouts.locomo>
     """
@@ -323,7 +332,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     <div class="mt-5 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <h2 class="text-[15px] font-bold text-[#0f1729]">Pipeline defaults</h2>
       <p class="mt-1 text-[12.5px] text-[#667085]">
-        Prefill threshold and min area on step 2 of the upload wizard. Leave a field blank to fall back to the built-in default (threshold 80, min area 250).
+        Prefill threshold, min area, peripheral zone and immobility threshold on step 2 of the upload wizard. Leave a field blank to fall back to the built-in default (threshold 80, min area 250, peripheral 20%, immobility 2 cm/s).
       </p>
 
       <.form
@@ -365,6 +374,40 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
           </span>
         </label>
 
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Default peripheral %</span>
+          <input
+            type="number"
+            step="0.1"
+            name={@form[:default_peripheral_pct].name}
+            value={@form[:default_peripheral_pct].value}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+          <span
+            :if={msg = field_error(@form[:default_peripheral_pct])}
+            class="mt-1 block text-[11px] text-[#b42318]"
+          >
+            {msg}
+          </span>
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Default immobility threshold (cm/s)</span>
+          <input
+            type="number"
+            step="0.1"
+            name={@form[:default_immobility_threshold_cm].name}
+            value={@form[:default_immobility_threshold_cm].value}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+          <span
+            :if={msg = field_error(@form[:default_immobility_threshold_cm])}
+            class="mt-1 block text-[11px] text-[#b42318]"
+          >
+            {msg}
+          </span>
+        </label>
+
         <div class="col-span-2">
           <.button type="submit" size="sm">
             Save defaults
@@ -381,13 +424,15 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   defp calibration_table(assigns) do
     ~H"""
     <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-      <table class="w-full min-w-[700px] text-left text-[12.5px]">
+      <table class="w-full min-w-[850px] text-left text-[12.5px]">
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
             <th class="px-3 py-3">px / 10cm</th>
             <th class="px-3 py-3">Threshold</th>
             <th class="px-3 py-3">Min area</th>
+            <th class="px-3 py-3">Peripheral %</th>
+            <th class="px-3 py-3">Immobility (cm/s)</th>
             <th class="px-3 py-3">Used in</th>
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
@@ -403,6 +448,10 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.px_per_10cm)}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.threshold}</td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.min_area}</td>
+            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.peripheral_pct)}</td>
+            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
+              {fmt(cal.immobility_threshold_cm)}
+            </td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {usage_label(usage_count(@usage, cal.id))}
             </td>
@@ -476,12 +525,13 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   defp subject_table(assigns) do
     ~H"""
     <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-      <table class="w-full min-w-[700px] text-left text-[12.5px]">
+      <table class="w-full min-w-[780px] text-left text-[12.5px]">
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
             <th class="px-3 py-3">Sex</th>
             <th class="px-3 py-3">Genotype</th>
+            <th class="px-3 py-3">Group</th>
             <th class="px-3 py-3">Used in</th>
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
@@ -502,6 +552,14 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
                 event="update_subject_genotype"
                 id={subject.id}
                 value={subject.genotype}
+              />
+            </td>
+            <td class="px-3 py-3">
+              <.text_field_input
+                event="update_subject_group"
+                id={subject.id}
+                value={subject.group}
+                list="subject-groups-datalist"
               />
             </td>
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
@@ -542,6 +600,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
   attr :event, :string, required: true
   attr :id, :integer, required: true
   attr :value, :string, default: nil
+  attr :list, :string, default: nil
 
   defp text_field_input(assigns) do
     ~H"""
@@ -551,6 +610,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       value={@value}
       phx-blur={@event}
       phx-value-id={@id}
+      list={@list}
       placeholder="—"
       class="w-full min-w-[110px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12px] text-[#344054] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
     />

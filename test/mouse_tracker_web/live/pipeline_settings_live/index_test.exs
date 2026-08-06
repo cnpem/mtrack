@@ -162,6 +162,27 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     assert Repo.get!(Experiments.Subject, subject.id).genotype == "C57BL/6J"
   end
 
+  test "edits a subject's group on blur", %{conn: conn, subject: subject} do
+    {:ok, lv, _html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    html =
+      lv
+      |> element("input[phx-value-id='#{subject.id}'][phx-blur='update_subject_group']")
+      |> render_blur(%{"value" => "Control"})
+
+    assert html =~ "Control"
+    assert Repo.get!(Experiments.Subject, subject.id).group == "Control"
+  end
+
+  test "renders group suggestions in the datalist", %{conn: conn, user: user} do
+    subject_fixture(user, %{name: "M-02", group: "Treated"})
+
+    {:ok, _lv, html} = live(conn, ~p"/pipeline-settings?tab=subjects")
+
+    assert html =~ ~s(<datalist id="subject-groups-datalist">)
+    assert html =~ ~s(value="Treated")
+  end
+
   test "deletes a calibration that is not attached to any video", %{conn: conn, cal: cal} do
     {:ok, lv, _html} = live(conn, ~p"/pipeline-settings")
 
@@ -223,7 +244,14 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     {:ok, lv, _html} = live(conn, ~p"/pipeline-settings")
 
     lv
-    |> form("#pipeline-defaults-form", user: %{default_threshold: "60", default_min_area: "400"})
+    |> form("#pipeline-defaults-form",
+      user: %{
+        default_threshold: "60",
+        default_min_area: "400",
+        default_peripheral_pct: "15",
+        default_immobility_threshold_cm: "3"
+      }
+    )
     |> render_submit()
 
     assert render(lv) =~ "Pipeline defaults saved."
@@ -231,5 +259,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.IndexTest do
     reloaded = Repo.get!(MouseTracker.Accounts.User, user.id)
     assert reloaded.default_threshold == 60
     assert reloaded.default_min_area == 400
+    assert reloaded.default_peripheral_pct == 15.0
+    assert reloaded.default_immobility_threshold_cm == 3.0
   end
 end

@@ -30,7 +30,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
     pipeline_defaults = %{
       threshold: to_string(user.default_threshold || 80),
-      min_area: to_string(user.default_min_area || 250)
+      min_area: to_string(user.default_min_area || 250),
+      peripheral_pct: to_string(user.default_peripheral_pct || 20),
+      immobility_threshold_cm: to_string(user.default_immobility_threshold_cm || 2)
     }
 
     {:ok,
@@ -47,6 +49,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:experiment_name, "")
      |> assign(:pipeline_defaults, pipeline_defaults)
      |> assign(:existing_subjects, Subjects.list_subjects(socket.assigns.current_scope))
+     |> assign(:subject_groups, Subjects.list_subject_groups(socket.assigns.current_scope))
      |> allow_upload(:videos, upload_opts())}
   end
 
@@ -124,20 +127,16 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     {:noreply, set_reference_frame(socket, ref, frame)}
   end
 
-  def handle_event("toggle_cal_ref", %{"ref" => ref}, socket) do
-    {:noreply, toggle_ref(socket, ref, :cal)}
+  def handle_event("set_trim", %{"ref" => ref} = params, socket) do
+    {:noreply, set_trim(socket, ref, params["start"], params["end"])}
   end
 
-  def handle_event("toggle_roi_ref", %{"ref" => ref}, socket) do
-    {:noreply, toggle_ref(socket, ref, :roi)}
+  def handle_event("toggle_ref", %{"ref" => ref}, socket) do
+    {:noreply, toggle_ref(socket, ref)}
   end
 
-  def handle_event("set_cal_source", %{"ref" => ref, "source" => value}, socket) do
-    {:noreply, set_source(socket, ref, :cal, value)}
-  end
-
-  def handle_event("set_roi_source", %{"ref" => ref, "source" => value}, socket) do
-    {:noreply, set_source(socket, ref, :roi, value)}
+  def handle_event("set_source", %{"ref" => ref, "source" => value}, socket) do
+    {:noreply, set_source(socket, ref, value)}
   end
 
   def handle_event("shape_drawn", shape, socket) do
@@ -152,9 +151,22 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     {:noreply, update_calibration(socket, socket.assigns.active_ref, &%{&1 | scale_cm2: value})}
   end
 
-  def handle_event("cal_setting", %{"threshold" => th, "min_area" => ma}, socket) do
+  def handle_event(
+        "cal_setting",
+        %{
+          "threshold" => th,
+          "min_area" => ma,
+          "peripheral_pct" => pp,
+          "immobility_threshold_cm" => it
+        },
+        socket
+      ) do
     {:noreply,
-     update_calibration(socket, socket.assigns.active_ref, &%{&1 | threshold: th, min_area: ma})}
+     update_calibration(
+       socket,
+       socket.assigns.active_ref,
+       &%{&1 | threshold: th, min_area: ma, peripheral_pct: pp, immobility_threshold_cm: it}
+     )}
   end
 
   def handle_event("set_roi_name", %{"index" => idx, "value" => value}, socket) do
@@ -178,12 +190,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   def handle_event("update_review", params, socket) do
     subject_sel = params["subject"] || %{}
     subject_new_names = params["subject_new_name"] || %{}
+    subject_new_groups = params["subject_new_group"] || %{}
 
     specs =
       Enum.reduce(subject_sel, socket.assigns.specs, fn {ref, value}, acc ->
         case acc do
           %{^ref => spec} ->
-            ref_value = Wizard.parse_subject_ref(value, Map.get(subject_new_names, ref, ""))
+            ref_value =
+              Wizard.parse_subject_ref(
+                value,
+                Map.get(subject_new_names, ref, ""),
+                Map.get(subject_new_groups, ref, "")
+              )
+
             Map.put(acc, ref, %{spec | subject_ref: ref_value})
 
           _ ->
@@ -248,6 +267,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           v
           |> Map.put(:frame_url, frame_url)
           |> Map.merge(meta)
+          # Analysis window defaults to the full video (start 0, end nil). The
+          # start/end preview thumbnails are extracted lazily, on first trim.
+          |> Map.put(:start_time_seconds, 0.0)
+          |> Map.put(:end_time_seconds, nil)
+          |> Map.put(:start_frame_url, nil)
+          |> Map.put(:end_frame_url, nil)
         end,
         max_concurrency: System.schedulers_online(),
         timeout: :timer.seconds(30),
@@ -304,6 +329,128 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     end
   end
 
+  # Sets the per-video analysis window (start/end in seconds). The window is
+  # optional (defaults to the whole video) so it never blocks Continue. Values
+  # are clamped server-side and only the changed edge's preview frame is
+  # re-extracted. `end` blank/nil means "to the end of the video".
+  defp set_trim(socket, ref, start_str, end_str) do
+    case Enum.find(socket.assigns.saved_videos, &(&1.ref == ref)) do
+      nil ->
+        socket
+
+      video ->
+        duration = trim_duration(video)
+        start_s = (parse_seconds(start_str) || 0.0) |> max(0.0) |> min_dur(duration)
+
+        end_s =
+          case parse_seconds(end_str) do
+            nil ->
+              nil
+
+            e ->
+              e = min_dur(e, duration)
+              if e <= start_s, do: nil, else: e
+          end
+
+        old_start = Map.get(video, :start_time_seconds)
+        old_end = Map.get(video, :end_time_seconds)
+
+        socket
+        |> update_saved_video(ref, fn v ->
+          v
+          |> Map.put(:start_time_seconds, start_s)
+          |> Map.put(:end_time_seconds, end_s)
+        end)
+        |> maybe_trim_frame(ref, video, :start, start_s, start_s != old_start)
+        |> maybe_trim_frame(ref, video, :end, end_s, end_s != old_end)
+    end
+  end
+
+  defp maybe_trim_frame(socket, _ref, _video, _kind, _seconds, false), do: socket
+
+  defp maybe_trim_frame(socket, ref, _video, kind, nil, true) do
+    # Edge cleared (e.g. end back to full video): drop its preview thumbnail.
+    update_saved_video(socket, ref, &Map.put(&1, frame_url_key(kind), nil))
+  end
+
+  defp maybe_trim_frame(socket, ref, video, kind, seconds, true) do
+    n = Wizard.clamp_frame(round(seconds * trim_fps(video)), video)
+    token = socket.assigns.upload_token
+    frame_path = Path.join([static_dir(), "uploads", "frames", token, "#{ref}-#{kind}-#{n}.png"])
+
+    case FrameExtractor.extract_first_frame(video.filepath, frame_path, n) do
+      {:ok, _} ->
+        url = "/uploads/frames/#{token}/#{ref}-#{kind}-#{n}.png"
+        update_saved_video(socket, ref, &Map.put(&1, frame_url_key(kind), url))
+
+      {:error, _} ->
+        socket
+    end
+  end
+
+  defp frame_url_key(:start), do: :start_frame_url
+  defp frame_url_key(:end), do: :end_frame_url
+
+  defp parse_seconds(nil), do: nil
+  defp parse_seconds(n) when is_number(n), do: n * 1.0
+  defp parse_seconds(""), do: nil
+
+  defp parse_seconds(str) when is_binary(str) do
+    case Float.parse(str) do
+      {f, _} -> f
+      :error -> nil
+    end
+  end
+
+  defp min_dur(v, nil), do: v
+  defp min_dur(v, dur), do: min(v, dur)
+
+  # Duration/fps used by the trimmer, with fallbacks for codecs that don't
+  # expose duration directly (derive from frame_count/fps).
+  defp trim_duration(video) do
+    case Map.get(video, :duration_seconds) do
+      d when is_number(d) and d > 0 ->
+        d
+
+      _ ->
+        fc = Map.get(video, :frame_count)
+        fps = trim_fps(video)
+        if is_number(fc) and fps > 0, do: fc / fps, else: nil
+    end
+  end
+
+  defp trim_fps(video) do
+    case Map.get(video, :fps) do
+      fps when is_number(fps) and fps > 0 ->
+        fps
+
+      _ ->
+        fc = Map.get(video, :frame_count)
+        dur = Map.get(video, :duration_seconds)
+        if is_number(fc) and is_number(dur) and dur > 0, do: fc / dur, else: 30.0
+    end
+  end
+
+  defp format_seconds(nil), do: "—"
+
+  defp format_seconds(s) when is_number(s) do
+    total = round(s)
+    m = div(total, 60)
+    sec = rem(total, 60)
+    "#{m}:#{String.pad_leading(Integer.to_string(sec), 2, "0")}"
+  end
+
+  defp trim_summary(v) do
+    start_s = Map.get(v, :start_time_seconds) || 0.0
+    end_s = Map.get(v, :end_time_seconds)
+
+    if start_s <= 0.0 and is_nil(end_s) do
+      "Whole video"
+    else
+      "#{format_seconds(start_s)} → #{if end_s, do: format_seconds(end_s), else: "end"}"
+    end
+  end
+
   defp update_saved_video(socket, ref, fun) do
     saved = Enum.map(socket.assigns.saved_videos, &if(&1.ref == ref, do: fun.(&1), else: &1))
     assign(socket, :saved_videos, saved)
@@ -337,7 +484,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   # --- Applying drawn shapes ---
 
   defp apply_shape(socket, %{"kind" => "valid_region", "x" => x, "y" => y, "w" => w, "h" => h}) do
-    if active_flag?(socket, :cal) do
+    if active_flag?(socket) do
       update_calibration(
         socket,
         socket.assigns.active_ref,
@@ -349,7 +496,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   end
 
   defp apply_shape(socket, %{"kind" => "scale", "x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}) do
-    if active_flag?(socket, :cal) do
+    if active_flag?(socket) do
       update_calibration(
         socket,
         socket.assigns.active_ref,
@@ -361,7 +508,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   end
 
   defp apply_shape(socket, %{"kind" => "scale2", "x1" => x1, "y1" => y1, "x2" => x2, "y2" => y2}) do
-    if active_flag?(socket, :cal) do
+    if active_flag?(socket) do
       update_calibration(
         socket,
         socket.assigns.active_ref,
@@ -383,7 +530,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp apply_shape(socket, _), do: socket
 
   defp add_roi(socket, roi) do
-    if active_flag?(socket, :roi) do
+    if active_flag?(socket) do
       ref = socket.assigns.active_ref
       list = Map.get(socket.assigns.rois, ref, [])
       roi = %{roi | name: "Zone #{length(list) + 1}"}
@@ -393,9 +540,9 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     end
   end
 
-  defp active_flag?(socket, kind) do
+  defp active_flag?(socket) do
     spec = socket.assigns.specs[socket.assigns.active_ref]
-    spec && Wizard.ref_flag(spec, kind)
+    spec && Wizard.is_ref?(spec)
   end
 
   defp update_calibration(socket, ref, fun) do
@@ -419,6 +566,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             filename: v.filename,
             filepath: v.filepath,
             background_frame: Map.get(v, :background_frame, 0),
+            start_time_seconds: Map.get(v, :start_time_seconds) || 0.0,
+            end_time_seconds: Map.get(v, :end_time_seconds),
             file_size_bytes: Map.get(v, :file_size_bytes),
             fps: Map.get(v, :fps),
             duration_seconds: Map.get(v, :duration_seconds),
@@ -426,8 +575,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             width: Map.get(v, :width),
             height: Map.get(v, :height),
             subject_ref: specs[v.ref].subject_ref,
-            cal_ref: Wizard.resolve_ref(v.ref, specs, :cal),
-            roi_ref: Wizard.resolve_ref(v.ref, specs, :roi)
+            cal_ref: Wizard.resolve_ref(v.ref, specs),
+            roi_ref: Wizard.resolve_ref(v.ref, specs)
           }
         end)
     }
@@ -441,14 +590,25 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
          |> put_flash(:info, "Experiment created — processing started.")
          |> push_navigate(to: ~p"/experiments/#{experiment.id}")}
 
-      {:error, _changeset} ->
+      {:error, changeset} ->
         {:noreply,
          put_flash(
            socket,
            :error,
-           "Could not create the experiment. Check the drawn regions and try again."
+           "Could not create the experiment: #{changeset_error_summary(changeset)}"
          )}
     end
+  end
+
+  # `create_experiment_with_videos/2` rolls back with whichever changeset
+  # (Experiment/Calibration/Roi/Subject/Video) first failed validation —
+  # surfacing its actual errors instead of a generic message is what makes the
+  # failure actionable instead of a dead end.
+  defp changeset_error_summary(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.traverse_errors(&translate_error/1)
+    |> Enum.flat_map(fn {field, msgs} -> Enum.map(msgs, &"#{field} #{&1}") end)
+    |> Enum.join("; ")
   end
 
   # --- Render ---
@@ -628,31 +788,32 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       <.canvas_section
         active_video={@active_video}
         active_ref={@active_ref}
-        active_spec={@active_spec}
         draw_mode={@draw_mode}
         shapes_json={@shapes_json}
       />
 
       <div class="space-y-4">
-        <.scale_card
-          :if={@active_spec}
-          active_spec={@active_spec}
-          active_ref={@active_ref}
-          draw_mode={@draw_mode}
-          calibrations={@calibrations}
-          scale_summary={@scale_summary}
-          specs={@specs}
-          saved_videos={@saved_videos}
-        />
+        <.reference_switch :if={@active_spec} active_spec={@active_spec} active_ref={@active_ref} />
 
-        <.roi_card
-          :if={@active_spec}
-          active_spec={@active_spec}
-          active_ref={@active_ref}
-          draw_mode={@draw_mode}
-          active_rois={@active_rois}
-          specs={@specs}
-          saved_videos={@saved_videos}
+        <%= if @active_spec && @active_spec.is_ref? do %>
+          <.scale_card
+            active_ref={@active_ref}
+            draw_mode={@draw_mode}
+            calibrations={@calibrations}
+            scale_summary={@scale_summary}
+          />
+
+          <.roi_card active_ref={@active_ref} draw_mode={@draw_mode} active_rois={@active_rois} />
+        <% end %>
+
+        <.inherit_control
+          :if={@active_spec && not @active_spec.is_ref?}
+          kind="Reference"
+          resolved={Wizard.resolve_label(@active_ref, @specs, @saved_videos)}
+          event="set_source"
+          ref={@active_ref}
+          options={Wizard.source_options(assigns)}
+          selected={Wizard.current_source_ref(@active_spec)}
         />
 
         <.batch_list saved_videos={@saved_videos} active_ref={@active_ref} specs={@specs} />
@@ -693,13 +854,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   attr :active_video, :map, default: nil
   attr :active_ref, :string, required: true
-  attr :active_spec, :map, default: nil
   attr :draw_mode, :string, required: true
   attr :shapes_json, :string, required: true
 
-  # The frame/canvas the user draws on, plus the reference-frame picker and
-  # the "use as scale/ROI reference" toggles — everything tied to *which*
-  # video is currently active, as opposed to the scale/ROI data itself.
+  # The frame/canvas the user draws on, plus the reference-frame picker —
+  # everything tied to *which* video is currently active, as opposed to the
+  # scale/ROI data itself (see `reference_switch/1` for the reference toggle).
   defp canvas_section(assigns) do
     ~H"""
     <div>
@@ -729,29 +889,155 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         active_video={@active_video}
       />
 
-      <div :if={@active_spec} class="mt-3 flex flex-wrap gap-2">
-        <button
-          type="button"
-          phx-click="toggle_cal_ref"
-          phx-value-ref={@active_ref}
-          class={ref_toggle_class(@active_spec.cal_ref?)}
-        >
-          <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.cal_ref?,
-            do: "★ scale reference",
-            else: "use as scale reference"}
-        </button>
+      <.trim_control
+        :if={@active_video && @active_video.frame_url}
+        active_ref={@active_ref}
+        active_video={@active_video}
+      />
+    </div>
+    """
+  end
 
-        <button
-          type="button"
-          phx-click="toggle_roi_ref"
-          phx-value-ref={@active_ref}
-          class={ref_toggle_class(@active_spec.roi_ref?)}
-        >
-          <.icon name="hero-star-micro" class="size-4" /> {if @active_spec.roi_ref?,
-            do: "★ ROI reference",
-            else: "use as ROI reference"}
-        </button>
+  attr :active_ref, :string, required: true
+  attr :active_video, :map, required: true
+
+  # Per-video analysis window (start/end in seconds). A dual-handle slider
+  # (VideoTrimmer JS hook) synced with numeric inputs, plus start/end preview
+  # thumbnails so the user can trim out the moments the animal is placed in /
+  # removed from the arena (which show up as speed spikes). The window is
+  # per-video (not inherited like scale/ROI) and optional — it never blocks
+  # Continue. `background_frame` (the detection/heatmap background) is a
+  # separate control; this only bounds *which* frames get analyzed.
+  defp trim_control(assigns) do
+    duration = trim_duration(assigns.active_video)
+    start_s = Map.get(assigns.active_video, :start_time_seconds) || 0.0
+    end_s = Map.get(assigns.active_video, :end_time_seconds)
+
+    assigns =
+      assign(assigns,
+        duration: duration,
+        start_s: start_s,
+        end_s: end_s,
+        full?: start_s <= 0.0 and is_nil(end_s),
+        start_url: Map.get(assigns.active_video, :start_frame_url),
+        end_url: Map.get(assigns.active_video, :end_frame_url)
+      )
+
+    ~H"""
+    <div
+      :if={@duration && @duration > 0}
+      class="mt-4 rounded-[10px] border border-[#f4f5f7] bg-[#fafbfc] p-3"
+    >
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+          Analysis window
+        </span>
+
+        <span class="font-data text-[11px] text-[#8a93a3]">total {format_seconds(@duration)}</span>
       </div>
+
+      <div
+        id={"trim-#{@active_ref}"}
+        phx-hook="VideoTrimmer"
+        data-ref={@active_ref}
+        data-duration={@duration}
+        data-start={@start_s}
+        data-end={@end_s || ""}
+        class="mt-3 select-none"
+      >
+        <div data-role="track" class="relative h-2 w-full rounded-full bg-[#e7e9ee]">
+          <div data-role="range" class="absolute h-full rounded-full bg-[#CC5500]"></div>
+
+          <button
+            type="button"
+            data-role="handle-start"
+            class="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#CC5500] bg-white shadow cursor-grab touch-none"
+            aria-label="Analysis start"
+          ></button>
+
+          <button
+            type="button"
+            data-role="handle-end"
+            class="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#CC5500] bg-white shadow cursor-grab touch-none"
+            aria-label="Analysis end"
+          ></button>
+        </div>
+
+        <div class="mt-2 flex justify-between font-data text-[11px] text-[#667085]">
+          <span data-role="label-start">{format_seconds(@start_s)}</span>
+
+          <span data-role="label-end">
+            {if @end_s, do: format_seconds(@end_s), else: format_seconds(@duration)}
+          </span>
+        </div>
+      </div>
+
+      <form
+        id={"trim-form-#{@active_ref}"}
+        phx-change="set_trim"
+        phx-debounce="blur"
+        class="mt-2 flex flex-wrap items-end gap-2"
+      >
+        <input type="hidden" name="ref" value={@active_ref} />
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Start (s)</span>
+          <input
+            type="number"
+            name="start"
+            min="0"
+            step="1"
+            value={round(@start_s)}
+            class="mt-1 w-24 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">End (s)</span>
+          <input
+            type="number"
+            name="end"
+            min="0"
+            step="1"
+            value={@end_s && round(@end_s)}
+            placeholder={round(@duration)}
+            class="mt-1 w-24 rounded-[6px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 font-data text-[12.5px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <span class="pb-1.5 font-data text-[11px] text-[#98a2b3]">
+          {if @full?, do: "full video", else: "trimmed"}
+        </span>
+      </form>
+
+      <div :if={@start_url || @end_url} class="mt-3 grid grid-cols-2 gap-2">
+        <div>
+          <div class="mb-1 font-data text-[10.5px] text-[#98a2b3]">
+            Start · {format_seconds(@start_s)}
+          </div>
+
+          <img
+            :if={@start_url}
+            src={@start_url}
+            class="block w-full rounded-[6px] border border-[#e7e9ee]"
+          />
+        </div>
+
+        <div>
+          <div class="mb-1 font-data text-[10.5px] text-[#98a2b3]">
+            End · {if @end_s, do: format_seconds(@end_s), else: "end"}
+          </div>
+
+          <img
+            :if={@end_url}
+            src={@end_url}
+            class="block w-full rounded-[6px] border border-[#e7e9ee]"
+          />
+        </div>
+      </div>
+
+      <p :if={@full?} class="mt-2 text-[11px] text-[#8a93a3]">
+        Analyzing the whole video. Drag the handles (or type below) to trim out the moments the animal is placed in / removed from the arena.
+      </p>
     </div>
     """
   end
@@ -803,24 +1089,81 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   attr :active_spec, :map, required: true
   attr :active_ref, :string, required: true
+
+  # Segmented switch replacing the old pair of independent "use as scale
+  # reference"/"use as ROI reference" star buttons: a video is either a
+  # single reference for both scale and ROIs, or inherits both from another
+  # video — see `Wizard.is_ref?/1`.
+  defp reference_switch(assigns) do
+    ~H"""
+    <div class="flex overflow-hidden rounded-[9px] border border-[#e7e9ee]">
+      <button
+        type="button"
+        id={"ref-own-#{@active_ref}"}
+        phx-click="toggle_ref"
+        phx-value-ref={@active_ref}
+        class={[
+          "flex-1 px-3 py-2 text-[12px] font-semibold transition-colors",
+          @active_spec.is_ref? && "bg-[#CC5500] text-white",
+          !@active_spec.is_ref? && "bg-white text-[#344054] hover:bg-[#f9fafb]"
+        ]}
+      >
+        Use this video as reference
+      </button>
+
+      <button
+        type="button"
+        id={"ref-inherit-#{@active_ref}"}
+        phx-click="toggle_ref"
+        phx-value-ref={@active_ref}
+        class={[
+          "flex-1 border-l border-[#e7e9ee] px-3 py-2 text-[12px] font-semibold transition-colors",
+          !@active_spec.is_ref? && "bg-[#CC5500] text-white",
+          @active_spec.is_ref? && "bg-white text-[#344054] hover:bg-[#f9fafb]"
+        ]}
+      >
+        Inherit from another reference
+      </button>
+    </div>
+    """
+  end
+
+  attr :active_ref, :string, required: true
   attr :draw_mode, :string, required: true
   attr :calibrations, :map, required: true
   attr :scale_summary, :map, default: nil
-  attr :specs, :map, required: true
-  attr :saved_videos, :list, required: true
 
-  # Either the scale/valid-region editor (if this video is the scale
-  # reference) or an `inherit_control` pointing at whichever video it inherits
-  # scale from.
+  # The scale/valid-region editor, shown only when the active video is itself
+  # the reference (`reference_switch/1` gates whether this or
+  # `inherit_control` is rendered).
   defp scale_card(assigns) do
     ~H"""
-    <div :if={@active_spec.cal_ref?} class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+    <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
       <div class="text-[12px] font-bold text-[#0f1729]">Scale & valid region</div>
 
+      <div class="mt-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        Required
+      </div>
+
       <div class="mt-2 flex flex-wrap gap-1.5">
-        <.mode_button current={@draw_mode} mode="valid_region" label="Valid region" />
-        <.mode_button current={@draw_mode} mode="scale" label="Scale 1 (2 pts)" />
-        <.mode_button current={@draw_mode} mode="scale2" label="Scale 2 (2 pts)" />
+        <.mode_button
+          current={@draw_mode}
+          mode="valid_region"
+          label="Valid region"
+          done={Wizard.shape_done?(@calibrations, @active_ref, "valid_region")}
+        />
+        <.mode_button
+          current={@draw_mode}
+          mode="scale"
+          label="Scale 1 (2 pts)"
+          done={Wizard.shape_done?(@calibrations, @active_ref, "scale")}
+        />
+        <.mode_button
+          current={@draw_mode}
+          mode="scale2"
+          label="Scale 2 (2 pts)"
+          done={Wizard.shape_done?(@calibrations, @active_ref, "scale2")}
+        />
       </div>
 
       <form
@@ -857,7 +1200,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         />
       </form>
 
-      <div class="mt-2 font-data text-[11px] text-[#8a93a3]">
+      <div
+        :if={Wizard.scale_status(@calibrations, @active_ref) != ""}
+        class="mt-2 font-data text-[11px] text-[#8a93a3]"
+      >
         {Wizard.scale_status(@calibrations, @active_ref)}
       </div>
 
@@ -870,11 +1216,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         </div>
       </div>
 
+      <div class="mt-4 border-t border-[#f0f1f3] pt-3 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        Standard parameters
+      </div>
+
       <form
         id={"cal-setting-#{@active_ref}"}
         phx-change="cal_setting"
         phx-submit="cal_setting"
-        class="mt-3 grid grid-cols-2 gap-2"
+        class="mt-2 grid grid-cols-2 gap-2"
       >
         <label class="block">
           <span class="text-[11px] text-[#667085]">Threshold</span>
@@ -895,33 +1245,43 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
           />
         </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Peripheral %</span>
+          <input
+            type="number"
+            step="0.1"
+            name="peripheral_pct"
+            value={Wizard.cal_field(@calibrations, @active_ref, :peripheral_pct)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-[11px] text-[#667085]">Immobility threshold (cm/s)</span>
+          <input
+            type="number"
+            step="0.1"
+            name="immobility_threshold_cm"
+            value={Wizard.cal_field(@calibrations, @active_ref, :immobility_threshold_cm)}
+            class="mt-1 w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12px] focus:border-[#CC5500] focus:outline-none"
+          />
+        </label>
       </form>
     </div>
-
-    <.inherit_control
-      :if={not @active_spec.cal_ref?}
-      kind="scale"
-      resolved={Wizard.resolve_label(@active_ref, @specs, :cal, @saved_videos)}
-      event="set_cal_source"
-      ref={@active_ref}
-      options={Wizard.source_options(%{specs: @specs, saved_videos: @saved_videos}, :cal)}
-      selected={Wizard.current_source_ref(@specs[@active_ref], :cal)}
-    />
     """
   end
 
-  attr :active_spec, :map, required: true
   attr :active_ref, :string, required: true
   attr :draw_mode, :string, required: true
   attr :active_rois, :list, required: true
-  attr :specs, :map, required: true
-  attr :saved_videos, :list, required: true
 
-  # Either the ROI list editor (if this video is the ROI reference) or an
-  # `inherit_control` pointing at whichever video it inherits ROIs from.
+  # The ROI list editor, shown only when the active video is itself the
+  # reference (`reference_switch/1` gates whether this or `inherit_control`
+  # is rendered).
   defp roi_card(assigns) do
     ~H"""
-    <div :if={@active_spec.roi_ref?} class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+    <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
       <div class="text-[12px] font-bold text-[#0f1729]">ROIs (zones)</div>
 
       <div class="mt-2 flex flex-wrap gap-1.5">
@@ -964,16 +1324,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         Choose a mode above and draw on the frame to add zones.
       </div>
     </div>
-
-    <.inherit_control
-      :if={not @active_spec.roi_ref?}
-      kind="ROI"
-      resolved={Wizard.resolve_label(@active_ref, @specs, :roi, @saved_videos)}
-      event="set_roi_source"
-      ref={@active_ref}
-      options={Wizard.source_options(%{specs: @specs, saved_videos: @saved_videos}, :roi)}
-      selected={Wizard.current_source_ref(@specs[@active_ref], :roi)}
-    />
     """
   end
 
@@ -1005,13 +1355,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
           <div class="mt-1 flex flex-wrap gap-1.5">
             <.resource_badge
-              label="Scale"
-              tag={Wizard.resolve_label(v.ref, @specs, :cal, @saved_videos)}
-            />
-            <.resource_badge
-              label="ROI"
-              tag={Wizard.resolve_label(v.ref, @specs, :roi, @saved_videos)}
-              optional
+              label="Reference"
+              tag={Wizard.resolve_label(v.ref, @specs, @saved_videos)}
             />
           </div>
         </li>
@@ -1025,6 +1370,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp review_step(assigns) do
     ~H"""
     <form phx-change="update_review" phx-submit="create">
+      <datalist id="subject-groups-datalist">
+        <option :for={g <- @subject_groups} value={g} />
+      </datalist>
+
       <label class="block text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
         Experiment name
       </label>
@@ -1037,21 +1386,23 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         class="mt-2 w-full rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2.5 text-[14px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
       />
       <div class="mt-5 overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white">
-        <div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-3 border-b border-[#f4f5f7] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        <div class="grid grid-cols-[1.6fr_1fr_1fr] gap-3 border-b border-[#f4f5f7] px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
           <div>Video</div>
 
           <div>Subject</div>
 
-          <div>ROI</div>
-
-          <div>Scale</div>
+          <div>Reference</div>
         </div>
 
         <div
           :for={v <- @saved_videos}
-          class="grid grid-cols-[1.6fr_1fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] px-4 py-3 last:border-0"
+          class="grid grid-cols-[1.6fr_1fr_1fr] items-center gap-3 border-b border-[#f4f5f7] px-4 py-3 last:border-0"
         >
-          <div class="truncate font-data text-[12.5px] text-[#0f1729]">{v.filename}</div>
+          <div>
+            <div class="truncate font-data text-[12.5px] text-[#0f1729]">{v.filename}</div>
+
+            <div class="mt-0.5 font-data text-[11px] text-[#8a93a3]">{trim_summary(v)}</div>
+          </div>
 
           <div class="space-y-1.5">
             <select
@@ -1068,27 +1419,33 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
                 {s.name}
               </option>
 
-              <option value="new" selected={match?({:new, _}, @specs[v.ref].subject_ref)}>
+              <option value="new" selected={match?({:new, _, _}, @specs[v.ref].subject_ref)}>
                 + New subject
               </option>
             </select>
 
             <input
-              :if={match?({:new, _}, @specs[v.ref].subject_ref)}
+              :if={match?({:new, _, _}, @specs[v.ref].subject_ref)}
               type="text"
               name={"subject_new_name[#{v.ref}]"}
               value={Wizard.subject_new_name(@specs[v.ref].subject_ref)}
               placeholder="New subject name"
               class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
             />
+
+            <input
+              :if={match?({:new, _, _}, @specs[v.ref].subject_ref)}
+              type="text"
+              name={"subject_new_group[#{v.ref}]"}
+              value={Wizard.subject_new_group(@specs[v.ref].subject_ref)}
+              list="subject-groups-datalist"
+              placeholder="Group"
+              class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+            />
           </div>
 
           <div class="font-data text-[12px] text-[#667085]">
-            {Wizard.resolve_label(v.ref, @specs, :roi, @saved_videos) || "—"}
-          </div>
-
-          <div class="font-data text-[12px] text-[#667085]">
-            {Wizard.resolve_label(v.ref, @specs, :cal, @saved_videos) || "—"}
+            {Wizard.resolve_label(v.ref, @specs, @saved_videos) || "—"}
           </div>
         </div>
       </div>
@@ -1111,6 +1468,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   attr :current, :string, required: true
   attr :mode, :string, required: true
   attr :label, :string, required: true
+  attr :done, :boolean, default: false
 
   defp mode_button(assigns) do
     ~H"""
@@ -1119,12 +1477,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       phx-click="set_draw_mode"
       phx-value-mode={@mode}
       class={[
-        "rounded-[6px] px-2.5 py-1.5 text-[11.5px] font-medium transition-colors",
+        "inline-flex items-center gap-1 rounded-[6px] px-2.5 py-1.5 text-[11.5px] font-medium transition-colors",
         @current == @mode && "bg-[#CC5500] text-white",
-        @current != @mode && "border border-[#e7e9ee] text-[#344054] hover:border-[#CC5500]"
+        @current != @mode && @done && "border border-emerald-500/40 bg-emerald-50 text-emerald-700",
+        @current != @mode && !@done && "border border-[#e7e9ee] text-[#344054] hover:border-[#CC5500]"
       ]}
     >
-      {@label}
+      <.icon :if={@done} name="hero-check-circle-mini" class="size-3.5" /> {@label}
     </button>
     """
   end
@@ -1140,8 +1499,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     ~H"""
     <div class="rounded-[10px] border border-[#f4f5f7] bg-[#fafbfc] p-3">
       <div class="text-[12px] text-[#667085]">
-        {@kind} reference:
-        <span :if={@resolved} class="font-data font-medium text-[#0f1729]">{@resolved}</span>
+        {@kind}: <span :if={@resolved} class="font-data font-medium text-[#0f1729]">{@resolved}</span>
         <span :if={!@resolved} class="font-medium text-[#b42318]">no reference</span>
       </div>
 
@@ -1186,15 +1544,14 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp canvas_shapes(assigns) do
     specs = assigns.specs
     active = assigns.active_ref
-    cal_ref = Wizard.resolve_ref(active, specs, :cal)
-    roi_ref = Wizard.resolve_ref(active, specs, :roi)
-    cal = cal_ref && assigns.calibrations[cal_ref]
+    ref = Wizard.resolve_ref(active, specs)
+    cal = ref && assigns.calibrations[ref]
 
     %{
       valid_region: cal && cal.valid_region,
       scale: cal && cal.scale,
       scale2: cal && cal.scale2,
-      rois: roi_ref |> then(&Map.get(assigns.rois, &1, [])) |> Enum.map(&shape_json/1)
+      rois: ref |> then(&Map.get(assigns.rois, &1, [])) |> Enum.map(&shape_json/1)
     }
   end
 
@@ -1206,40 +1563,35 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   # --- Wizard state mutation (delegates flag/resolution logic to Wizard) ---
 
-  defp toggle_ref(socket, ref, kind) do
+  defp toggle_ref(socket, ref) do
     spec = socket.assigns.specs[ref]
-    turning_on = not Wizard.ref_flag(spec, kind)
-    spec = Wizard.put_ref_flag(spec, kind, turning_on)
-    spec = if turning_on, do: Wizard.put_source(spec, kind, nil), else: spec
+    turning_on = not Wizard.is_ref?(spec)
+    spec = Wizard.put_ref_flag(spec, turning_on)
+    spec = if turning_on, do: Wizard.put_source(spec, nil), else: spec
     socket = assign(socket, :specs, Map.put(socket.assigns.specs, ref, spec))
 
-    case kind do
-      :cal when turning_on ->
-        assign(
-          socket,
-          :calibrations,
-          Map.put_new(
-            socket.assigns.calibrations,
-            ref,
-            Wizard.default_cal(socket.assigns.pipeline_defaults)
-          )
+    if turning_on do
+      socket
+      |> assign(
+        :calibrations,
+        Map.put_new(
+          socket.assigns.calibrations,
+          ref,
+          Wizard.default_cal(socket.assigns.pipeline_defaults)
         )
-
-      :cal ->
-        assign(socket, :calibrations, Map.delete(socket.assigns.calibrations, ref))
-
-      :roi when turning_on ->
-        assign(socket, :rois, Map.put_new(socket.assigns.rois, ref, []))
-
-      :roi ->
-        assign(socket, :rois, Map.delete(socket.assigns.rois, ref))
+      )
+      |> assign(:rois, Map.put_new(socket.assigns.rois, ref, []))
+    else
+      socket
+      |> assign(:calibrations, Map.delete(socket.assigns.calibrations, ref))
+      |> assign(:rois, Map.delete(socket.assigns.rois, ref))
     end
   end
 
-  defp set_source(socket, ref, kind, value) do
+  defp set_source(socket, ref, value) do
     specs = socket.assigns.specs
     source = if value in [nil, ""], do: nil, else: {:inherit, value}
-    assign(socket, :specs, Map.put(specs, ref, Wizard.put_source(specs[ref], kind, source)))
+    assign(socket, :specs, Map.put(specs, ref, Wizard.put_source(specs[ref], source)))
   end
 
   defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")
@@ -1251,14 +1603,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   defp step_title(:upload), do: "Upload videos"
   defp step_title(:roi), do: "ROI & scale"
   defp step_title(:review), do: "Review & create"
-
-  defp ref_toggle_class(true),
-    do:
-      "inline-flex items-center gap-1 rounded-[7px] border border-[#CC5500] bg-[#fbeee4] px-2.5 py-1.5 text-[12px] font-semibold text-[#b34a00]"
-
-  defp ref_toggle_class(false),
-    do:
-      "inline-flex items-center gap-1 rounded-[7px] border border-[#e7e9ee] bg-white px-2.5 py-1.5 text-[12px] font-medium text-[#344054] hover:border-[#CC5500]"
 
   defp upload_error_to_string(:too_large), do: "File is too large (max 4 GB)."
   defp upload_error_to_string(:too_many_files), do: "Too many files (max 20)."

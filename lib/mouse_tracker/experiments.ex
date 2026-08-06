@@ -71,6 +71,20 @@ defmodule MouseTracker.Experiments do
   end
 
   @doc """
+  Loads one experiment (scoped to the user) for the data export, preloading each
+  video's `:subject`, `:calibration` and `:tracking_result` (with `roi_times:
+  :roi`). Same as `get_experiment_for_results!/2` but also preloads
+  `:calibration`, since the export can include calibration parameters as columns.
+  """
+  def get_experiment_for_export!(%Scope{user: user}, id) do
+    Repo.one!(
+      from e in Experiment,
+        where: e.id == ^id and e.user_id == ^user.id,
+        preload: [videos: [:subject, :calibration, tracking_result: [roi_times: :roi]]]
+    )
+  end
+
+  @doc """
   Subject is a reusable, user-owned resource (like Calibration/ROI) — it no
   longer belongs to a single experiment. "An experiment's subjects" means the
   distinct subjects its videos currently point at. Requires `:videos` (with
@@ -147,7 +161,7 @@ defmodule MouseTracker.Experiments do
         videos: [
           %{
             filename: "...", filepath: "/abs/path",
-            subject_ref: {:existing, id} | {:new, "M-01"} | nil,
+            subject_ref: {:existing, id} | {:new, "M-01", "control"} | {:new, "M-01", nil} | nil,
             cal_ref: ref,   # which calibration reference this video uses
             roi_ref: ref    # which ROI reference this video uses (nil => no ROIs)
           }
@@ -171,17 +185,19 @@ defmodule MouseTracker.Experiments do
     end)
   end
 
-  # Only `{:new, name}` entries need creating; `{:existing, id}` entries
-  # already reference a real Subject row and require no insert.
+  # Only `{:new, name, group}` entries need creating; `{:existing, id}` entries
+  # already reference a real Subject row and require no insert. When the same
+  # new name appears on multiple videos with conflicting groups, the last one
+  # in `videos` order wins (same "last write wins" rule already implicit for
+  # name-only duplicates before `group` existed).
   defp create_wizard_subjects(scope, videos) do
     videos
     |> Enum.map(& &1.subject_ref)
-    |> Enum.filter(&match?({:new, _name}, &1))
-    |> Enum.map(fn {:new, name} -> name end)
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.uniq()
-    |> Map.new(fn name ->
-      {name, insert_or_rollback(Subjects.create_subject(scope, %{name: name}))}
+    |> Enum.filter(&match?({:new, _name, _group}, &1))
+    |> Enum.reject(fn {:new, name, _group} -> name in [nil, ""] end)
+    |> Map.new(fn {:new, name, group} -> {name, group} end)
+    |> Map.new(fn {name, group} ->
+      {name, insert_or_rollback(Subjects.create_subject(scope, %{name: name, group: group}))}
     end)
   end
 
@@ -211,6 +227,8 @@ defmodule MouseTracker.Experiments do
         filename: v.filename,
         filepath: v.filepath,
         background_frame: Map.get(v, :background_frame, 0),
+        start_time_seconds: Map.get(v, :start_time_seconds) || 0.0,
+        end_time_seconds: Map.get(v, :end_time_seconds),
         file_size_bytes: Map.get(v, :file_size_bytes),
         fps: Map.get(v, :fps),
         duration_seconds: Map.get(v, :duration_seconds),
@@ -229,9 +247,11 @@ defmodule MouseTracker.Experiments do
   end
 
   defp resolve_wizard_subject_id({:existing, id}, _new_subjects), do: id
-  defp resolve_wizard_subject_id({:new, name}, _new_subjects) when name in [nil, ""], do: nil
 
-  defp resolve_wizard_subject_id({:new, name}, new_subjects),
+  defp resolve_wizard_subject_id({:new, name, _group}, _new_subjects) when name in [nil, ""],
+    do: nil
+
+  defp resolve_wizard_subject_id({:new, name, _group}, new_subjects),
     do: Map.fetch!(new_subjects, name).id
 
   defp resolve_wizard_subject_id(nil, _new_subjects), do: nil

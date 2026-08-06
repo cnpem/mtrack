@@ -4,6 +4,8 @@ defmodule MouseTrackerWeb.DatasetLive.IndexTest do
   import Phoenix.LiveViewTest
   import MouseTracker.ExperimentsFixtures
 
+  alias MouseTracker.Accounts.Scope
+  alias MouseTracker.Experiments.Subjects
   alias MouseTracker.Workers.VideoProcessingWorker
 
   setup :register_and_log_in_user
@@ -86,6 +88,35 @@ defmodule MouseTrackerWeb.DatasetLive.IndexTest do
     # aggregate stat card over the subject's done video(s)
     assert html =~ "Distance"
     assert html =~ "1 tracked"
+  end
+
+  test "the search bar also matches by subject group", %{conn: conn, user: user, subject: subject} do
+    {:ok, _} = Subjects.update_subject(Scope.for_user(user), subject, %{group: "Control"})
+
+    {:ok, lv, _html} = live(conn, ~p"/datasets")
+
+    html =
+      lv
+      |> form("form[phx-change='search']", %{"query" => "Control"})
+      |> render_change()
+
+    assert html =~ "trial1.mp4"
+    refute html =~ "baseline.mp4"
+  end
+
+  test "toggles to the by-group view showing an aggregate, with ungrouped videos bucketed separately",
+       %{conn: conn, user: user, subject: subject} do
+    {:ok, _} = Subjects.update_subject(Scope.for_user(user), subject, %{group: "Control"})
+
+    {:ok, lv, _html} = live(conn, ~p"/datasets")
+
+    html = lv |> element("button[phx-value-view='group']") |> render_click()
+
+    assert html =~ "Control"
+    assert html =~ "Distance"
+    assert html =~ "1 tracked"
+    assert html =~ "Ungrouped"
+    assert html =~ "baseline.mp4"
   end
 
   test "updates the status pill live when a video's status changes via PubSub", %{

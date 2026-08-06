@@ -129,6 +129,74 @@ defmodule MouseTracker.Experiments.Reporting do
   end
 
   @doc """
+  All `"done"` videos across every experiment owned by `scope`'s user whose
+  subject's `group` matches `group_name` exactly, optionally restricted to a
+  single `experiment_id`. Same preload shape as `subject_result_videos/3`
+  (plus `:subject`, needed by the per-video table when a group spans multiple
+  subjects) so `subject_metric_aggregate/1` and `group_by_calibration/1` work
+  unmodified on the result.
+  """
+  def group_result_videos(%Scope{user: user}, group_name, experiment_id \\ nil) do
+    query =
+      from v in Video,
+        join: e in assoc(v, :experiment),
+        join: s in assoc(v, :subject),
+        where: e.user_id == ^user.id and s.group == ^group_name and v.status == "done",
+        order_by: [desc: v.inserted_at],
+        preload: [:calibration, :experiment, :subject, tracking_result: [roi_times: :roi]]
+
+    query =
+      if experiment_id, do: where(query, [v], v.experiment_id == ^experiment_id), else: query
+
+    Repo.all(query)
+  end
+
+  @doc """
+  Distinct experiments with at least one `"done"` video for any subject in
+  this group — populates the "scope" filter on the Results "Per group" tab.
+  """
+  def group_experiments(%Scope{} = scope, group_name) do
+    scope
+    |> group_result_videos(group_name)
+    |> Enum.map(& &1.experiment)
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  @doc """
+  Groups `videos` (as returned by `list_all_videos/1`) by their subject's
+  `group` label — the Datasets library's "By group" view. Videos whose
+  subject has no group (or no subject at all) are bucketed under `nil`
+  ("Ungrouped"), sorted last, mirroring `subject_groups/1`'s nil-subject
+  handling. Each bucket's `:aggregate` reuses `subject_metric_aggregate/1`
+  over only that bucket's `"done"` videos, and `:subjects` lists the distinct
+  member subjects (for a per-group subject count).
+  """
+  def groups_summary(videos) do
+    videos
+    |> Enum.group_by(fn v -> normalize_group(v.subject && v.subject.group) end)
+    |> Enum.map(fn {group_name, group_videos} ->
+      done = Enum.filter(group_videos, &(&1.status == "done"))
+
+      %{
+        group: group_name,
+        videos: group_videos,
+        subjects:
+          group_videos
+          |> Enum.map(& &1.subject)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq_by(& &1.id),
+        aggregate: subject_metric_aggregate(done)
+      }
+    end)
+    |> Enum.sort_by(fn %{group: g} -> {is_nil(g), g && String.downcase(g)} end)
+  end
+
+  defp normalize_group(nil), do: nil
+  defp normalize_group(""), do: nil
+  defp normalize_group(g), do: g
+
+  @doc """
   Aggregates a subject's tracking metrics across `videos` (each expected to
   have `:tracking_result` preloaded, per `subject_result_videos/3`). Returns
   `%{n: total, metrics: %{key => %{mean:, sd:, n:}}, roi_zones: [%{name:, avg_seconds:, avg_share_pct:, n:}]}`.
@@ -165,16 +233,22 @@ defmodule MouseTracker.Experiments.Reporting do
         %{mean: nil, sd: nil, n: 0}
 
       _ ->
-        mean = Enum.sum(values) / n
-
-        sd =
-          if n > 1 do
-            variance = values |> Enum.map(&:math.pow(&1 - mean, 2)) |> Enum.sum()
-            :math.sqrt(variance / (n - 1))
-          end
-
+        {mean, sd} = mean_and_sd(values)
         %{mean: mean, sd: sd, n: n}
     end
+  end
+
+  defp mean_and_sd(values) do
+    n = length(values)
+    mean = Enum.sum(values) / n
+
+    sd =
+      if n > 1 do
+        variance = values |> Enum.map(&:math.pow(&1 - mean, 2)) |> Enum.sum()
+        :math.sqrt(variance / (n - 1))
+      end
+
+    {mean, sd}
   end
 
   @doc """
@@ -189,10 +263,28 @@ defmodule MouseTracker.Experiments.Reporting do
   def total_roi_seconds(_), do: 0.0
 
   @doc """
-  Percentage of a session spent in a zone, or `nil` if `duration_seconds` is
+  Duration in seconds of the analysed window of a video — the *trimmed* time
+  (`end_time_seconds || duration_seconds` minus `start_time_seconds`), not the
+  whole video. This is the correct denominator for "share of session"
+  percentages, since the Python side only counts frames inside the trimmed
+  window (`start_time`/`end_time` are applied in `run.py`). Returns `nil` when
+  it can't be computed (no known end/duration, or a non-positive window), which
+  `share_of_session/2` and `roi_zone_aggregate/1` treat as "unavailable".
+  """
+  def session_seconds(video) do
+    start = video.start_time_seconds || 0.0
+    finish = video.end_time_seconds || video.duration_seconds
+
+    if is_number(finish) and finish - start > 0, do: finish - start, else: nil
+  end
+
+  @doc """
+  Percentage of a session spent in a zone, or `nil` if the session duration is
   missing/zero (older videos may lack it) — the same nil convention
   `roi_zone_aggregate/1` already uses for `avg_share_pct`, so a caller only
   has one rule to remember for "can this video's share be computed at all".
+  Pass the trimmed session duration from `session_seconds/1`, not the whole
+  video length.
   """
   def share_of_session(_seconds, duration) when duration in [nil, 0, 0.0], do: nil
 
@@ -228,10 +320,54 @@ defmodule MouseTracker.Experiments.Reporting do
     |> Enum.reject(&is_nil(&1.value))
   end
 
+  @doc """
+  One aggregated time-series point per session index (1st session, 2nd
+  session, ...) across every subject in `group_name`, for the Analyses group
+  trend line. Each member subject's own chronological `"done"` video list
+  (via `subject_result_videos/3`) is computed independently — subjects
+  rarely share a timeline, so alignment is by index only, the same
+  convention `trend_chart/1` already uses when overlaying independent
+  per-subject series.
+
+  For session index `i`, averages `metric_key` across every member subject
+  that has an `i`-th session (subjects with fewer sessions simply stop
+  contributing past their last one — dropped, not padded/carried-forward).
+  Returns `[%{index:, label:, value:, n:, sd:}]`, only including indices
+  where at least one subject contributed a non-nil value.
+
+  Caveat (documented, not fixed): averaging "session 5" across subjects
+  whose 5th sessions may be weeks apart is an accepted limitation, identical
+  in spirit to the existing per-subject index alignment in `trend_chart/1`.
+  """
+  def group_metric_series(%Scope{} = scope, group_name, metric_key, experiment_id \\ nil) do
+    member_ids =
+      scope
+      |> Subjects.list_subjects()
+      |> Enum.filter(&(&1.group == group_name))
+      |> Enum.map(& &1.id)
+
+    per_subject_points =
+      Enum.map(member_ids, fn subject_id ->
+        scope
+        |> subject_result_videos(subject_id, experiment_id)
+        |> metric_series(metric_key)
+        |> Enum.map(& &1.value)
+      end)
+
+    max_len = per_subject_points |> Enum.map(&length/1) |> Enum.max(fn -> 0 end)
+
+    for i <- 0..(max_len - 1)//1,
+        values = per_subject_points |> Enum.map(&Enum.at(&1, i)) |> Enum.reject(&is_nil/1),
+        values != [] do
+      {mean, sd} = mean_and_sd(values)
+      %{index: i, label: "Session #{i + 1}", value: mean, n: length(values), sd: sd}
+    end
+  end
+
   defp roi_zone_aggregate(videos_with_results) do
     videos_with_results
     |> Enum.flat_map(fn video ->
-      duration = video.duration_seconds
+      duration = session_seconds(video)
 
       Enum.map(video.tracking_result.roi_times, fn rt ->
         share = if is_number(duration) and duration > 0, do: rt.seconds / duration * 100

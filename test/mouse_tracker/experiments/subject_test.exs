@@ -35,6 +35,18 @@ defmodule MouseTracker.Experiments.SubjectTest do
       assert errors_on(changeset).weight_g != []
     end
 
+    test "aceita um group", %{user: user} do
+      changeset = Subject.changeset(%Subject{user_id: user.id}, %{name: "M-01", group: "Control"})
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :group) == "Control"
+    end
+
+    test "válido sem group (nil)", %{user: user} do
+      changeset = Subject.changeset(%Subject{user_id: user.id}, %{name: "M-01"})
+      assert changeset.valid?
+      refute Ecto.Changeset.get_change(changeset, :group)
+    end
+
     test "user_id não é aceito via cast", %{user: user} do
       other_user = user_fixture()
 

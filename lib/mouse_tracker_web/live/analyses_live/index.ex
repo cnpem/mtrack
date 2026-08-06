@@ -33,11 +33,13 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   @impl true
   def mount(_params, _session, socket) do
     subjects = Subjects.list_subjects(socket.assigns.current_scope)
+    groups = Subjects.list_subject_groups(socket.assigns.current_scope)
 
     {:ok,
      socket
      |> assign(:page_title, "Analyses")
-     |> assign(:subjects, subjects)}
+     |> assign(:subjects, subjects)
+     |> assign(:groups, groups)}
   end
 
   @impl true
@@ -53,6 +55,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   defp assign_analysis(socket, params) do
     subjects = socket.assigns.subjects
     selected_subjects = selected_subjects(params["subjects"], subjects)
+    selected_groups = selected_groups(params["groups"], socket.assigns.groups)
     metric = if params["metric"] in @metric_keys, do: params["metric"], else: "distance_cm"
     scope_experiment_id = parse_int(params["scope_experiment"])
     scope = socket.assigns.current_scope
@@ -69,14 +72,23 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
         }
       end)
 
+    per_group =
+      Enum.map(selected_groups, fn group_name ->
+        %{
+          group: group_name,
+          points: Reporting.group_metric_series(scope, group_name, metric, scope_experiment_id)
+        }
+      end)
+
     socket
     |> assign(:metric, metric)
     |> assign(:scope_experiment_id, scope_experiment_id)
     |> assign(:selected_subjects, selected_subjects)
+    |> assign(:selected_groups, selected_groups)
     |> assign(:all_experiments, all_experiments(per_subject))
     |> assign(:total_sessions, Enum.sum_by(per_subject, &length(&1.videos)))
     |> assign(:table_rows, table_rows(per_subject))
-    |> assign(:series, series(per_subject))
+    |> assign(:series, series(per_subject) ++ group_series(per_group))
   end
 
   defp all_experiments(per_subject) do
@@ -101,6 +113,32 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
       %{label: s.name, color: subject_color(s.id), points: points}
     end)
     |> Enum.reject(&(&1.points == []))
+  end
+
+  # Group series are visually distinguished from per-subject lines by a
+  # darker/muted palette plus a "(mean)" label suffix — two independent cues
+  # without needing `trend_chart/1` to understand a "series kind" concept.
+  defp group_series(per_group) do
+    per_group
+    |> Enum.map(fn %{group: g, points: points} ->
+      %{label: "#{g} (mean)", color: group_color(g), points: Enum.map(points, &with_sd_label/1)}
+    end)
+    |> Enum.reject(&(&1.points == []))
+  end
+
+  # `trend_chart/1` has no band/area primitive (only polylines + point
+  # circles), so SD is surfaced via the existing per-point tooltip instead of
+  # a chart-component change — baked into the point's `label`, which is what
+  # the tooltip already reads.
+  defp with_sd_label(%{sd: nil} = p), do: p
+
+  defp with_sd_label(%{sd: sd, n: n} = p),
+    do: %{p | label: "#{p.label} (n=#{n}, ±#{Float.round(sd, 2)})"}
+
+  defp group_color(name) do
+    palette = ~w(#111827 #92400e #065f46 #5b21b6 #9d174d)
+    hash = :erlang.phash2(name, length(palette))
+    Enum.at(palette, hash)
   end
 
   # `subjects` is a comma-separated list of ids in the URL (`?subjects=1,2`).
@@ -136,6 +174,18 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     Enum.reject(subjects, &MapSet.member?(selected_ids, &1.id))
   end
 
+  # Unlike subjects, absent `?groups=` means zero groups selected — no
+  # default opt-in, since a first-time visitor shouldn't be surprised by an
+  # aggregate line they didn't ask for.
+  defp selected_groups(nil, _all_groups), do: []
+
+  defp selected_groups(str, all_groups) do
+    valid = MapSet.new(all_groups)
+    str |> String.split(",", trim: true) |> Enum.filter(&MapSet.member?(valid, &1)) |> Enum.uniq()
+  end
+
+  defp unselected_groups(all_groups, selected_groups), do: all_groups -- selected_groups
+
   @impl true
   def handle_event("toggle_subject", %{"subject" => ""}, socket), do: {:noreply, socket}
 
@@ -157,9 +207,18 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     {:noreply, patch(socket, metric: metric)}
   end
 
+  def handle_event("toggle_group", %{"group" => ""}, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_group", %{"group" => group}, socket) do
+    current = socket.assigns.selected_groups
+    new_groups = if group in current, do: List.delete(current, group), else: current ++ [group]
+    {:noreply, patch(socket, groups: Enum.join(new_groups, ","), scope_experiment: "all")}
+  end
+
   defp patch(socket, overrides) do
     base = [
       subjects: Enum.map_join(socket.assigns.selected_subjects, ",", &to_string(&1.id)),
+      groups: Enum.join(socket.assigns.selected_groups, ","),
       scope_experiment: socket.assigns.scope_experiment_id || "all",
       metric: socket.assigns.metric
     ]
@@ -230,11 +289,48 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
             </button>
           </div>
 
+          <div
+            :if={@groups != []}
+            class="mt-3 flex flex-wrap items-center gap-2 rounded-[13px] border border-[#e7e9ee] bg-white p-2"
+          >
+            <span class="px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+              Groups
+            </span>
+
+            <form
+              :if={unselected_groups(@groups, @selected_groups) != []}
+              id="analyses-group-picker"
+              phx-change="toggle_group"
+            >
+              <select
+                name="group"
+                class="rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[#667085] focus:border-[#CC5500] focus:outline-none"
+              >
+                <option value="" selected>+ Add group…</option>
+                <option :for={g <- unselected_groups(@groups, @selected_groups)} value={g}>
+                  {g}
+                </option>
+              </select>
+            </form>
+
+            <button
+              :for={g <- @selected_groups}
+              type="button"
+              phx-click="toggle_group"
+              phx-value-group={g}
+              class="inline-flex items-center gap-2 rounded-[8px] bg-[#0f1729] px-3 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-[#1e293f]"
+            >
+              <span class="size-2 rounded-full" style={"background:#{group_color(g)}"}></span>
+              <span class="font-data">{g} (mean)</span>
+              <.icon name="hero-x-mark-micro" class="size-3.5 text-white/70" />
+            </button>
+          </div>
+
           <.empty_state
-            :if={@selected_subjects == []}
+            :if={@selected_subjects == [] and @selected_groups == []}
             class="mt-4"
-            title="No subject selected"
-            subtitle="Pick at least one subject above to see its trend."
+            title="No subject or group selected"
+            subtitle="Pick at least one subject or group above to see its trend."
           />
 
           <div
@@ -271,13 +367,16 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           </div>
 
           <.empty_state
-            :if={@selected_subjects != [] and @table_rows == []}
+            :if={
+              (@selected_subjects != [] or @selected_groups != []) and @series == [] and
+                @table_rows == []
+            }
             class="mt-4"
             title="No analyzed sessions in this scope"
-            subtitle="Pick different subjects or widen the experiment filter."
+            subtitle="Pick different subjects/groups or widen the experiment filter."
           />
 
-          <div :if={@selected_subjects != [] and @table_rows != []} class="mt-4">
+          <div :if={@series != [] or @table_rows != []} class="mt-4">
             <div class="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
               <button
                 :for={{key, label, _unit} <- metrics()}
@@ -319,7 +418,10 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               </div>
             </div>
 
-            <div class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+            <div
+              :if={@table_rows != []}
+              class="mt-4 overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
+            >
               <table class="w-full min-w-[860px] text-left text-[12.5px]">
                 <thead>
                   <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">

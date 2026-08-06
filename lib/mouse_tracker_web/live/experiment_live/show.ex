@@ -17,7 +17,15 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
      socket
      |> assign(:page_title, experiment.name)
      |> assign(:experiment, experiment)
-     |> assign(:experiment_subjects, Experiments.experiment_subjects(experiment))}
+     |> assign(:experiment_subjects, Experiments.experiment_subjects(experiment))
+     |> assign(:export_open, false)
+     |> assign(:export_opts, %{
+       date: true,
+       video: true,
+       calibration: true,
+       heatmap: false,
+       speed: false
+     })}
   end
 
   @impl true
@@ -31,6 +39,26 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
      update(socket, :experiment_subjects, fn subjects ->
        Enum.map(subjects, &if(&1.id == updated.id, do: updated, else: &1))
      end)}
+  end
+
+  def handle_event("toggle_export", _params, socket) do
+    {:noreply, update(socket, :export_open, &(!&1))}
+  end
+
+  def handle_event("close_export", _params, socket) do
+    {:noreply, assign(socket, :export_open, false)}
+  end
+
+  def handle_event("export_change", params, socket) do
+    opts = %{
+      date: Map.has_key?(params, "date"),
+      video: Map.has_key?(params, "video"),
+      calibration: Map.has_key?(params, "calibration"),
+      heatmap: Map.has_key?(params, "heatmap"),
+      speed: Map.has_key?(params, "speed")
+    }
+
+    {:noreply, assign(socket, :export_opts, opts)}
   end
 
   @impl true
@@ -71,6 +99,90 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               {@experiment.description}
             </p>
           </div>
+          <div class="relative shrink-0" phx-click-away={@export_open && "close_export"}>
+            <.button size="sm" type="button" phx-click="toggle_export">
+              <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Export
+            </.button>
+
+            <div
+              :if={@export_open}
+              class="absolute right-0 z-20 mt-2 w-72 rounded-[12px] border border-[#e7e9ee] bg-white p-4 text-left shadow-[0_8px_24px_rgba(16,24,40,.12)]"
+            >
+              <div class="text-[13px] font-bold text-[#0f1729]">Exportar dados</div>
+              <p class="mt-0.5 text-[11.5px] text-[#8a93a3]">
+                Cobaia e métricas sempre incluídas. Marcar imagens gera um .zip.
+              </p>
+
+              <form phx-change="export_change" class="mt-3 space-y-2">
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="date"
+                    checked={@export_opts.date}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Data (experimento/vídeo)
+                </label>
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="video"
+                    checked={@export_opts.video}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Metadados do vídeo
+                </label>
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="calibration"
+                    checked={@export_opts.calibration}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Parâmetros de calibração
+                </label>
+
+                <div class="!mt-3 border-t border-[#f0f1f4] pt-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+                  Imagens (zip)
+                </div>
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="heatmap"
+                    checked={@export_opts.heatmap}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Mapa de calor
+                </label>
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="speed"
+                    checked={@export_opts.speed}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Gráfico de velocidade
+                </label>
+              </form>
+
+              <div class="mt-4 flex flex-col gap-2">
+                <.button
+                  size="sm"
+                  href={
+                    ~p"/experiments/#{@experiment.id}/export?#{export_query(@export_opts, "csv")}"
+                  }
+                  download
+                >
+                  <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Baixar CSV
+                </.button>
+                <.button
+                  size="sm"
+                  variant="secondary"
+                  href={
+                    ~p"/experiments/#{@experiment.id}/export?#{export_query(@export_opts, "xlsx")}"
+                  }
+                  download
+                >
+                  <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Baixar XLSX
+                </.button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="mt-5 grid grid-cols-2 divide-x divide-[#e7e9ee] overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white sm:grid-cols-4">
@@ -89,6 +201,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               <span class="size-2 rounded-full" style={"background:#{subject_color(subject.id)}"}></span>
               <span class="font-data text-[12px] font-medium text-[#344054]">{subject.name}</span>
               <span :if={subject.genotype} class="text-[11px] text-[#98a2b3]">{subject.genotype}</span>
+              <span :if={subject.group} class="text-[11px] text-[#98a2b3]">
+                <span :if={subject.genotype}> · </span>{subject.group}
+              </span>
             </div>
             <textarea
               name="notes"
@@ -212,7 +327,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   defp video_meta_line(video) do
     [
-      video.subject && video.subject.name,
+      video.subject && subject_label(video.subject),
       video.fps && "#{video.fps} fps",
       video.duration_seconds && "#{round(video.duration_seconds)}s"
     ]
@@ -223,5 +338,26 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
     end
   end
 
+  defp subject_label(%{name: name, group: group}) when is_binary(group) and group != "",
+    do: "#{name} (#{group})"
+
+  defp subject_label(%{name: name}), do: name
+
   defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %d, %Y")
+
+  # Builds the query string for the export download link from the current panel
+  # state, so the `<.link download>` href always reflects the checkboxes.
+  defp export_query(opts, format) do
+    [
+      format: format,
+      date: bool01(opts.date),
+      video: bool01(opts.video),
+      calibration: bool01(opts.calibration),
+      heatmap: bool01(opts.heatmap),
+      speed: bool01(opts.speed)
+    ]
+  end
+
+  defp bool01(true), do: "1"
+  defp bool01(_), do: "0"
 end

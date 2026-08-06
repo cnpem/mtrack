@@ -45,7 +45,8 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     {:noreply, socket |> assign(:status_filter, status) |> assign_derived()}
   end
 
-  def handle_event("switch_view", %{"view" => view}, socket) when view in ["video", "subject"] do
+  def handle_event("switch_view", %{"view" => view}, socket)
+      when view in ["video", "subject", "group"] do
     {:noreply, assign(socket, :view, view)}
   end
 
@@ -74,12 +75,21 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     |> assign(:summary, Reporting.datasets_summary(videos))
     |> assign(:videos, filtered)
     |> assign(:subject_groups, Reporting.subject_groups(filtered))
+    |> assign(:groups_summary, Reporting.groups_summary(filtered))
   end
 
   defp matches_query?(video, q) do
-    [video.filename, video.subject && video.subject.name, video.experiment.name]
+    [
+      video.filename,
+      video.subject && video.subject.name,
+      video.experiment.name,
+      video_group(video)
+    ]
     |> Enum.any?(fn s -> s && String.contains?(String.downcase(s), q) end)
   end
+
+  defp video_group(%{subject: %{group: g}}) when is_binary(g) and g != "", do: g
+  defp video_group(_), do: nil
 
   # --- Thumbnails (async, cached per video on disk) ---
 
@@ -176,7 +186,13 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
           <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
             <button
-              :for={{value, label} <- [{"video", "By video"}, {"subject", "By subject"}]}
+              :for={
+                {value, label} <- [
+                  {"video", "By video"},
+                  {"subject", "By subject"},
+                  {"group", "By group"}
+                ]
+              }
               type="button"
               phx-click="switch_view"
               phx-value-view={value}
@@ -194,7 +210,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
             <.search_input
               id="dataset-search"
               query={@query}
-              placeholder="Search by file, subject or experiment"
+              placeholder="Search by file, subject, group or experiment"
             />
 
             <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
@@ -247,6 +263,10 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <div :if={@videos != [] and @view == "subject"} class="mt-4 space-y-4">
           <.subject_group :for={group <- @subject_groups} group={group} />
         </div>
+
+        <div :if={@videos != [] and @view == "group"} class="mt-4 space-y-4">
+          <.group_card :for={g <- @groups_summary} group={g} />
+        </div>
       </div>
     </Layouts.locomo>
     """
@@ -260,24 +280,30 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
   defp video_table(assigns) do
     ~H"""
     <div class="overflow-x-auto rounded-[13px] border border-[#e7e9ee] bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-      <table class="w-full min-w-[900px] text-left text-[12.5px]">
+      <table class="w-full min-w-[680px] text-left text-[12.5px]">
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-            <th class="px-[18px] py-3">File</th>
-            <th class="px-3 py-3">Subject</th>
-            <th class="px-3 py-3">Duration · fps</th>
-            <th class="px-3 py-3 text-right">Size</th>
-            <th class="px-3 py-3">Calibration</th>
-            <th class="px-3 py-3">Status</th>
-            <th class="px-3 py-3">Experiment</th>
+            <th class="px-[18px] py-3">Experiment</th>
+            <th class="px-2 py-3">File</th>
+            <th class="px-2 py-3">Subject</th>
+            <th class="px-2 py-3">Duration / size</th>
+            <th class="px-2 py-3">Status</th>
             <th class="px-[18px] py-3"></th>
           </tr>
         </thead>
         <tbody>
           <tr :for={v <- @videos} class="border-b border-[#f4f5f7] last:border-0 hover:bg-[#fafbfc]">
             <td class="px-[18px] py-3">
-              <div class="flex items-center gap-3">
-                <div class="flex h-10 w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-[8px] border border-[#eef1f4] bg-[#11161f]">
+              <.link
+                navigate={~p"/experiments/#{v.experiment.id}"}
+                class="block max-w-[110px] truncate text-[12px] text-[#475467] underline-offset-2 hover:text-[#0f1729] hover:underline"
+              >
+                {v.experiment.name}
+              </.link>
+            </td>
+            <td class="px-2 py-3">
+              <div class="flex items-center gap-2">
+                <div class="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[7px] border border-[#eef1f4] bg-[#11161f]">
                   <img
                     :if={thumb_src(@thumbnails, v.id)}
                     src={thumb_src(@thumbnails, v.id)}
@@ -288,10 +314,10 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                   <.icon
                     :if={!thumb_src(@thumbnails, v.id)}
                     name="hero-film"
-                    class="size-4 text-[#475467]"
+                    class="size-3.5 text-[#475467]"
                   />
                 </div>
-                <div class="min-w-0">
+                <div class="min-w-0 max-w-[160px]">
                   <div class="truncate font-data text-[12.5px] font-medium text-[#0f1729]">
                     {v.filename}
                   </div>
@@ -304,44 +330,32 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                 </div>
               </div>
             </td>
-            <td class="px-3 py-3">
-              <div :if={v.subject} class="flex items-center gap-2">
+            <td class="px-2 py-3">
+              <div :if={v.subject} class="flex items-center gap-1.5">
                 <span
                   class="size-2 shrink-0 rounded-full"
                   style={"background:#{subject_color(v.subject.id)}"}
                 ></span>
-                <div class="min-w-0">
+                <div class="min-w-0 max-w-[120px]">
                   <div class="truncate font-data text-[12px] text-[#344054]">{v.subject.name}</div>
-                  <div :if={v.subject.genotype} class="truncate text-[10.5px] text-[#98a2b3]">
-                    {v.subject.genotype}
+                  <div :if={subject_tags(v.subject)} class="truncate text-[10.5px] text-[#98a2b3]">
+                    {subject_tags(v.subject)}
                   </div>
                 </div>
               </div>
               <span :if={!v.subject} class="text-[12px] text-[#98a2b3]">—</span>
             </td>
-            <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{duration_fps(v)}</td>
-            <td class="px-3 py-3 text-right font-data text-[12px] text-[#344054]">
-              {format_size(v.file_size_bytes)}
+            <td class="px-2 py-3 font-data text-[12px] text-[#344054]">
+              <div class="truncate">{duration_fps(v)}</div>
+              <div class="mt-0.5 truncate text-[11px] text-[#98a2b3]">
+                {format_size(v.file_size_bytes)}
+              </div>
             </td>
-            <td class="px-3 py-3">
-              <span :if={calibration_px_per_cm(v)} class="font-data text-[12px] text-[#344054]">
-                {calibration_px_per_cm(v)}
-              </span>
-              <span
-                :if={!calibration_px_per_cm(v)}
-                class="inline-flex items-center gap-1.5 text-[11.5px] text-[#98a2b3]"
-              >
-                <span class="size-1.5 rounded-full bg-[#cbd2dc]"></span> Not set
-              </span>
-            </td>
-            <td class="px-3 py-3"><.status_pill status={v.status} /></td>
-            <td class="px-3 py-3">
-              <.link
-                navigate={~p"/experiments/#{v.experiment.id}"}
-                class="truncate text-[12px] text-[#475467] underline-offset-2 hover:text-[#0f1729] hover:underline"
-              >
-                {v.experiment.name}
-              </.link>
+            <td class="px-2 py-3">
+              <.status_pill status={v.status} />
+              <div class="mt-1 truncate text-[10.5px] text-[#98a2b3]">
+                {calibration_px_per_cm(v) || "No calibration"}
+              </div>
             </td>
             <td class="px-[18px] py-3 text-right">
               <.link navigate={row_action_path(v)} class="text-[#b0b7c1] hover:text-[#667085]">
@@ -353,6 +367,15 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
       </table>
     </div>
     """
+  end
+
+  defp subject_tags(subject) do
+    [subject.genotype, subject.group]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> case do
+      [] -> nil
+      tags -> Enum.join(tags, " · ")
+    end
   end
 
   # --- By-subject group ---
@@ -373,6 +396,9 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <span :if={@group.subject && @group.subject.genotype} class="text-[11.5px] text-[#98a2b3]">
           {@group.subject.genotype}
         </span>
+        <span :if={@group.subject && @group.subject.group} class="text-[11.5px] text-[#98a2b3]">
+          {@group.subject.group}
+        </span>
         <span class="ml-auto font-data text-[11.5px] text-[#8a93a3]">
           {length(@group.videos)} video(s) · {@group.aggregate.n} tracked
         </span>
@@ -392,15 +418,63 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
 
       <div class="mt-3 divide-y divide-[#f4f5f7]">
         <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
-          <.status_pill status={v.status} />
-          <span class="min-w-0 flex-1 truncate font-data text-[12px] text-[#344054]">{v.filename}</span>
-          <span class="hidden font-data text-[11.5px] text-[#8a93a3] sm:inline">{duration_fps(v)}</span>
           <.link
             navigate={~p"/experiments/#{v.experiment.id}"}
-            class="truncate text-[11.5px] text-[#475467] hover:text-[#0f1729]"
+            class="w-32 shrink-0 truncate text-[11.5px] text-[#475467] hover:text-[#0f1729]"
           >
             {v.experiment.name}
           </.link>
+          <.status_pill status={v.status} />
+          <span class="min-w-0 flex-1 truncate font-data text-[12px] text-[#344054]">{v.filename}</span>
+          <span class="hidden font-data text-[11.5px] text-[#8a93a3] sm:inline">{duration_fps(v)}</span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # --- By-group card ---
+
+  attr :group, :map, required: true
+
+  defp group_card(assigns) do
+    ~H"""
+    <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+      <div class="flex items-center gap-2">
+        <span class="font-data text-[14px] font-bold text-[#0f1729]">
+          {@group.group || "Ungrouped"}
+        </span>
+        <span class="text-[11.5px] text-[#98a2b3]">{length(@group.subjects)} subject(s)</span>
+        <span class="ml-auto font-data text-[11.5px] text-[#8a93a3]">
+          {length(@group.videos)} video(s) · {@group.aggregate.n} tracked
+        </span>
+      </div>
+
+      <.metric_stat_cards
+        :if={@group.aggregate.n > 0}
+        metrics={@group.aggregate.metrics}
+        fields={[
+          %{key: :distance_cm, label: "Distance", unit: "cm"},
+          %{key: :speed_mean_cm, label: "Mean speed", unit: "cm/s"},
+          %{key: :thigmotaxis_pct, label: "Thigmotaxis", unit: "%"},
+          %{key: :immobility_seconds, label: "Immobility", unit: "s"}
+        ]}
+        class="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4"
+      />
+
+      <div class="mt-3 divide-y divide-[#f4f5f7]">
+        <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
+          <.link
+            navigate={~p"/experiments/#{v.experiment.id}"}
+            class="w-32 shrink-0 truncate text-[11.5px] text-[#475467] hover:text-[#0f1729]"
+          >
+            {v.experiment.name}
+          </.link>
+          <.status_pill status={v.status} />
+          <span class="min-w-0 flex-1 truncate font-data text-[12px] text-[#344054]">
+            <span :if={v.subject}>{v.subject.name} · </span>{v.filename}
+          </span>
+          <span class="hidden font-data text-[11.5px] text-[#8a93a3] sm:inline">{duration_fps(v)}</span>
         </div>
       </div>
     </div>

@@ -59,6 +59,37 @@ defmodule MouseTracker.Experiments.SubjectsTest do
     end
   end
 
+  describe "list_subject_groups/1" do
+    test "retorna groups distintos e ordenados, escopados por usuário" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      other = user_fixture()
+
+      subject_fixture(user, %{name: "M-01", group: "Control"})
+      subject_fixture(user, %{name: "M-02", group: "Treated"})
+      subject_fixture(user, %{name: "M-03", group: "Control"})
+      subject_fixture(other, %{name: "M-04", group: "Other user group"})
+
+      assert Subjects.list_subject_groups(scope) == ["Control", "Treated"]
+    end
+
+    test "exclui subjects sem group (nil ou string vazia)" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+
+      subject_fixture(user, %{name: "M-01", group: nil})
+      subject_fixture(user, %{name: "M-02", group: ""})
+      subject_fixture(user, %{name: "M-03"})
+
+      assert Subjects.list_subject_groups(scope) == []
+    end
+
+    test "lista vazia quando o usuário não tem subjects" do
+      scope = user_scope_fixture(user_fixture())
+      assert Subjects.list_subject_groups(scope) == []
+    end
+  end
+
   describe "count_videos_using_subject/1" do
     test "0 quando nenhum vídeo usa o subject" do
       subject = subject_fixture(user_fixture())

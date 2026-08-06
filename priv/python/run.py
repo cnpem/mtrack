@@ -170,7 +170,10 @@ def _run_headless(json_str):
     if params.get("speed_distribution"):
         render.plot_speed_distribution(speeds_cm, max_speed, params["speed_distribution"])
     if params.get("heatmap"):
-        render.plot_heatmap(heatmap, fps, bg, 120 * fps, params["heatmap"])
+        render.plot_heatmap(
+            heatmap, fps, bg, 120 * fps, params["heatmap"],
+            valid_region=valid_region, rois=rois,
+        )
 
 
 def _run_interactive(args):
@@ -238,7 +241,10 @@ def _run_interactive(args):
 
     if args["heatmap"]:
         heatmap_max_time = 120
-        render.plot_heatmap(heatmap, fps, bg, heatmap_max_time * fps, args["heatmap"])
+        render.plot_heatmap(
+            heatmap, fps, bg, heatmap_max_time * fps, args["heatmap"],
+            valid_region=valid_region, rois=rois,
+        )
 
     cv2.destroyAllWindows()
 
