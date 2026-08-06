@@ -27,7 +27,7 @@ defmodule MouseTrackerWeb.ExportControllerTest do
       assert get_resp_header(conn, "content-type") |> List.first() =~ "text/csv"
       assert get_resp_header(conn, "content-disposition") |> List.first() =~ "attachment"
       body = response(conn, 200)
-      assert body =~ "Cobaia (grupo)"
+      assert body =~ "Subject (group)"
       assert body =~ "M01 (CNO)"
     end
 
@@ -40,6 +40,45 @@ defmodule MouseTrackerWeb.ExportControllerTest do
              |> List.first() =~ "spreadsheetml"
 
       assert response(conn, 200) |> String.starts_with?("PK")
+    end
+
+    test "bundles selected images into a .zip alongside the metrics", %{conn: conn, user: user} do
+      cal = calibration_fixture(user)
+      exp = experiment_fixture(user, %{name: "Open Field"})
+      video = video_fixture(exp, cal, %{status: "done", filename: "m01.mp4"})
+
+      tracking_result_fixture(video, %{
+        heatmap_path: "/uploads/results/#{video.id}/heatmap.png",
+        speed_profile_path: "/uploads/results/#{video.id}/speed_profile.png"
+      })
+
+      # The controller reads the PNGs from disk under priv/static — write fakes.
+      dir =
+        Path.join([
+          :code.priv_dir(:mouse_tracker),
+          "static",
+          "uploads",
+          "results",
+          to_string(video.id)
+        ])
+
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "heatmap.png"), "PNG-heatmap")
+      File.write!(Path.join(dir, "speed_profile.png"), "PNG-speed")
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      conn =
+        get(conn, ~p"/experiments/#{exp.id}/export?#{[format: "csv", heatmap: "1", speed: "1"]}")
+
+      assert get_resp_header(conn, "content-type") |> List.first() =~ "application/zip"
+      body = response(conn, 200)
+      assert String.starts_with?(body, "PK")
+
+      {:ok, entries} = :zip.extract(body, [:memory])
+      names = Enum.map(entries, fn {name, _} -> to_string(name) end)
+      assert Enum.any?(names, &String.ends_with?(&1, ".csv"))
+      assert Enum.any?(names, &String.contains?(&1, "heatmap"))
+      assert Enum.any?(names, &String.contains?(&1, "speed"))
     end
 
     test "raises for an experiment owned by another user", %{conn: conn} do

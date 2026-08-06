@@ -153,8 +153,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
       Enum.all?(live, fn r ->
         Enum.all?(Map.get(assigns.rois, r, []), &present?(&1.name))
       end) and
-      Enum.all?(roi_names, &present?/1) and
-      length(roi_names) == length(Enum.uniq(roi_names))
+      Enum.all?(roi_names, &present?/1)
   end
 
   # Human-readable breakdown of step2_valid?/1, shown next to the disabled
@@ -179,16 +178,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
         "#{ref_filename(r, videos)}: one ROI zone is missing a name"
       end
 
-    roi_names = for r <- live, roi <- Map.get(assigns.rois, r, []), do: roi.name
-
-    dup_msgs =
-      if length(roi_names) != length(Enum.uniq(roi_names)) do
-        ["Two ROI zones share the same name — names must be unique"]
-      else
-        []
-      end
-
-    (cal_msgs ++ roi_name_msgs ++ dup_msgs) |> Enum.uniq()
+    # Duplicate ROI names are intentional now — two recordings of the "same"
+    # zone (camera nudged between sessions) share a name so they land in the
+    # same exported column. So no uniqueness check here.
+    (cal_msgs ++ roi_name_msgs) |> Enum.uniq()
   end
 
   def cal_complete?(nil), do: false

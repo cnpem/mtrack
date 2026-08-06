@@ -40,9 +40,9 @@ defmodule MouseTracker.Experiments.ExportTest do
     } do
       {headers, rows} = Export.build_rows(experiment, @all_opts)
 
-      assert List.first(headers) == "Cobaia (grupo)"
-      assert "distância_cm" in headers
-      assert "tempo_centro_s" in headers
+      assert List.first(headers) == "Subject (group)"
+      assert "distance_cm" in headers
+      assert "time_centro_s" in headers
       assert "px_per_10cm" in headers
 
       # Only the two "done" videos (with a tracking_result) are exported.
@@ -55,7 +55,7 @@ defmodule MouseTracker.Experiments.ExportTest do
 
     test "ROI time lands in the matching dynamic column", %{experiment: experiment} do
       {headers, rows} = Export.build_rows(experiment, @all_opts)
-      idx = Enum.find_index(headers, &(&1 == "tempo_centro_s"))
+      idx = Enum.find_index(headers, &(&1 == "time_centro_s"))
 
       # M01's video had a roi_time of 4.0s in "centro"; M02's had none.
       assert Enum.at(List.first(rows), idx) == 4.0
@@ -83,9 +83,9 @@ defmodule MouseTracker.Experiments.ExportTest do
       experiment = Experiments.get_experiment_for_export!(scope, exp.id)
       {headers, rows} = Export.build_rows(experiment, @all_opts)
 
-      # uma única coluna "tempo_centro_s" para os dois vídeos
-      assert Enum.count(headers, &(&1 == "tempo_centro_s")) == 1
-      idx = Enum.find_index(headers, &(&1 == "tempo_centro_s"))
+      # uma única coluna "time_centro_s" para os dois vídeos
+      assert Enum.count(headers, &(&1 == "time_centro_s")) == 1
+      idx = Enum.find_index(headers, &(&1 == "time_centro_s"))
       # ordenado por nome de subject: A01 (3.0) antes de A02 (7.0)
       assert Enum.at(List.first(rows), idx) == 3.0
       assert Enum.at(Enum.at(rows, 1), idx) == 7.0
@@ -102,10 +102,10 @@ defmodule MouseTracker.Experiments.ExportTest do
       {headers, _rows} =
         Export.build_rows(experiment, %{date: false, video: false, calibration: false})
 
-      refute "arquivo" in headers
-      refute "processado_em" in headers
+      refute "file" in headers
+      refute "processed_at" in headers
       # Metrics are always present.
-      assert "distância_cm" in headers
+      assert "distance_cm" in headers
     end
   end
 
@@ -127,7 +127,7 @@ defmodule MouseTracker.Experiments.ExportTest do
 
       # header + 2 data rows
       assert length(lines) == 3
-      assert lines |> List.first() |> String.starts_with?("Cobaia (grupo),")
+      assert lines |> List.first() |> String.starts_with?("Subject (group),")
       assert Enum.any?(lines, &String.contains?(&1, "M01 (CNO)"))
       # dot decimal, comma separator (the 4.0s ROI time)
       assert Enum.any?(lines, &String.contains?(&1, "4.0"))
@@ -138,7 +138,7 @@ defmodule MouseTracker.Experiments.ExportTest do
     setup :fixture_experiment
 
     test "produces a non-empty xlsx (ZIP) binary", %{experiment: experiment} do
-      bin = experiment |> Export.build_rows(@all_opts) |> Export.to_xlsx("Experimento")
+      bin = experiment |> Export.build_rows(@all_opts) |> Export.to_xlsx("Experiment")
 
       assert is_binary(bin)
       assert byte_size(bin) > 0

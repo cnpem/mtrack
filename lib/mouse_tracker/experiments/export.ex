@@ -8,8 +8,8 @@ defmodule MouseTracker.Experiments.Export do
 
   Layout (one row per processed video/session):
 
-    * column 1 is always `Cobaia (grupo)` (`subject.name` + ` (group)` when set),
-    * the core locomotion metrics and one `tempo_<roi>_s` column per ROI used in
+    * column 1 is always `Subject (group)` (`subject.name` + ` (group)` when set),
+    * the core locomotion metrics and one `time_<roi>_s` column per ROI used in
       the experiment are always present,
     * the `:date`, `:video` and `:calibration` metadata groups are opt-in via the
       `opts` map (chosen by the user in the export panel).
@@ -25,21 +25,21 @@ defmodule MouseTracker.Experiments.Export do
   alias MouseTracker.Experiments.Export.CSV
 
   @metric_fields [
-    {"distância_cm", :distance_cm},
-    {"vel_média_cm_s", :speed_mean_cm},
-    {"vel_mediana_cm_s", :speed_median_cm},
-    {"vel_máx_cm_s", :speed_max_cm},
-    {"tigmotaxia_pct", :thigmotaxis_pct},
-    {"imobilidade_s", :immobility_seconds},
-    {"tortuosidade", :path_tortuosity}
+    {"distance_cm", :distance_cm},
+    {"speed_mean_cm_s", :speed_mean_cm},
+    {"speed_median_cm_s", :speed_median_cm},
+    {"speed_max_cm_s", :speed_max_cm},
+    {"thigmotaxis_pct", :thigmotaxis_pct},
+    {"immobility_s", :immobility_seconds},
+    {"tortuosity", :path_tortuosity}
   ]
 
   @video_fields [
-    {"arquivo", :filename},
-    {"duração_s", :duration_seconds},
+    {"file", :filename},
+    {"duration_s", :duration_seconds},
     {"fps", :fps},
-    {"análise_início_s", :start_time_seconds},
-    {"análise_fim_s", :end_time_seconds}
+    {"analysis_start_s", :start_time_seconds},
+    {"analysis_end_s", :end_time_seconds}
   ]
 
   @calibration_fields [
@@ -77,7 +77,7 @@ defmodule MouseTracker.Experiments.Export do
 
   # UTF-8 byte-order mark. Prepended to the CSV so Excel (notably pt-BR/Windows,
   # which otherwise assumes Windows-1252) detects UTF-8 and renders accented
-  # headers/labels (e.g. "distância_cm") correctly.
+  # headers/labels (e.g. subject names like "Cobaia") correctly.
   @utf8_bom "﻿"
 
   @doc "Encodes a `{headers, rows}` table as RFC4180 CSV (`,` separator, `.` decimal), BOM-prefixed for Excel."
@@ -104,11 +104,11 @@ defmodule MouseTracker.Experiments.Export do
   # --- headers ---
 
   defp header_row(opts, roi_names) do
-    ["Cobaia (grupo)"]
+    ["Subject (group)"]
     |> maybe_concat(opts.video, Enum.map(@video_fields, &elem(&1, 0)))
-    |> maybe_concat(opts.date, ["processado_em"])
+    |> maybe_concat(opts.date, ["processed_at"])
     |> Kernel.++(Enum.map(@metric_fields, &elem(&1, 0)))
-    |> Kernel.++(Enum.map(roi_names, &"tempo_#{&1}_s"))
+    |> Kernel.++(Enum.map(roi_names, &"time_#{&1}_s"))
     |> maybe_concat(opts.calibration, Enum.map(@calibration_fields, &elem(&1, 0)))
   end
 

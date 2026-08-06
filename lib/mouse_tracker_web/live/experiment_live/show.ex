@@ -19,7 +19,13 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
      |> assign(:experiment, experiment)
      |> assign(:experiment_subjects, Experiments.experiment_subjects(experiment))
      |> assign(:export_open, false)
-     |> assign(:export_opts, %{date: true, video: true, calibration: true})}
+     |> assign(:export_opts, %{
+       date: true,
+       video: true,
+       calibration: true,
+       heatmap: false,
+       speed: false
+     })}
   end
 
   @impl true
@@ -47,7 +53,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
     opts = %{
       date: Map.has_key?(params, "date"),
       video: Map.has_key?(params, "video"),
-      calibration: Map.has_key?(params, "calibration")
+      calibration: Map.has_key?(params, "calibration"),
+      heatmap: Map.has_key?(params, "heatmap"),
+      speed: Map.has_key?(params, "speed")
     }
 
     {:noreply, assign(socket, :export_opts, opts)}
@@ -102,7 +110,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
             >
               <div class="text-[13px] font-bold text-[#0f1729]">Exportar dados</div>
               <p class="mt-0.5 text-[11.5px] text-[#8a93a3]">
-                Cobaia e métricas sempre incluídas.
+                Cobaia e métricas sempre incluídas. Marcar imagens gera um .zip.
               </p>
 
               <form phx-change="export_change" class="mt-3 space-y-2">
@@ -129,6 +137,26 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
                     checked={@export_opts.calibration}
                     class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
                   /> Parâmetros de calibração
+                </label>
+
+                <div class="!mt-3 border-t border-[#f0f1f4] pt-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+                  Imagens (zip)
+                </div>
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="heatmap"
+                    checked={@export_opts.heatmap}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Mapa de calor
+                </label>
+                <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <input
+                    type="checkbox"
+                    name="speed"
+                    checked={@export_opts.speed}
+                    class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                  /> Gráfico de velocidade
                 </label>
               </form>
 
@@ -324,7 +352,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
       format: format,
       date: bool01(opts.date),
       video: bool01(opts.video),
-      calibration: bool01(opts.calibration)
+      calibration: bool01(opts.calibration),
+      heatmap: bool01(opts.heatmap),
+      speed: bool01(opts.speed)
     ]
   end
 

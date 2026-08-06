@@ -417,7 +417,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
         data-name={Path.rootname(@video.filename)}
         data-heatmap={@result.heatmap_path}
         data-speed={@result.speed_profile_path}
-        class="ml-auto inline-flex items-center gap-1.5 rounded-[8px] bg-[#0f1729] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#1c2740]"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-[8px] bg-[#CC5500] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#b34a00]"
       >
         <.icon name="hero-arrow-down-tray-micro" class="size-4" />
         <span data-label>Download (.zip)</span>
