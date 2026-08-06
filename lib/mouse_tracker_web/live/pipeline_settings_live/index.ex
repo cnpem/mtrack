@@ -259,7 +259,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       flash={@flash}
       current_scope={@current_scope}
       active={:settings}
-      breadcrumb="Locomo"
+      breadcrumb="MTrack"
       page_title="Pipeline settings"
     >
       <div class="mx-auto max-w-[1100px]">
