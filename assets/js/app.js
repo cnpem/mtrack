@@ -26,6 +26,7 @@ import {hooks as colocatedHooks} from "phoenix-colocated/mouse_tracker"
 import {RoiCanvas} from "./hooks/roi_canvas"
 import {TrendChartHover} from "./hooks/trend_chart_hover"
 import {VideoTrimmer} from "./hooks/video_trimmer"
+import {DashboardExport} from "./hooks/dashboard_export"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
@@ -37,7 +38,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   // aborts. A more generous threshold avoids false-positive fallbacks.
   longPollFallbackMs: 15000,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, RoiCanvas, TrendChartHover, VideoTrimmer},
+  hooks: {...colocatedHooks, RoiCanvas, TrendChartHover, VideoTrimmer, DashboardExport},
 })
 
 // Show progress bar on live navigation and form submits

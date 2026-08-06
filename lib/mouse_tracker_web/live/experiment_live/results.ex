@@ -368,104 +368,162 @@ defmodule MouseTrackerWeb.ExperimentLive.Results do
       </button>
     </div>
 
-    <div :if={@result} class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <.stat_card
-        label="Distance traveled"
-        value={fmt(@result.distance_cm)}
-        unit="cm"
-        sub="Total path length"
-      />
-      <.stat_card
-        label="Mean speed"
-        value={fmt(@result.speed_mean_cm)}
-        unit="cm/s"
-        sub="Average over session"
-      />
-      <.stat_card
-        label="Median speed"
-        value={fmt(@result.speed_median_cm)}
-        unit="cm/s"
-        sub="Typical speed"
-      />
-      <.stat_card
-        label="Time in ROI"
-        value={fmt(Reporting.total_roi_seconds(@result))}
-        unit="s"
-        sub="Across all zones"
-      />
-    </div>
-
-    <div :if={@result} class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <.stat_card
-        label="Max speed"
-        value={fmt(@result.speed_max_cm)}
-        unit="cm/s"
-        sub="Peak instantaneous"
-      />
-      <.stat_card
-        label="Thigmotaxis"
-        value={fmt(@result.thigmotaxis_pct)}
-        unit="%"
-        sub="Time near the wall"
-      />
-      <.stat_card
-        label="Path tortuosity"
-        value={fmt(@result.path_tortuosity)}
-        sub="Path length / displacement"
-      />
-      <.stat_card
-        label="Immobility"
-        value={fmt(@result.immobility_seconds)}
-        unit="s"
-        sub="Speed < 2 cm/s"
-      />
-    </div>
-
-    <div :if={@result} class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <.plot_card title="Occupancy heatmap" src={@result.heatmap_path} />
-      <.plot_card title="Speed profile" src={@result.speed_profile_path} />
-    </div>
-
     <div
-      :if={@result && @result.roi_times != []}
-      class="mt-4 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
+      :if={@result}
+      class="mt-4 flex flex-wrap items-center gap-3 rounded-[13px] border border-[#e7e9ee] bg-white p-3"
     >
-      <div class="flex items-center justify-between">
-        <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
+      <span class="px-1 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+        Export images
+      </span>
 
-        <div class="font-data text-[11.5px] text-[#8a93a3]">
-          total {fmt(Reporting.total_roi_seconds(@result))} s
-        </div>
+      <label class="inline-flex items-center gap-1.5 text-[12.5px] text-[#344054]">
+        <input
+          type="checkbox"
+          data-export="dashboard"
+          checked
+          class="rounded border-[#cdd2da] text-[#CC5500] focus:ring-[#CC5500]"
+        /> Full dashboard
+      </label>
+
+      <label
+        :if={@result.heatmap_path}
+        class="inline-flex items-center gap-1.5 text-[12.5px] text-[#344054]"
+      >
+        <input
+          type="checkbox"
+          data-export="heatmap"
+          checked
+          class="rounded border-[#cdd2da] text-[#CC5500] focus:ring-[#CC5500]"
+        /> Heatmap
+      </label>
+
+      <label
+        :if={@result.speed_profile_path}
+        class="inline-flex items-center gap-1.5 text-[12.5px] text-[#344054]"
+      >
+        <input
+          type="checkbox"
+          data-export="speed"
+          checked
+          class="rounded border-[#cdd2da] text-[#CC5500] focus:ring-[#CC5500]"
+        /> Speed profile
+      </label>
+
+      <button
+        type="button"
+        id="dashboard-export-btn"
+        phx-hook="DashboardExport"
+        data-capture="dashboard-capture"
+        data-name={Path.rootname(@video.filename)}
+        data-heatmap={@result.heatmap_path}
+        data-speed={@result.speed_profile_path}
+        class="ml-auto inline-flex items-center gap-1.5 rounded-[8px] bg-[#0f1729] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#1c2740]"
+      >
+        <.icon name="hero-arrow-down-tray-micro" class="size-4" />
+        <span data-label>Download (.zip)</span>
+      </button>
+    </div>
+
+    <div id="dashboard-capture">
+      <div :if={@result} class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <.stat_card
+          label="Distance traveled"
+          value={fmt(@result.distance_cm)}
+          unit="cm"
+          sub="Total path length"
+        />
+        <.stat_card
+          label="Mean speed"
+          value={fmt(@result.speed_mean_cm)}
+          unit="cm/s"
+          sub="Average over session"
+        />
+        <.stat_card
+          label="Median speed"
+          value={fmt(@result.speed_median_cm)}
+          unit="cm/s"
+          sub="Typical speed"
+        />
+        <.stat_card
+          label="Time in ROI"
+          value={fmt(Reporting.total_roi_seconds(@result))}
+          unit="s"
+          sub="Across all zones"
+        />
       </div>
 
-      <div class="mt-3 grid grid-cols-[1.4fr_1fr_1.6fr] gap-3 border-b border-[#f4f5f7] pb-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-        <div>Zone</div>
+      <div :if={@result} class="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <.stat_card
+          label="Max speed"
+          value={fmt(@result.speed_max_cm)}
+          unit="cm/s"
+          sub="Peak instantaneous"
+        />
+        <.stat_card
+          label="Thigmotaxis"
+          value={fmt(@result.thigmotaxis_pct)}
+          unit="%"
+          sub="Time near the wall"
+        />
+        <.stat_card
+          label="Path tortuosity"
+          value={fmt(@result.path_tortuosity)}
+          sub="Path length / displacement"
+        />
+        <.stat_card
+          label="Immobility"
+          value={fmt(@result.immobility_seconds)}
+          unit="s"
+          sub="Speed < 2 cm/s"
+        />
+      </div>
 
-        <div>Time</div>
-
-        <div>Share of session</div>
+      <div :if={@result} class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <.plot_card title="Occupancy heatmap" src={@result.heatmap_path} />
+        <.plot_card title="Speed profile" src={@result.speed_profile_path} />
       </div>
 
       <div
-        :for={rt <- @result.roi_times}
-        class="grid grid-cols-[1.4fr_1fr_1.6fr] items-center gap-3 border-b border-[#f4f5f7] py-2.5 last:border-0"
+        :if={@result && @result.roi_times != []}
+        class="mt-4 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
       >
-        <div class="text-[13px] font-medium text-[#0f1729]">{rt.roi.name}</div>
+        <div class="flex items-center justify-between">
+          <div class="text-[13px] font-bold text-[#0f1729]">Time in ROI zones</div>
 
-        <div class="font-data text-[12.5px] text-[#344054]">{fmt(rt.seconds)} s</div>
-
-        <div class="flex items-center gap-2">
-          <div class="h-2 flex-1 overflow-hidden rounded-full bg-[#f2f4f7]">
-            <div
-              class="h-full rounded-full bg-[#CC5500]"
-              style={"width:#{share_pct(rt.seconds, @video)}%"}
-            >
-            </div>
+          <div class="font-data text-[11.5px] text-[#8a93a3]">
+            total {fmt(Reporting.total_roi_seconds(@result))} s
           </div>
+        </div>
 
-          <span class="w-12 shrink-0 text-right font-data text-[11.5px] text-[#667085]">
-            {share_label(rt.seconds, @video)}
-          </span>
+        <div class="mt-3 grid grid-cols-[1.4fr_1fr_1.6fr] gap-3 border-b border-[#f4f5f7] pb-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+          <div>Zone</div>
+
+          <div>Time</div>
+
+          <div>Share of session</div>
+        </div>
+
+        <div
+          :for={rt <- @result.roi_times}
+          class="grid grid-cols-[1.4fr_1fr_1.6fr] items-center gap-3 border-b border-[#f4f5f7] py-2.5 last:border-0"
+        >
+          <div class="text-[13px] font-medium text-[#0f1729]">{rt.roi.name}</div>
+
+          <div class="font-data text-[12.5px] text-[#344054]">{fmt(rt.seconds)} s</div>
+
+          <div class="flex items-center gap-2">
+            <div class="h-2 flex-1 overflow-hidden rounded-full bg-[#f2f4f7]">
+              <div
+                class="h-full rounded-full bg-[#CC5500]"
+                style={"width:#{share_pct(rt.seconds, @video)}%"}
+              >
+              </div>
+            </div>
+
+            <span class="w-12 shrink-0 text-right font-data text-[11.5px] text-[#667085]">
+              {share_label(rt.seconds, @video)}
+            </span>
+          </div>
         </div>
       </div>
     </div>

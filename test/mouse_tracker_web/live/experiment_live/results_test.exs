@@ -48,6 +48,37 @@ defmodule MouseTrackerWeb.ExperimentLive.ResultsTest do
     assert html =~ "41.0"
   end
 
+  test "renders the image-export panel wired to the DashboardExport hook", %{
+    conn: conn,
+    user: user
+  } do
+    experiment = experiment_fixture(user)
+    cal = calibration_fixture(user)
+    video = video_fixture(experiment, cal, %{status: "done", filename: "m07.mp4"})
+
+    tracking_result_fixture(video, %{
+      heatmap_path: "/uploads/results/#{video.id}/heatmap.png",
+      speed_profile_path: "/uploads/results/#{video.id}/speed_profile.png"
+    })
+
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}/results")
+
+    assert has_element?(lv, "#dashboard-capture")
+
+    btn = element(lv, "#dashboard-export-btn") |> render()
+    assert btn =~ ~s(phx-hook="DashboardExport")
+    assert btn =~ ~s(data-capture="dashboard-capture")
+    # zip name derives from the filename without extension
+    assert btn =~ ~s(data-name="m07")
+    assert btn =~ "/uploads/results/#{video.id}/heatmap.png"
+    assert btn =~ "/uploads/results/#{video.id}/speed_profile.png"
+
+    # the three image checkboxes
+    assert has_element?(lv, "input[data-export='dashboard']")
+    assert has_element?(lv, "input[data-export='heatmap']")
+    assert has_element?(lv, "input[data-export='speed']")
+  end
+
   test "shows an empty state when the experiment has no analyzed videos", %{
     conn: conn,
     user: user
