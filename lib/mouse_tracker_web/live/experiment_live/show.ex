@@ -33,6 +33,10 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
      end)}
   end
 
+  def handle_event("export", _params, socket) do
+    {:noreply, put_flash(socket, :info, "Exportação de dados em breve.")}
+  end
+
   @impl true
   def handle_info({:status, video_id, status}, socket) do
     {:noreply,
@@ -71,6 +75,9 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
               {@experiment.description}
             </p>
           </div>
+          <.button size="sm" phx-click="export" class="shrink-0">
+            <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Exportar
+          </.button>
         </div>
 
         <div class="mt-5 grid grid-cols-2 divide-x divide-[#e7e9ee] overflow-hidden rounded-[13px] border border-[#e7e9ee] bg-white sm:grid-cols-4">
