@@ -72,6 +72,10 @@ defmodule MouseTrackerWeb.Router do
     end
 
     post "/users/update-password", UserSessionController, :update_password
+
+    # Data export is a plain HTTP download (LiveView can't stream a file to the
+    # browser), so it lives outside the live_session above.
+    get "/experiments/:id/export", ExportController, :experiment
   end
 
   scope "/", MouseTrackerWeb do

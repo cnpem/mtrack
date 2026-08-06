@@ -71,6 +71,20 @@ defmodule MouseTracker.Experiments do
   end
 
   @doc """
+  Loads one experiment (scoped to the user) for the data export, preloading each
+  video's `:subject`, `:calibration` and `:tracking_result` (with `roi_times:
+  :roi`). Same as `get_experiment_for_results!/2` but also preloads
+  `:calibration`, since the export can include calibration parameters as columns.
+  """
+  def get_experiment_for_export!(%Scope{user: user}, id) do
+    Repo.one!(
+      from e in Experiment,
+        where: e.id == ^id and e.user_id == ^user.id,
+        preload: [videos: [:subject, :calibration, tracking_result: [roi_times: :roi]]]
+    )
+  end
+
+  @doc """
   Subject is a reusable, user-owned resource (like Calibration/ROI) — it no
   longer belongs to a single experiment. "An experiment's subjects" means the
   distinct subjects its videos currently point at. Requires `:videos` (with
