@@ -7,7 +7,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
   use Phoenix.Component
 
   import MouseTrackerWeb.CoreComponents, only: [icon: 1]
-  import MouseTrackerWeb.Formatters, only: [stat_fmt: 1]
+  import MouseTrackerWeb.Formatters, only: [stat_fmt: 1, fmt: 1]
 
   @doc """
   A status pill for a video or an experiment's aggregate status.
@@ -121,6 +121,18 @@ defmodule MouseTrackerWeb.LocomoComponents do
   end
 
   def subject_color(_), do: "#98a2b3"
+
+  @doc """
+  A deterministic color for a subject `group`, hashed from the label — a
+  muted/dark palette that reads as distinct from the brighter `subject_color/1`
+  dots. `nil`/blank (no group) is neutral gray.
+  """
+  def group_color(name) when name in [nil, ""], do: "#98a2b3"
+
+  def group_color(name) do
+    palette = ~w(#111827 #92400e #065f46 #5b21b6 #9d174d)
+    Enum.at(palette, :erlang.phash2(name, length(palette)))
+  end
 
   @doc """
   Hand-rolled inline-SVG line+dot chart overlaying one or more metric trend
@@ -346,4 +358,271 @@ defmodule MouseTrackerWeb.LocomoComponents do
   end
 
   defp x_ticks(_n_max, _to_x), do: []
+
+  @doc """
+  Hand-rolled inline-SVG box plot: one box per category along the X axis, the
+  metric on Y. Each box draws Tukey whiskers, the interquartile box (translucent
+  fill in the category color), a **solid median line**, a **dashed mean line**,
+  outlier circles, and the underlying data points jittered on top (points with a
+  `:label` also get a small text label + `<title>` tooltip — the "named dots" of
+  the per-group view). No charting library and no JS hook: tooltips are native
+  SVG `<title>`.
+
+  `categories` is `[%{label:, color:, box:, points:}]` where `box` is a
+  `Reporting.boxplot_stats/1` map (non-nil) and each point is
+  `%{label: string | nil, value: number}` (with a `:exp` field optionally folded
+  into the tooltip). `log1p` rescales the Y axis with `log(1 + v)` (tick labels
+  stay in original units) to tame heavy-tailed metrics.
+  """
+  attr :id, :string, required: true
+  attr :categories, :list, required: true
+  attr :unit, :string, default: nil
+  attr :width, :integer, default: 720
+  attr :height, :integer, default: 260
+  attr :log1p, :boolean, default: false
+
+  def box_plot(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :chart,
+        build_box_chart(assigns.categories, assigns.width, assigns.height, assigns.log1p)
+      )
+
+    ~H"""
+    <div id={@id} class="relative">
+      <svg viewBox={"0 0 #{@width} #{@height}"} class="w-full" role="img">
+        <g :for={tick <- @chart.y_ticks}>
+          <line
+            x1={@chart.pad_left}
+            y1={tick.y}
+            x2={@width - @chart.pad_right}
+            y2={tick.y}
+            stroke="#f4f5f7"
+            stroke-width="1"
+          />
+          <text x={@chart.pad_left - 6} y={tick.y + 3} text-anchor="end" font-size="10" fill="#98a2b3">
+            {tick.label}
+          </text>
+        </g>
+
+        <text :if={@unit} x={@chart.pad_left} y="11" font-size="10" fill="#98a2b3">
+          {if @log1p, do: "#{@unit} (log1p)", else: @unit}
+        </text>
+
+        <line
+          x1={@chart.pad_left}
+          y1={@chart.pad_top}
+          x2={@chart.pad_left}
+          y2={@height - @chart.pad_bottom}
+          stroke="#e7e9ee"
+          stroke-width="1"
+        />
+        <line
+          x1={@chart.pad_left}
+          y1={@height - @chart.pad_bottom}
+          x2={@width - @chart.pad_right}
+          y2={@height - @chart.pad_bottom}
+          stroke="#e7e9ee"
+          stroke-width="1"
+        />
+
+        <g :for={b <- @chart.boxes}>
+          <!-- whisker stem + caps -->
+          <line
+            x1={b.cx}
+            y1={b.y_whisker_low}
+            x2={b.cx}
+            y2={b.y_whisker_high}
+            stroke={b.color}
+            stroke-width="1"
+          />
+          <line
+            x1={b.cx - b.box_w * 0.25}
+            y1={b.y_whisker_low}
+            x2={b.cx + b.box_w * 0.25}
+            y2={b.y_whisker_low}
+            stroke={b.color}
+            stroke-width="1"
+          />
+          <line
+            x1={b.cx - b.box_w * 0.25}
+            y1={b.y_whisker_high}
+            x2={b.cx + b.box_w * 0.25}
+            y2={b.y_whisker_high}
+            stroke={b.color}
+            stroke-width="1"
+          />
+          <!-- IQR box -->
+          <rect
+            x={b.cx - b.box_w / 2}
+            y={b.y_q3}
+            width={b.box_w}
+            height={max(b.y_q1 - b.y_q3, 0.5)}
+            fill={b.color}
+            fill-opacity="0.15"
+            stroke={b.color}
+            stroke-width="1.5"
+          />
+          <!-- median (solid) -->
+          <line
+            x1={b.cx - b.box_w / 2}
+            y1={b.y_median}
+            x2={b.cx + b.box_w / 2}
+            y2={b.y_median}
+            stroke={b.color}
+            stroke-width="2"
+          />
+          <!-- mean (dashed) -->
+          <line
+            x1={b.cx - b.box_w / 2}
+            y1={b.y_mean}
+            x2={b.cx + b.box_w / 2}
+            y2={b.y_mean}
+            stroke={b.color}
+            stroke-width="1.5"
+            stroke-dasharray="3 2"
+          />
+          <!-- outliers -->
+          <circle
+            :for={o <- b.outliers}
+            cx={b.cx}
+            cy={o.y}
+            r="2"
+            fill="none"
+            stroke={b.color}
+            stroke-width="1"
+          />
+          <!-- data points -->
+          <g :for={p <- b.points}>
+            <circle cx={p.x} cy={p.y} r="3" fill={b.color} fill-opacity="0.85">
+              <title>{p.tooltip}</title>
+            </circle>
+            <text :if={p.label} x={p.x + 5} y={p.y + 3} font-size="9" fill="#475467">{p.label}</text>
+          </g>
+
+          <text
+            x={b.cx}
+            y={@height - @chart.pad_bottom + 15}
+            text-anchor="middle"
+            font-size="10.5"
+            fill="#475467"
+          >
+            {b.label}
+          </text>
+        </g>
+      </svg>
+    </div>
+    """
+  end
+
+  defp build_box_chart(categories, w, h, log1p) do
+    tf = value_transform(log1p)
+    inv = value_inverse(log1p)
+
+    drawn =
+      categories
+      |> Enum.flat_map(fn c ->
+        [c.box.min, c.box.max, c.box.mean | Enum.map(c.points, & &1.value)]
+      end)
+      |> Enum.map(tf)
+
+    {min_t, max_t} = if drawn == [], do: {0.0, 1.0}, else: Enum.min_max(drawn)
+    span = if max_t == min_t, do: 1.0, else: max_t - min_t
+    min_t = min_t - span * 0.06
+    max_t = max_t + span * 0.06
+    range = max_t - min_t
+
+    pad_left = 44
+    pad_right = 12
+    pad_top = 12
+    pad_bottom = 34
+
+    n = length(categories)
+    slot_w = if n > 0, do: (w - pad_left - pad_right) / n, else: 0.0
+    box_w = min(46.0, slot_w * 0.5)
+
+    to_y_t = fn t -> h - pad_bottom - (t - min_t) / range * (h - pad_top - pad_bottom) end
+    to_y = fn value -> to_y_t.(tf.(value)) end
+    center_x = fn i -> pad_left + slot_w * (i + 0.5) end
+
+    boxes =
+      categories
+      |> Enum.with_index()
+      |> Enum.map(fn {c, i} ->
+        cx = center_x.(i)
+        b = c.box
+
+        pts =
+          c.points
+          |> Enum.with_index()
+          |> Enum.map(fn {p, j} ->
+            %{
+              x: Float.round(cx + jitter_offset(j, box_w), 1),
+              y: Float.round(to_y.(p.value), 1),
+              label: p.label,
+              tooltip: point_tooltip(p)
+            }
+          end)
+
+        %{
+          label: c.label,
+          color: c.color,
+          cx: Float.round(cx, 1),
+          box_w: Float.round(box_w, 1),
+          y_q1: Float.round(to_y.(b.q1), 1),
+          y_q3: Float.round(to_y.(b.q3), 1),
+          y_median: Float.round(to_y.(b.median), 1),
+          y_mean: Float.round(to_y.(b.mean), 1),
+          y_whisker_low: Float.round(to_y.(b.whisker_low), 1),
+          y_whisker_high: Float.round(to_y.(b.whisker_high), 1),
+          outliers: Enum.map(b.outliers, fn v -> %{y: Float.round(to_y.(v), 1), value: v} end),
+          points: pts
+        }
+      end)
+
+    %{
+      boxes: boxes,
+      pad_left: pad_left,
+      pad_right: pad_right,
+      pad_top: pad_top,
+      pad_bottom: pad_bottom,
+      y_ticks: box_y_ticks(min_t, max_t, inv, to_y_t)
+    }
+  end
+
+  # log1p transform is safe for the (non-negative) locomotion metrics; the
+  # `max(_, ...)` guard keeps `log/1` defined even if a value ever dips below 0.
+  defp value_transform(true), do: fn v -> :math.log(max(1 + v, 1.0e-9)) end
+  defp value_transform(false), do: fn v -> v * 1.0 end
+
+  defp value_inverse(true), do: fn t -> :math.exp(t) - 1 end
+  defp value_inverse(false), do: fn t -> t end
+
+  # Deterministic horizontal spread so points in a category don't stack on one
+  # vertical line (and re-render identically across patches).
+  defp jitter_offset(j, box_w) do
+    (:erlang.phash2(j, 1000) / 1000 - 0.5) * box_w * 0.7
+  end
+
+  defp point_tooltip(%{label: nil, value: value}), do: "#{fmt(value)}"
+
+  defp point_tooltip(%{label: label, value: value} = p) do
+    exp = if p[:exp], do: " · #{p.exp}", else: ""
+    "#{label}#{exp}: #{fmt(value)}"
+  end
+
+  defp box_y_ticks(min_t, max_t, inv, to_y_t) do
+    range = max_t - min_t
+    decimals = tick_decimals(abs(inv.(max_t) - inv.(min_t)))
+
+    for i <- 0..(@y_tick_count - 1) do
+      t = if range == 0, do: min_t, else: min_t + i / (@y_tick_count - 1) * range
+
+      %{
+        y: Float.round(to_y_t.(t), 1),
+        label: :erlang.float_to_binary(inv.(t) * 1.0, decimals: decimals)
+      }
+    end
+  end
 end

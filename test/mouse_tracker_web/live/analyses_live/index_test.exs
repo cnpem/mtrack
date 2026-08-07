@@ -37,7 +37,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       {:ok, _lv, html} = live(conn, ~p"/analyses?subjects=#{subject.id}")
 
       assert html =~ subject.name
-      assert html =~ "No analyzed sessions in this scope"
+      assert html =~ "No analyzed sessions have a value for this metric yet"
     end
 
     test "renders the trend chart and a chronologically-ordered sessions table", %{
@@ -269,9 +269,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
 
       html =
         lv
-        |> form("form[phx-change='set_scope_experiment']", %{
-          "scope_experiment" => to_string(experiment.id)
-        })
+        |> form("#analyses-experiment", %{"experiment" => to_string(experiment.id)})
         |> render_change()
 
       assert html =~ "a.mp4"
@@ -428,6 +426,80 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
         |> render_click()
 
       refute html =~ "Control (mean)"
+    end
+
+    test "adding a group auto-adds its member subjects as chips", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/analyses?subjects=")
+
+      html =
+        lv
+        |> form("#analyses-group-picker", %{"group" => "Control"})
+        |> render_change()
+
+      # both members of "Control" are now selected subjects (chips)
+      assert html =~ ~s(phx-value-subject)
+      assert html =~ "M-01"
+      assert html =~ "M-02"
+    end
+
+    test "removing a group subtracts its auto-added subjects", %{conn: conn, s1: s1, s2: s2} do
+      {:ok, lv, html} =
+        live(conn, "/analyses?subjects=#{s1.id},#{s2.id}&groups=Control")
+
+      assert html =~ "b1.mp4"
+
+      html =
+        lv
+        |> element("button[phx-value-group='Control']")
+        |> render_click()
+
+      # both subjects were members of the removed group -> nothing left selected
+      assert html =~ "No subject or group selected"
+    end
+  end
+
+  describe "box views" do
+    setup %{user: user} do
+      s1 = subject_fixture(user, %{name: "M-01", group: "Control"})
+      s2 = subject_fixture(user, %{name: "M-02", group: "CNO"})
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+
+      for {s, dists} <- [{s1, [10.0, 20.0, 30.0]}, {s2, [40.0, 50.0]}] do
+        for {d, i} <- Enum.with_index(dists) do
+          v =
+            video_fixture(experiment, cal, %{
+              status: "done",
+              subject_id: s.id,
+              filename: "#{s.name}-#{i}.mp4"
+            })
+
+          tracking_result_fixture(v, %{distance_cm: d})
+        end
+      end
+
+      %{s1: s1, s2: s2, experiment: experiment}
+    end
+
+    test "the per-subject view renders one box per subject", %{conn: conn, s1: s1, s2: s2} do
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id},#{s2.id}")
+
+      html = lv |> element("button[phx-value-view='subject_box']") |> render_click()
+
+      assert html =~ ~s(id="analyses-subject-box")
+      assert html =~ "median (solid), mean (dashed)"
+    end
+
+    test "the per-group view renders and log1p toggles", %{conn: conn, s1: s1, s2: s2} do
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id},#{s2.id}&view=group_box")
+
+      html = render(lv)
+      assert html =~ ~s(id="analyses-group-box")
+      assert html =~ "log1p off"
+
+      html = lv |> element("button", "log1p off") |> render_click()
+      assert html =~ "log1p on"
+      assert html =~ "(log1p)"
     end
   end
 end
