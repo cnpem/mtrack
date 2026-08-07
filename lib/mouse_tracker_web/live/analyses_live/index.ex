@@ -50,7 +50,6 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Analyses")
-     |> assign(:subjects, Subjects.list_subjects(scope))
      |> assign(:experiments, Experiments.list_experiments(scope))}
   end
 
@@ -61,7 +60,11 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
 
   defp assign_analysis(socket, params) do
     scope = socket.assigns.current_scope
-    all_subjects = socket.assigns.subjects
+    # Reloaded on every params change (not memoized at mount) so a subject's
+    # `group` edited elsewhere — e.g. Pipeline Settings — is reflected on the
+    # next interaction, instead of being frozen to whatever it was when the page
+    # first mounted. Cheap, indexed query.
+    all_subjects = Subjects.list_subjects(scope)
 
     experiment_id = parse_int(params["experiment"])
     view = if params["view"] in @views, do: params["view"], else: "trend"
@@ -94,6 +97,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
       end)
 
     socket
+    |> assign(:subjects, all_subjects)
     |> assign(:experiment_id, experiment_id)
     |> assign(:view, view)
     |> assign(:metric, metric)

@@ -514,6 +514,31 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       assert html =~ "(log1p)"
     end
 
+    test "reflects a subject's group edited after the page mounted (not frozen to mount)", %{
+      conn: conn,
+      user: user
+    } do
+      s = subject_fixture(user, %{name: "M-09"})
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+      v = video_fixture(experiment, cal, %{status: "done", subject_id: s.id, filename: "a.mp4"})
+      tracking_result_fixture(v, %{distance_cm: 10.0})
+
+      # A group name no other fixture uses, so it can only appear once the
+      # subject actually carries it (not from some other subject's dropdown).
+      {:ok, lv, html} = live(conn, "/analyses?subjects=#{s.id}&view=subject_box")
+      refute html =~ "Cohort-Z"
+
+      # Simulate the group being set elsewhere (e.g. Pipeline Settings) while the
+      # Analyses page stays mounted.
+      scope = user_scope_fixture(user)
+      {:ok, _} = MouseTracker.Experiments.Subjects.update_subject(scope, s, %{group: "Cohort-Z"})
+
+      # Any interaction re-runs handle_params -> the group legend now shows it.
+      html = lv |> element("button[phx-value-view='subject_box']") |> render_click()
+      assert html =~ "Cohort-Z"
+    end
+
     test "the speed-distribution view boxes each subject's pooled per-frame speeds", %{
       conn: conn,
       user: user
