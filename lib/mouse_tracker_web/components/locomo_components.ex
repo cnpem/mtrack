@@ -363,10 +363,11 @@ defmodule MouseTrackerWeb.LocomoComponents do
   Hand-rolled inline-SVG box plot: one box per category along the X axis, the
   metric on Y. Each box draws Tukey whiskers, the interquartile box (translucent
   fill in the category color), a **solid median line**, a **dashed mean line**,
-  outlier circles, and the underlying data points jittered on top (points with a
-  `:label` also get a small text label + `<title>` tooltip — the "named dots" of
-  the per-group view). No charting library and no JS hook: tooltips are native
-  SVG `<title>`.
+  outlier circles, and the underlying data points on top, each with a `<title>`
+  tooltip. Points are jittered by default (`jitter: false` lines them up on the
+  category axis instead); their names stay in the tooltip unless
+  `show_point_labels` is set. No charting library and no JS hook: tooltips are
+  native SVG `<title>`.
 
   `categories` is `[%{label:, color:, box:, points:}]` where `box` is a
   `Reporting.boxplot_stats/1` map (non-nil) and each point is
@@ -380,13 +381,21 @@ defmodule MouseTrackerWeb.LocomoComponents do
   attr :width, :integer, default: 720
   attr :height, :integer, default: 260
   attr :log1p, :boolean, default: false
+  attr :jitter, :boolean, default: true
+  attr :show_point_labels, :boolean, default: false
 
   def box_plot(assigns) do
     assigns =
       assign(
         assigns,
         :chart,
-        build_box_chart(assigns.categories, assigns.width, assigns.height, assigns.log1p)
+        build_box_chart(
+          assigns.categories,
+          assigns.width,
+          assigns.height,
+          assigns.log1p,
+          assigns.jitter
+        )
       )
 
     ~H"""
@@ -498,7 +507,15 @@ defmodule MouseTrackerWeb.LocomoComponents do
             <circle cx={p.x} cy={p.y} r="3" fill={b.color} fill-opacity="0.85">
               <title>{p.tooltip}</title>
             </circle>
-            <text :if={p.label} x={p.x + 5} y={p.y + 3} font-size="9" fill="#475467">{p.label}</text>
+            <text
+              :if={@show_point_labels and p.label}
+              x={p.x + 5}
+              y={p.y + 3}
+              font-size="9"
+              fill="#475467"
+            >
+              {p.label}
+            </text>
           </g>
 
           <text
@@ -516,7 +533,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
     """
   end
 
-  defp build_box_chart(categories, w, h, log1p) do
+  defp build_box_chart(categories, w, h, log1p, jitter) do
     tf = value_transform(log1p)
     inv = value_inverse(log1p)
 
@@ -558,7 +575,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
           |> Enum.with_index()
           |> Enum.map(fn {p, j} ->
             %{
-              x: Float.round(cx + jitter_offset(j, box_w), 1),
+              x: Float.round(cx + jitter_offset(j, box_w, jitter), 1),
               y: Float.round(to_y.(p.value), 1),
               label: p.label,
               tooltip: point_tooltip(p)
@@ -600,8 +617,11 @@ defmodule MouseTrackerWeb.LocomoComponents do
   defp value_inverse(false), do: fn t -> t end
 
   # Deterministic horizontal spread so points in a category don't stack on one
-  # vertical line (and re-render identically across patches).
-  defp jitter_offset(j, box_w) do
+  # vertical line (and re-render identically across patches). With `jitter:
+  # false` every point lands on the category's center axis (per-group view).
+  defp jitter_offset(_j, _box_w, false), do: 0.0
+
+  defp jitter_offset(j, box_w, true) do
     (:erlang.phash2(j, 1000) / 1000 - 0.5) * box_w * 0.7
   end
 

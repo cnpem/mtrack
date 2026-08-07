@@ -487,19 +487,54 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       html = lv |> element("button[phx-value-view='subject_box']") |> render_click()
 
       assert html =~ ~s(id="analyses-subject-box")
-      assert html =~ "median (solid), mean (dashed)"
+      # median/mean style legend + a group color legend (subjects colored by group)
+      assert html =~ "Median"
+      assert html =~ "Mean"
+      assert html =~ "Groups"
+      assert html =~ "Control"
+      assert html =~ "CNO"
     end
 
-    test "the per-group view renders and log1p toggles", %{conn: conn, s1: s1, s2: s2} do
+    test "the per-group view renders, hides point names, and log1p toggles", %{
+      conn: conn,
+      s1: s1,
+      s2: s2
+    } do
       {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id},#{s2.id}&view=group_box")
 
       html = render(lv)
       assert html =~ ~s(id="analyses-group-box")
+      assert html =~ "hover a point for its subject"
+      # subject names live only in the point tooltip (<title>), not as a visible label
+      assert html =~ "<title>M-01"
       assert html =~ "log1p off"
 
       html = lv |> element("button", "log1p off") |> render_click()
       assert html =~ "log1p on"
       assert html =~ "(log1p)"
+    end
+
+    test "an export button targets the chart card when a chart is present", %{
+      conn: conn,
+      s1: s1,
+      s2: s2
+    } do
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id},#{s2.id}&view=subject_box")
+
+      assert has_element?(lv, "#analyses-export[data-capture='analyses-chart-card']")
+      assert has_element?(lv, "#analyses-chart-card")
+      # the filename base encodes the current view + metric
+      assert lv
+             |> element("#analyses-export")
+             |> render() =~ ~s(data-name="analyses-subject-box-distance_cm")
+    end
+
+    test "the export button is hidden when the view has no chart", %{conn: conn, s1: s1} do
+      # thigmotaxis is nil on these fixtures -> nothing to chart -> no export
+      {:ok, lv, _html} =
+        live(conn, "/analyses?subjects=#{s1.id}&view=subject_box&metric=thigmotaxis_pct")
+
+      refute has_element?(lv, "#analyses-export")
     end
   end
 end

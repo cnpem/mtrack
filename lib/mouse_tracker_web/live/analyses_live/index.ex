@@ -103,6 +103,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     |> assign(:subject_categories, subject_categories(per_subject, metric))
     |> assign(:group_categories, group_categories(per_subject, metric))
     |> assign(:ungrouped_selected?, Enum.any?(selected_subjects, &(&1.group in [nil, ""])))
+    |> assign(:group_legend, group_legend(selected_subjects))
     |> assign(:total_sessions, Enum.sum_by(per_subject, &length(&1.videos)))
     |> assign(:table_rows, table_rows(per_subject))
   end
@@ -190,6 +191,19 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     end)
     |> Enum.reject(&(&1.box == nil))
     |> Enum.sort_by(& &1.label)
+  end
+
+  # The distinct groups among the selected subjects, each with the swatch color
+  # used to fill its boxes in the per-subject view — drives that view's legend.
+  # `nil`/blank group is shown as "No group", sorted last.
+  defp group_legend(selected_subjects) do
+    selected_subjects
+    |> Enum.map(& &1.group)
+    |> Enum.uniq()
+    |> Enum.sort_by(fn g -> {g in [nil, ""], g} end)
+    |> Enum.map(fn g ->
+      %{label: if(g in [nil, ""], do: "No group", else: g), color: group_color(g)}
+    end)
   end
 
   # --- Selection parsing ---
@@ -503,9 +517,25 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
             >
               log1p {if @log1p, do: "on", else: "off"}
             </button>
+
+            <button
+              :if={chart_present?(assigns)}
+              id="analyses-export"
+              type="button"
+              phx-hook="ChartExport"
+              data-capture="analyses-chart-card"
+              data-name={export_name(@view, @metric)}
+              class="ml-auto inline-flex items-center gap-1.5 rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[#667085] transition-colors hover:text-[#0f1729] disabled:opacity-60"
+            >
+              <.icon name="hero-arrow-down-tray" class="size-3.5" />
+              <span data-label>Export PNG</span>
+            </button>
           </div>
 
-          <div class="mt-3 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+          <div
+            id="analyses-chart-card"
+            class="mt-3 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
+          >
             <div class="text-[13px] font-bold text-[#0f1729]">
               {metric_label(@metric)} {view_suffix(@view)}
             </div>
@@ -544,6 +574,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 categories={@group_categories}
                 unit={metric_unit(@metric)}
                 log1p={@log1p}
+                jitter={false}
               />
               <.chart_empty
                 :if={@group_categories == []}
@@ -557,12 +588,49 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               </p>
             </div>
 
-            <p
+            <div
               :if={@view != "trend"}
-              class="mt-3 text-[11px] text-[#98a2b3]"
+              class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#667085]"
             >
-              Box: median (solid), mean (dashed), IQR box, whiskers at 1.5·IQR, dots = data points.
-            </p>
+              <span class="inline-flex items-center gap-1.5">
+                <svg width="20" height="6" viewBox="0 0 20 6" aria-hidden="true">
+                  <line x1="0" y1="3" x2="20" y2="3" stroke="#0f1729" stroke-width="2" />
+                </svg>
+                Median
+              </span>
+              <span class="inline-flex items-center gap-1.5">
+                <svg width="20" height="6" viewBox="0 0 20 6" aria-hidden="true">
+                  <line
+                    x1="0"
+                    y1="3"
+                    x2="20"
+                    y2="3"
+                    stroke="#0f1729"
+                    stroke-width="1.5"
+                    stroke-dasharray="3 2"
+                  />
+                </svg>
+                Mean
+              </span>
+              <span class="text-[#98a2b3]">· whiskers at 1.5·IQR</span>
+
+              <span :if={@view == "group_box"} class="text-[#98a2b3]">
+                · hover a point for its subject
+              </span>
+
+              <span
+                :if={@view == "subject_box" and @group_legend != []}
+                class="ml-auto inline-flex flex-wrap items-center gap-x-3 gap-y-1"
+              >
+                <span class="text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
+                  Groups
+                </span>
+                <span :for={g <- @group_legend} class="inline-flex items-center gap-1.5">
+                  <span class="size-2.5 rounded-[3px]" style={"background:#{g.color}"}></span>
+                  {g.label}
+                </span>
+              </span>
+            </div>
           </div>
 
           <div
@@ -643,4 +711,12 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   defp view_suffix("trend"), do: "over time"
   defp view_suffix("subject_box"), do: "by subject"
   defp view_suffix("group_box"), do: "by group"
+
+  # Whether the current view actually has a chart rendered (so the Export button
+  # only appears when there's something to capture).
+  defp chart_present?(%{view: "trend", trend_series: series}), do: series != []
+  defp chart_present?(%{view: "subject_box", subject_categories: cats}), do: cats != []
+  defp chart_present?(%{view: "group_box", group_categories: cats}), do: cats != []
+
+  defp export_name(view, metric), do: "analyses-#{String.replace(view, "_", "-")}-#{metric}"
 end
