@@ -514,6 +514,41 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       assert html =~ "(log1p)"
     end
 
+    test "the speed-distribution view boxes each subject's pooled per-frame speeds", %{
+      conn: conn,
+      user: user
+    } do
+      s = subject_fixture(user, %{name: "S-1", group: "Control"})
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+
+      v1 = video_fixture(experiment, cal, %{status: "done", subject_id: s.id, filename: "a.mp4"})
+      v2 = video_fixture(experiment, cal, %{status: "done", subject_id: s.id, filename: "b.mp4"})
+      tracking_result_fixture(v1, %{speed_samples: [1.0, 2.0, 3.0, 4.0]})
+      tracking_result_fixture(v2, %{speed_samples: [5.0, 6.0]})
+
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s.id}&view=speed_box")
+
+      html = render(lv)
+      assert html =~ ~s(id="analyses-speed-box")
+      assert html =~ "Speed distribution by subject"
+      # fixed to speed: the metric selector is hidden, unit is cm/s, group legend shown
+      refute html =~ ~s(phx-click="select_metric")
+      assert html =~ "cm/s"
+      assert html =~ "Groups"
+    end
+
+    test "the speed view shows a hint when no per-frame samples exist", %{
+      conn: conn,
+      s1: s1
+    } do
+      # box-views setup creates tracking results without speed_samples
+      {:ok, _lv, html} = live(conn, "/analyses?subjects=#{s1.id}&view=speed_box")
+
+      assert html =~ "No per-frame speed data"
+      refute html =~ ~s(id="analyses-speed-box")
+    end
+
     test "an export button targets the chart card when a chart is present", %{
       conn: conn,
       s1: s1,

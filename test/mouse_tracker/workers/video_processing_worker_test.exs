@@ -64,7 +64,8 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
            "speed_max_cm" => 10.0,
            "thigmotaxis_pct" => 33.3,
            "immobility_seconds" => 5.0,
-           "path_tortuosity" => 1.42
+           "path_tortuosity" => 1.42,
+           "speed_samples" => [1.0, 2.0, 3.0]
          }}
       end)
 
@@ -80,6 +81,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorkerTest do
       assert tracking_result.speed_mean_cm == 2.46
       assert tracking_result.speed_median_px == 11.0
       assert tracking_result.speed_median_cm == 2.2
+      assert tracking_result.speed_samples == [1.0, 2.0, 3.0]
 
       assert_receive {:processing_done, video_id}
       assert video_id == video.id

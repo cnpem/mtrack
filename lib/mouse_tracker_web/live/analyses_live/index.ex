@@ -1,7 +1,7 @@
 defmodule MouseTrackerWeb.AnalysesLive.Index do
   @moduledoc """
   Analyses (`/analyses`): compare a tracked metric across a Subject's sessions
-  (Subject is a reusable, shared resource — see CLAUDE.md), with three
+  (Subject is a reusable, shared resource — see CLAUDE.md), with four
   switchable views:
 
     * **Trend** — the metric over each subject's chronological "done" sessions,
@@ -12,6 +12,9 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     * **Per group (box)** — one boxplot per group, with a named dot per
       (subject, experiment) pair (each dot = a subject's mean within one
       experiment).
+    * **Speed dist. (box)** — one boxplot per subject built from the *per-frame*
+      speed samples (`tracking_result.speed_samples`) pooled across its
+      sessions — the true instantaneous-speed distribution, colored by group.
 
   Filters are a hierarchy: **Experiment** is the first-class lens; picking a
   **Group** bulk-adds every member subject in that experiment; **Subjects** are
@@ -38,7 +41,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     {"immobility_seconds", "Immobility", "s"}
   ]
   @metric_keys Enum.map(@metrics, &elem(&1, 0))
-  @views ~w(trend subject_box group_box)
+  @views ~w(trend subject_box group_box speed_box)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -102,6 +105,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     |> assign(:trend_series, subject_series(per_subject) ++ group_series(per_group))
     |> assign(:subject_categories, subject_categories(per_subject, metric))
     |> assign(:group_categories, group_categories(per_subject, metric))
+    |> assign(:speed_categories, speed_categories(per_subject))
     |> assign(:ungrouped_selected?, Enum.any?(selected_subjects, &(&1.group in [nil, ""])))
     |> assign(:group_legend, group_legend(selected_subjects))
     |> assign(:total_sessions, Enum.sum_by(per_subject, &length(&1.videos)))
@@ -157,6 +161,30 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
         color: group_color(s.group),
         box: Reporting.boxplot_stats(values),
         points: Enum.map(values, &%{label: nil, value: &1})
+      }
+    end)
+    |> Enum.reject(&(&1.box == nil))
+  end
+
+  # One box per subject built from the *per-frame* speed samples pooled across
+  # that subject's sessions (`tracking_result.speed_samples`) — the true speed
+  # distribution, not session-to-session means. Colored by group; no data dots
+  # (thousands of frames) and no outlier markers, just the box + whiskers.
+  # Subjects whose sessions predate speed-sample capture contribute nothing.
+  defp speed_categories(per_subject) do
+    per_subject
+    |> Enum.map(fn %{subject: s, videos: videos} ->
+      samples =
+        videos
+        |> Enum.map(& &1.tracking_result)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.flat_map(&(&1.speed_samples || []))
+
+      %{
+        label: s.name,
+        color: group_color(s.group),
+        box: Reporting.boxplot_stats(samples),
+        points: []
       }
     end)
     |> Enum.reject(&(&1.box == nil))
@@ -489,7 +517,10 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           </div>
 
           <div class="mt-3 flex flex-wrap items-center gap-3">
-            <div class="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
+            <div
+              :if={@view != "speed_box"}
+              class="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1"
+            >
               <button
                 :for={{key, label, _unit} <- metrics()}
                 type="button"
@@ -537,7 +568,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
             class="mt-3 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]"
           >
             <div class="text-[13px] font-bold text-[#0f1729]">
-              {metric_label(@metric)} {view_suffix(@view)}
+              {chart_title(@view, @metric)}
             </div>
 
             <div :if={@view == "trend"} class="mt-4">
@@ -588,6 +619,21 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               </p>
             </div>
 
+            <div :if={@view == "speed_box"} class="mt-4">
+              <.box_plot
+                :if={@speed_categories != []}
+                id="analyses-speed-box"
+                categories={@speed_categories}
+                unit="cm/s"
+                log1p={@log1p}
+                show_outliers={false}
+              />
+              <.chart_empty
+                :if={@speed_categories == []}
+                message="No per-frame speed data for the selected subjects yet — re-process their videos to populate the speed distribution."
+              />
+            </div>
+
             <div
               :if={@view != "trend"}
               class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#667085]"
@@ -619,7 +665,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               </span>
 
               <span
-                :if={@view == "subject_box" and @group_legend != []}
+                :if={@view in ["subject_box", "speed_box"] and @group_legend != []}
                 class="ml-auto inline-flex flex-wrap items-center gap-x-3 gap-y-1"
               >
                 <span class="text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
@@ -703,7 +749,14 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   # --- helpers ---
 
   defp metrics, do: @metrics
-  defp views, do: [{"trend", "Trend"}, {"subject_box", "Per subject"}, {"group_box", "Per group"}]
+
+  defp views,
+    do: [
+      {"trend", "Trend"},
+      {"subject_box", "Per subject"},
+      {"group_box", "Per group"},
+      {"speed_box", "Speed dist."}
+    ]
 
   defp metric_label(key), do: metrics() |> Enum.find(&(elem(&1, 0) == key)) |> elem(1)
   defp metric_unit(key), do: metrics() |> Enum.find(&(elem(&1, 0) == key)) |> elem(2)
@@ -711,12 +764,20 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   defp view_suffix("trend"), do: "over time"
   defp view_suffix("subject_box"), do: "by subject"
   defp view_suffix("group_box"), do: "by group"
+  defp view_suffix("speed_box"), do: "by subject"
+
+  # The metric selector is hidden on the speed view (it's always speed), so its
+  # title is fixed rather than derived from the selected metric.
+  defp chart_title("speed_box", _metric), do: "Speed distribution by subject"
+  defp chart_title(view, metric), do: "#{metric_label(metric)} #{view_suffix(view)}"
 
   # Whether the current view actually has a chart rendered (so the Export button
   # only appears when there's something to capture).
   defp chart_present?(%{view: "trend", trend_series: series}), do: series != []
   defp chart_present?(%{view: "subject_box", subject_categories: cats}), do: cats != []
   defp chart_present?(%{view: "group_box", group_categories: cats}), do: cats != []
+  defp chart_present?(%{view: "speed_box", speed_categories: cats}), do: cats != []
 
+  defp export_name("speed_box", _metric), do: "analyses-speed-distribution"
   defp export_name(view, metric), do: "analyses-#{String.replace(view, "_", "-")}-#{metric}"
 end

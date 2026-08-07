@@ -16,6 +16,7 @@ defmodule MouseTracker.Experiments.TrackingResult do
     field :path_tortuosity, :float
     field :speed_max_px, :float
     field :speed_max_cm, :float
+    field :speed_samples, {:array, :float}
     field :heatmap_path, :string
     field :speed_profile_path, :string
     field :processed_at, :utc_datetime
@@ -37,6 +38,7 @@ defmodule MouseTracker.Experiments.TrackingResult do
       :speed_median_cm,
       :speed_max_px,
       :speed_max_cm,
+      :speed_samples,
       :thigmotaxis_pct,
       :immobility_seconds,
       :path_tortuosity,

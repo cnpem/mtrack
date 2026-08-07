@@ -383,6 +383,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
   attr :log1p, :boolean, default: false
   attr :jitter, :boolean, default: true
   attr :show_point_labels, :boolean, default: false
+  attr :show_outliers, :boolean, default: true
 
   def box_plot(assigns) do
     assigns =
@@ -494,7 +495,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
           />
           <!-- outliers -->
           <circle
-            :for={o <- b.outliers}
+            :for={o <- if(@show_outliers, do: b.outliers, else: [])}
             cx={b.cx}
             cy={o.y}
             r="2"
