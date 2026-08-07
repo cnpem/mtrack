@@ -364,6 +364,154 @@ defmodule MouseTracker.Experiments.Reporting do
     end
   end
 
+  @doc """
+  The five-number summary plus mean and Tukey whiskers/outliers for a list of
+  numbers — the numeric backing for the Analyses box plots (SVG geometry lives
+  in `LocomoComponents.box_plot/1`, this is the pure, testable stats layer).
+
+  Quartiles use linear interpolation (the "type 7"/NumPy default). Whiskers
+  reach the furthest value within `1.5·IQR` of the quartiles; anything beyond
+  is an `outlier`. Returns `nil` for an empty list; a single value yields a
+  degenerate box (every quartile equals that value, `sd` via `mean_and_sd/1` is
+  `nil`).
+  """
+  def boxplot_stats([]), do: nil
+
+  def boxplot_stats(values) do
+    sorted = Enum.sort(values)
+    {mean, _sd} = mean_and_sd(sorted)
+    q1 = quantile(sorted, 0.25)
+    median = quantile(sorted, 0.5)
+    q3 = quantile(sorted, 0.75)
+    iqr = q3 - q1
+    low_fence = q1 - 1.5 * iqr
+    high_fence = q3 + 1.5 * iqr
+
+    inliers = Enum.filter(sorted, &(&1 >= low_fence and &1 <= high_fence))
+    outliers = Enum.filter(sorted, &(&1 < low_fence or &1 > high_fence))
+
+    {whisker_low, whisker_high} =
+      case inliers do
+        [] -> {List.first(sorted), List.last(sorted)}
+        _ -> {List.first(inliers), List.last(inliers)}
+      end
+
+    %{
+      n: length(sorted),
+      min: List.first(sorted),
+      max: List.last(sorted),
+      q1: q1,
+      median: median,
+      q3: q3,
+      mean: mean,
+      whisker_low: whisker_low,
+      whisker_high: whisker_high,
+      outliers: outliers
+    }
+  end
+
+  # Linear-interpolated quantile (type 7). `sorted` must be ascending.
+  defp quantile(sorted, q) do
+    n = length(sorted)
+    pos = (n - 1) * q
+    lo = trunc(:math.floor(pos))
+    hi = trunc(:math.ceil(pos))
+    lo_val = Enum.at(sorted, lo)
+    hi_val = Enum.at(sorted, hi)
+    lo_val + (hi_val - lo_val) * (pos - lo)
+  end
+
+  @doc """
+  Just the metric values (nil-filtered) from `metric_series/2` — the per-session
+  distribution feeding one subject's box in the Analyses "Per subject" view.
+  """
+  def metric_values(videos, metric_key) do
+    videos |> metric_series(metric_key) |> Enum.map(& &1.value)
+  end
+
+  @doc """
+  For one subject's `"done"` videos (each with `:experiment`/`:tracking_result`
+  preloaded, per `subject_result_videos/3`), the mean of `metric_key` per
+  experiment — one entry per experiment the subject has a valued session in.
+  Backs the Analyses "Per group" box, where each (subject, experiment) pair is a
+  single named dot. Returns `[%{experiment:, value:}]`.
+  """
+  def per_experiment_means(videos, metric_key) do
+    metric_atom = String.to_existing_atom(metric_key)
+
+    videos
+    |> Enum.filter(&(&1.tracking_result != nil))
+    |> Enum.map(fn v -> {v.experiment, Map.get(v.tracking_result, metric_atom)} end)
+    |> Enum.reject(fn {_e, val} -> is_nil(val) end)
+    |> Enum.group_by(fn {e, _val} -> e.id end)
+    |> Enum.map(fn {_eid, pairs} ->
+      exp = pairs |> List.first() |> elem(0)
+      vals = Enum.map(pairs, &elem(&1, 1))
+      %{experiment: exp, value: Enum.sum(vals) / length(vals)}
+    end)
+  end
+
+  @doc """
+  Distinct subjects with at least one `"done"` video in the given experiment
+  scope (`experiment_id = nil` → any of the user's experiments), sorted by name.
+  The mirror of `subject_experiments/2` — used to scope the Analyses subject
+  picker to the selected experiment.
+  """
+  def experiment_subjects(%Scope{user: user}, experiment_id \\ nil) do
+    from(v in Video,
+      join: e in assoc(v, :experiment),
+      join: s in assoc(v, :subject),
+      where: e.user_id == ^user.id and v.status == "done",
+      select: s
+    )
+    |> scope_experiment(experiment_id)
+    |> Repo.all()
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  @doc """
+  Distinct non-blank subject `group` labels present among subjects with a
+  `"done"` video in the given experiment scope — scopes the Analyses group
+  picker to the selected experiment.
+  """
+  def experiment_groups(%Scope{user: user}, experiment_id \\ nil) do
+    from(v in Video,
+      join: e in assoc(v, :experiment),
+      join: s in assoc(v, :subject),
+      where:
+        e.user_id == ^user.id and v.status == "done" and not is_nil(s.group) and s.group != "",
+      distinct: true,
+      select: s.group
+    )
+    |> scope_experiment(experiment_id)
+    |> Repo.all()
+    |> Enum.sort()
+  end
+
+  @doc """
+  Subjects whose `group` matches `group_name` and that have a `"done"` video in
+  the given experiment scope — the members auto-added when a group is picked on
+  the Analyses page. Sorted by name.
+  """
+  def experiment_group_members(%Scope{user: user}, group_name, experiment_id \\ nil) do
+    from(v in Video,
+      join: e in assoc(v, :experiment),
+      join: s in assoc(v, :subject),
+      where: e.user_id == ^user.id and s.group == ^group_name and v.status == "done",
+      select: s
+    )
+    |> scope_experiment(experiment_id)
+    |> Repo.all()
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  defp scope_experiment(query, nil), do: query
+
+  defp scope_experiment(query, experiment_id),
+    do: where(query, [v], v.experiment_id == ^experiment_id)
+
   defp roi_zone_aggregate(videos_with_results) do
     videos_with_results
     |> Enum.flat_map(fn video ->

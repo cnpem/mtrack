@@ -16,6 +16,22 @@ from . import analyzer
 from . import metrics
 
 
+def _downsample(seq, cap=2000):
+    """Evenly-strided subsample of ``seq`` to at most ``cap`` values (rounded).
+
+    Preserves the overall shape of the distribution while bounding the size of
+    the persisted per-frame speed array — a boxplot only needs the shape, not
+    every frame.
+    """
+    n = len(seq)
+    if n == 0:
+        return []
+    if n <= cap:
+        return [round(float(v), 2) for v in seq]
+    step = n / cap
+    return [round(float(seq[int(i * step)]), 2) for i in range(cap)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--video", help="path to the video file")
@@ -161,6 +177,10 @@ def _run_headless(json_str):
         "thigmotaxis_pct":    m["thigmotaxis_pct"],
         "frames_into_roi":    list(frames_into_roi),
         "time_into_roi_s":    [round(f / fps, 2) for f in frames_into_roi],
+        # Downsampled per-frame speeds (cm/s) for the Analyses "Speed
+        # distribution" boxplot — capped so a long recording doesn't bloat the
+        # result line / DB row.
+        "speed_samples":      _downsample(m["speeds_cm"]),
     }), flush=True)
 
     speeds_cm = m["speeds_cm"]

@@ -97,6 +97,7 @@ defmodule MouseTracker.Workers.VideoProcessingWorker do
       speed_mean_px speed_mean_cm
       speed_median_px speed_median_cm
       speed_max_px speed_max_cm
+      speed_samples
       thigmotaxis_pct immobility_seconds path_tortuosity
     ]
 

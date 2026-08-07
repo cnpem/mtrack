@@ -27,6 +27,7 @@ import {RoiCanvas} from "./hooks/roi_canvas"
 import {TrendChartHover} from "./hooks/trend_chart_hover"
 import {VideoTrimmer} from "./hooks/video_trimmer"
 import {DashboardExport} from "./hooks/dashboard_export"
+import {ChartExport} from "./hooks/chart_export"
 import topbar from "../vendor/topbar"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
@@ -38,7 +39,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   // aborts. A more generous threshold avoids false-positive fallbacks.
   longPollFallbackMs: 15000,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, RoiCanvas, TrendChartHover, VideoTrimmer, DashboardExport},
+  hooks: {...colocatedHooks, RoiCanvas, TrendChartHover, VideoTrimmer, DashboardExport, ChartExport},
 })
 
 // Show progress bar on live navigation and form submits

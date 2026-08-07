@@ -8,7 +8,6 @@ videos in the background, and read the results — distance travelled, speed
 (mean / median / max), thigmotaxis, immobility, path tortuosity, per-ROI dwell
 time and an occupancy heatmap — without touching the command line.
 
-> **TODO:** add a screenshot / GIF of the Experiments and Results screens here.
 
 ## Architecture at a glance
 
@@ -39,13 +38,13 @@ PubSub, so the LiveView screens update in real time. See
 | Web / real-time | Elixir, Phoenix `~> 1.8`, Phoenix LiveView `~> 1.2` |
 | Database | PostgreSQL via Ecto |
 | Background jobs | Oban (Postgres-backed queues) |
-| Frontend | Tailwind CSS v4 (no DaisyUI), esbuild, a small `RoiCanvas` JS hook |
+| Frontend | Tailwind CSS v4, esbuild, a small `RoiCanvas` JS hook |
 | Tracking engine | Python 3.8+, OpenCV, NumPy, Matplotlib, Seaborn |
 | Python tooling | [`uv`](https://docs.astral.sh/uv/) |
 
 ## Quick start
 
-**Prerequisites:** Elixir/Erlang, PostgreSQL, Python 3.8+ and `uv`.
+**Prerequisites:** Elixir/Erlang, PostgreSQL, Python 3.8+ and `uv`. (to run locally)
 
 ```bash
 # 1. Elixir side: install deps, create + migrate the DB, build assets

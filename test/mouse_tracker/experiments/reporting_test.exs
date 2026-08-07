@@ -589,4 +589,113 @@ defmodule MouseTracker.Experiments.ReportingTest do
       assert [%{value: 10.0, n: 1}] = series
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Box plot statistics + Analyses filter/query helpers
+  # ---------------------------------------------------------------------------
+
+  describe "boxplot_stats/1" do
+    test "empty list -> nil" do
+      assert Reporting.boxplot_stats([]) == nil
+    end
+
+    test "single value -> degenerate box" do
+      b = Reporting.boxplot_stats([5.0])
+      assert b.n == 1
+      assert b.q1 == 5.0 and b.median == 5.0 and b.q3 == 5.0
+      assert b.mean == 5.0
+      assert b.min == 5.0 and b.max == 5.0
+      assert b.outliers == []
+    end
+
+    test "quartiles use linear interpolation (type 7)" do
+      b = Reporting.boxplot_stats([1.0, 2.0, 3.0, 4.0])
+      assert b.median == 2.5
+      assert b.q1 == 1.75
+      assert b.q3 == 3.25
+      assert b.mean == 2.5
+    end
+
+    test "flags outliers beyond 1.5·IQR and pulls whiskers to the last inlier" do
+      b = Reporting.boxplot_stats([10.0, 11.0, 12.0, 13.0, 14.0, 100.0])
+      assert 100.0 in b.outliers
+      assert b.whisker_high == 14.0
+      assert b.max == 100.0
+    end
+  end
+
+  describe "Analyses experiment-scoped helpers" do
+    setup do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      exp1 = experiment_fixture(user)
+      exp2 = experiment_fixture(user)
+
+      s1 = subject_fixture(user, %{name: "A", group: "Control"})
+      s2 = subject_fixture(user, %{name: "B", group: "CNO"})
+      s3 = subject_fixture(user, %{name: "C", group: "Control"})
+
+      video_fixture(exp1, nil, %{status: "done", subject_id: s1.id})
+      video_fixture(exp1, nil, %{status: "done", subject_id: s2.id})
+      video_fixture(exp2, nil, %{status: "done", subject_id: s3.id})
+      # a pending video should never count
+      video_fixture(exp1, nil, %{status: "pending", subject_id: s3.id})
+
+      %{scope: scope, exp1: exp1, exp2: exp2, s1: s1, s2: s2, s3: s3}
+    end
+
+    test "experiment_subjects/2 scopes to one experiment", ctx do
+      names = ctx.scope |> Reporting.experiment_subjects(ctx.exp1.id) |> Enum.map(& &1.name)
+      assert names == ["A", "B"]
+
+      all = ctx.scope |> Reporting.experiment_subjects() |> Enum.map(& &1.name)
+      assert all == ["A", "B", "C"]
+    end
+
+    test "experiment_groups/2 lists distinct groups in scope", ctx do
+      assert Reporting.experiment_groups(ctx.scope, ctx.exp1.id) == ["CNO", "Control"]
+      assert Reporting.experiment_groups(ctx.scope, ctx.exp2.id) == ["Control"]
+    end
+
+    test "experiment_group_members/3 returns only members with a done video in scope", ctx do
+      members =
+        ctx.scope
+        |> Reporting.experiment_group_members("Control", ctx.exp1.id)
+        |> Enum.map(& &1.name)
+
+      assert members == ["A"]
+
+      all =
+        ctx.scope |> Reporting.experiment_group_members("Control") |> Enum.map(& &1.name)
+
+      assert all == ["A", "C"]
+    end
+  end
+
+  describe "per_experiment_means/2" do
+    test "one entry per experiment, averaging that experiment's sessions" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      subject = subject_fixture(user)
+      exp1 = experiment_fixture(user)
+      exp2 = experiment_fixture(user)
+
+      v1 = video_fixture(exp1, nil, %{status: "done", subject_id: subject.id})
+      v2 = video_fixture(exp1, nil, %{status: "done", subject_id: subject.id})
+      v3 = video_fixture(exp2, nil, %{status: "done", subject_id: subject.id})
+
+      tracking_result_fixture(v1, %{distance_cm: 10.0})
+      tracking_result_fixture(v2, %{distance_cm: 20.0})
+      tracking_result_fixture(v3, %{distance_cm: 100.0})
+
+      means =
+        scope
+        |> Reporting.subject_result_videos(subject.id)
+        |> Reporting.per_experiment_means("distance_cm")
+        |> Enum.map(& &1.value)
+        |> Enum.sort()
+
+      assert means == [15.0, 100.0]
+    end
+  end
 end
