@@ -64,11 +64,24 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "example.com"
+  port = String.to_integer(System.get_env("PORT") || "4000")
+
+  # Off by default: correct only once a reverse proxy terminating TLS sits in front of
+  # the app (it forwards `X-Forwarded-Proto` and force_ssl trusts that header to decide
+  # whether the original request was HTTPS). Without a proxy, turning this on would make
+  # the app redirect-loop trying to reach a TLS port that doesn't exist. Set FORCE_SSL=true
+  # once TLS termination (e.g. Caddy/nginx/Traefik) is in place; until then the app serves
+  # plain HTTP and generates http:// URLs (magic links, etc).
+  force_ssl? = System.get_env("FORCE_SSL") in ~w(true 1)
 
   config :mouse_tracker, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :mouse_tracker, MouseTrackerWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
+    url:
+      if(force_ssl?,
+        do: [host: host, port: 443, scheme: "https"],
+        else: [host: host, port: port, scheme: "http"]
+      ),
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
@@ -77,6 +90,14 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
+
+  if force_ssl? do
+    config :mouse_tracker, MouseTrackerWeb.Endpoint,
+      force_ssl: [
+        rewrite_on: [:x_forwarded_proto],
+        exclude: ["localhost", "127.0.0.1"]
+      ]
+  end
 
   # ## SSL Support
   #
@@ -110,21 +131,24 @@ if config_env() == :prod do
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
 
-  # ## Configuring the mailer
-  #
-  # In production you need to configure the mailer to use a different adapter.
-  # Here is an example configuration for Mailgun:
-  #
-  #     config :mouse_tracker, MouseTracker.Mailer,
-  #       adapter: Swoosh.Adapters.Mailgun,
-  #       api_key: System.get_env("MAILGUN_API_KEY"),
-  #       domain: System.get_env("MAILGUN_DOMAIN")
-  #
-  # Most non-SMTP adapters require an API client. Swoosh supports Req, Hackney,
-  # and Finch out-of-the-box. This configuration is typically done at
-  # compile-time in your config/prod.exs:
-  #
-  #     config :swoosh, :api_client, Swoosh.ApiClient.Req
-  #
-  # See https://swoosh.hexdocs.pm/Swoosh.html#module-installation for details.
+  # Mailer: generic SMTP, works with any provider (Gmail app password, SES SMTP,
+  # Mailgun SMTP, a self-hosted relay, etc) — just point the env vars at it.
+  smtp_relay =
+    System.get_env("SMTP_HOST") ||
+      raise """
+      environment variable SMTP_HOST is missing.
+      Registration/magic-link emails require a working mailer. Point SMTP_HOST/PORT/USERNAME/PASSWORD
+      at any SMTP provider (Gmail app password, SES, Mailgun SMTP, etc).
+      """
+
+  config :mouse_tracker, MouseTracker.Mailer,
+    adapter: Swoosh.Adapters.SMTP,
+    relay: smtp_relay,
+    port: String.to_integer(System.get_env("SMTP_PORT") || "587"),
+    username: System.get_env("SMTP_USERNAME"),
+    password: System.get_env("SMTP_PASSWORD"),
+    ssl: System.get_env("SMTP_SSL") in ~w(true 1),
+    tls: :if_available,
+    auth: :always,
+    retries: 2
 end
