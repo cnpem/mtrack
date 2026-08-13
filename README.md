@@ -1,81 +1,89 @@
-# Mouse Tracker
+# MTrack
 
-Automated mouse locomotor activity tracking from video. Computes distance traveled, speed profile, speed distribution, and an occupancy heatmap. Designed for biological experiments using open-field or home-cage recordings.
+**MTrack** is a web application for **automated mouse locomotor-activity tracking
+from video**. It wraps an OpenCV tracking engine in a [Phoenix
+LiveView](https://www.phoenixframework.org/) interface so researchers can upload
+open-field / home-cage recordings, calibrate and mark zones visually, process
+videos in the background, and read the results — distance travelled, speed
+(mean / median / max), thigmotaxis, immobility, path tortuosity, per-ROI dwell
+time and an occupancy heatmap — without touching the command line.
 
-## Requirements
 
-- Python 3.6+
-- OpenCV (`cv2`)
-- numpy
-- matplotlib
-- seaborn
+## Architecture at a glance
 
-## Installation
-
-```bash
-git clone <repo-url> && cd mouse-tracker
-pip install opencv-python imutils numpy matplotlib seaborn
+```
+Browser ──WebSocket──▶ Phoenix LiveView ──▶ PostgreSQL (Ecto)
+                              │
+                              ▼ enqueue
+                        Oban worker ──Port.open──▶ Python subprocess (OpenCV)
+                              ▲                          │
+                              └──── stdout JSON ─────────┘
+                        {"type":"progress"} / {"type":"result"}
+                              │
+                              ▼ Phoenix PubSub  "video:<id>"
+                        LiveView re-render (live progress + results)
 ```
 
-## Usage
+A video is uploaded through a 3-step wizard, saved to disk and registered in
+Postgres. An [Oban](https://hexdocs.pm/oban) background job runs the Python
+tracker as a subprocess, streaming progress and the final metrics back as
+line-delimited JSON. The worker persists the results and broadcasts over Phoenix
+PubSub, so the LiveView screens update in real time. See
+[`docs/architecture.md`](docs/architecture.md) for the full lifecycle.
+
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Web / real-time | Elixir, Phoenix `~> 1.8`, Phoenix LiveView `~> 1.2` |
+| Database | PostgreSQL via Ecto |
+| Background jobs | Oban (Postgres-backed queues) |
+| Frontend | Tailwind CSS v4, esbuild, a small `RoiCanvas` JS hook |
+| Tracking engine | Python 3.8+, OpenCV, NumPy, Matplotlib, Seaborn |
+| Python tooling | [`uv`](https://docs.astral.sh/uv/) |
+
+## Quick start
+
+**Prerequisites:** Elixir/Erlang, PostgreSQL, Python 3.8+ and `uv`. (to run locally)
 
 ```bash
-python3 mouse_tracker.py -v <video> -c <cage_side_cm> [options]
+# 1. Elixir side: install deps, create + migrate the DB, build assets
+mix setup
+
+# 2. Python side: install the tracking engine's dependencies
+uv sync
+
+# 3. Run the dev server
+mix phx.server
 ```
 
-### Arguments
+Open <http://localhost:4000>. Register an account (in dev, magic-link emails show
+up in the Swoosh mailbox at <http://localhost:4000/dev/mailbox>), or load the demo
+data — see [`docs/setup.md`](docs/setup.md) for details, seeds and common tasks.
 
-| Argument | Description |
-|----------|-------------|
-| `-v`, `--video` | Path to the video file (required) |
-| `-c`, `--calibrate` | Cage side length in cm. Enables interactive pixel-to-cm calibration (required for real-world units) |
-| `-st`, `--start-time` | Start time in seconds (default: 0) |
-| `-et`, `--end-time` | End time in seconds (default: end of video) |
-| `-th`, `--threshold` | Motion detection threshold (default: 80). Lower = more sensitive |
-| `-a`, `--min-area` | Minimum contour area in pixels to consider as mouse (default: 250) |
-| `-roi`, `--roi` | Enable region-of-interest (ROI) selection for zone analysis |
-| `-sp`, `--speed-profile` | Output file path for the speed profile plot |
-| `-sd`, `--speed-distribution` | Output file path for the speed distribution histogram |
-| `-hm`, `--heatmap` | Output file path for the occupancy heatmap |
+## Documentation
 
-### Calibration
+| Doc | What's inside |
+|-----|---------------|
+| [docs/setup.md](docs/setup.md) | Full install / run, dev routes, seeds, `mix` commands, maintenance tasks |
+| [docs/user-guide.md](docs/user-guide.md) | End-user walkthrough: wizard, processing, results, analytics, export |
+| [docs/architecture.md](docs/architecture.md) | Video lifecycle, module map, web layer, Oban, real-time |
+| [docs/data-model.md](docs/data-model.md) | Ecto schemas and the reusable-resource model |
+| [docs/python-engine.md](docs/python-engine.md) | `priv/python/` reference: CLI modes, JSON contract, metrics |
 
-When `-c` is provided, a calibration window opens on the first frame:
+## Project layout
 
-1. Click the **4 corners of the cage in clockwise order**
-2. Red numbered dots and blue side lines appear with pixel distances
-3. Press **SPACE** to confirm or **ESC** to reset
-4. The script computes `px_per_10cm = (average side in px / cage side in cm) × 10`
-
-If `-c` is omitted, all values remain in pixels.
-
-### ROI mode
-
-With `-roi`, you can select one or more rectangular zones of interest. The script reports the time (in seconds) the mouse spent inside each ROI.
-
-After calibration, you will be prompted to:
-
-1. **Select a valid region** — draw a rectangle around the cage area to exclude outside movement
-2. **Select ROI(s)** — draw one or more rectangles for zone-specific analysis (press ENTER after each, ESC or right-click when done)
-
-### Example
-
-```bash
-python3 mouse_tracker.py -v experiment.avi -c 40 -st 10 -et 300 -th 100 -a 200 \
-  -sp speed_profile.png -sd speed_distribution.png -hm heatmap.png
+```
+lib/
+  mouse_tracker/          # domain: contexts, schemas, workers, Python port
+  mouse_tracker_web/      # web: router, LiveViews, components, controllers
+priv/
+  python/                 # OpenCV tracking engine (run/analyzer/detector/metrics/render)
+  repo/                   # migrations + seeds
+  static/uploads/         # uploaded videos, extracted frames, result images
+assets/                   # JS entry point + Tailwind CSS + JS hooks
+test/                     # ExUnit tests
 ```
 
-## Output
-
-### Console
-
-- Total distance traveled (px and cm)
-- Mean speed (px/s and cm/s)
-- Median speed (px/s and cm/s)
-- Time spent in each ROI (seconds)
-
-### Plots
-
-- **Speed Profile** — instantaneous speed over time with mean and median lines
-- **Speed Distribution** — histogram of speed values
-- **Occupancy Heatmap** — spatial distribution of time spent, overlaid on the background
+> Note: `priv/mouse_tracker.py` is the original standalone script and is
+> **deprecated** — the maintained engine is the module under `priv/python/`.

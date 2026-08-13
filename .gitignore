@@ -1,13 +1,66 @@
-# Python-generated files
+# ========================
+# Elixir / Phoenix
+# ========================
+
+/data/
+
+# Build artifacts
+/_build/
+/cover/
+/deps/
+/doc/
+
+# Release files
+/.elixir_ls/
+erl_crash.dump
+*.ez
+
+# Database credentials and secrets
+/config/dev.secret.exs
+/config/prod.secret.exs
+*.secret.exs
+
+# Phoenix static assets compiled output
+/priv/static/assets/
+
+# Uploaded files (se usar Local storage)
+/priv/static/uploads/
+
+# Test coverage
+/cover/
+
+# Node.js (assets)
+/assets/node_modules/
+
+# ========================
+# Python
+# ========================
 __pycache__/
 *.py[oc]
 build/
 dist/
 wheels/
 *.egg-info
-
-# Virtual environments
 .venv
 
-trash
+# ========================
+# Sistema / IDEs
+# ========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.env
+.env.local
+
+# ========================
+# Projeto específico
+# ========================
+trash/
 examples/
+
+# Notas de estudo pessoais (não versionar)
+NOTAS-APRENDIZADO.md
+AGENTS.md
+/study
+MTrack_logo.png 
