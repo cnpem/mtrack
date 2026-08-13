@@ -1,0 +1,12 @@
+{
+	# Local lab deployment: no public DNS/port-80 reachability from the internet, so
+	# Let's Encrypt can't validate this VM — Caddy issues certs from its own internal
+	# CA instead. First-time clients see an "untrusted certificate" warning until the
+	# CA root is trusted on their machine (see README section this file is linked from).
+}
+
+10.0.42.86 {
+	tls internal
+
+	reverse_proxy app:4000
+}

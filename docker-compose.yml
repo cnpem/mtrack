@@ -23,12 +23,11 @@ services:
     environment:
       DATABASE_URL: "ecto://${POSTGRES_USER:-mouse_tracker}:${POSTGRES_PASSWORD}@db/${POSTGRES_DB:-mouse_tracker_prod}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE:?generate one with: mix phx.gen.secret}"
-      PHX_HOST: "${PHX_HOST:?set PHX_HOST to the VMs hostname or IP}"
+      PHX_HOST: "${PHX_HOST:?set PHX_HOST to the VMs LAN IP, e.g. 10.0.42.86}"
       PORT: "${PORT:-4000}"
       PHX_SERVER: "true"
-      # Off by default (plain HTTP) — set to "true" once a reverse proxy in front of this
-      # container is terminating TLS. See the "TLS / reverse proxy" note in README/CLAUDE.md.
-      FORCE_SSL: "${FORCE_SSL:-false}"
+      # Caddy (below) terminates TLS and forwards X-Forwarded-Proto, so this is always on.
+      FORCE_SSL: "true"
       OBAN_VIDEO_PROCESSING_CONCURRENCY: "${OBAN_VIDEO_PROCESSING_CONCURRENCY:-4}"
       SMTP_HOST: "${SMTP_HOST:?set SMTP_HOST, registration and magic-link emails need a working mailer}"
       SMTP_PORT: "${SMTP_PORT:-587}"
@@ -40,11 +39,29 @@ services:
       # container rebuilds/restarts. /app/priv is a symlink (set up in the Dockerfile)
       # to the release's actual (version-qualified) priv dir, served via Plug.Static.
       - uploads:/app/priv/static/uploads
-    ports:
-      - "${PORT:-4000}:4000"
+    expose:
+      # Not published to the host/LAN directly — only reachable through caddy below.
+      - "4000"
     command: >
       sh -c "/app/bin/migrate && /app/bin/server"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   db_data:
   uploads:
+  # Holds Caddy's internal CA root + issued leaf certs — keep this persistent, or every
+  # recreation mints a new root CA and every client that trusted the old one breaks.
+  caddy_data:
+  caddy_config:
