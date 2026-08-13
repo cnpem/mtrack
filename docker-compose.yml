@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mouse_tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-mouse_tracker_prod}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mouse_tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "ecto://${POSTGRES_USER:-mouse_tracker}:${POSTGRES_PASSWORD}@db/${POSTGRES_DB:-mouse_tracker_prod}"
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE:?generate one with: mix phx.gen.secret}"
+      PHX_HOST: "${PHX_HOST:?set PHX_HOST to the VMs hostname or IP}"
+      PORT: "${PORT:-4000}"
+      PHX_SERVER: "true"
+      # Off by default (plain HTTP) — set to "true" once a reverse proxy in front of this
+      # container is terminating TLS. See the "TLS / reverse proxy" note in README/CLAUDE.md.
+      FORCE_SSL: "${FORCE_SSL:-false}"
+      OBAN_VIDEO_PROCESSING_CONCURRENCY: "${OBAN_VIDEO_PROCESSING_CONCURRENCY:-4}"
+      SMTP_HOST: "${SMTP_HOST:?set SMTP_HOST, registration and magic-link emails need a working mailer}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USERNAME: "${SMTP_USERNAME}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD}"
+      SMTP_SSL: "${SMTP_SSL:-false}"
+    volumes:
+      # Videos, extracted frames, heatmaps/speed-profile PNGs — must persist across
+      # container rebuilds/restarts. /app/priv is a symlink (set up in the Dockerfile)
+      # to the release's actual (version-qualified) priv dir, served via Plug.Static.
+      - uploads:/app/priv/static/uploads
+    ports:
+      - "${PORT:-4000}:4000"
+    command: >
+      sh -c "/app/bin/migrate && /app/bin/server"
+
+volumes:
+  db_data:
+  uploads:

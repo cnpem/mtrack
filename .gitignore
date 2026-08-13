@@ -24,7 +24,7 @@ erl_crash.dump
 /priv/static/assets/
 
 # Uploaded files (se usar Local storage)
-/priv/uploads/
+/priv/static/uploads/
 
 # Test coverage
 /cover/
