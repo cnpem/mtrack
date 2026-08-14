@@ -298,12 +298,14 @@ defmodule MouseTracker.Experiments.Reporting do
   newest-first) — the Analyses trend chart's one-metric-at-a-time view of a
   subject's sessions. Skips videos with no `tracking_result` at all, then
   skips points whose specific metric is nil (some metrics — thigmotaxis,
-  tortuosity, immobility, max speed — are optional on `TrackingResult` and can
+  tortuosity, immobility, max speed, ROI zone time — are optional and can
   legitimately be missing even on a "done" video).
+
+  `metric_key` is either a `TrackingResult` field name (`"distance_cm"`,
+  `"speed_mean_cm"`, ...) or `"roi:" <> zone_name` for time spent in a named
+  ROI zone (see `roi_zone_names/1`) — resolved by the shared `metric_value/2`.
   """
   def metric_series(videos, metric_key) do
-    metric_atom = String.to_existing_atom(metric_key)
-
     videos
     |> Enum.reverse()
     |> Enum.filter(&(&1.tracking_result != nil))
@@ -314,10 +316,39 @@ defmodule MouseTracker.Experiments.Reporting do
         label: Calendar.strftime(video.inserted_at, "%b %d"),
         experiment_name: video.experiment.name,
         filename: video.filename,
-        value: Map.get(video.tracking_result, metric_atom)
+        value: metric_value(video.tracking_result, metric_key)
       }
     end)
     |> Enum.reject(&is_nil(&1.value))
+  end
+
+  # Resolves one metric's value off a `TrackingResult` (preloaded with
+  # `roi_times: :roi`) — shared by `metric_series/2` and
+  # `per_experiment_means/2` so a ROI-zone metric key behaves identically to a
+  # fixed field in every Analyses view (trend, per-subject box, per-group box).
+  defp metric_value(tracking_result, "roi:" <> zone_name) do
+    case Enum.find(tracking_result.roi_times, &(&1.roi.name == zone_name)) do
+      nil -> nil
+      roi_time -> roi_time.seconds
+    end
+  end
+
+  defp metric_value(tracking_result, metric_key) do
+    Map.get(tracking_result, String.to_existing_atom(metric_key))
+  end
+
+  @doc """
+  Distinct ROI zone names with recorded time across `videos` (each expected to
+  have `tracking_result: [roi_times: :roi]` preloaded, per
+  `subject_result_videos/3`) — powers the Analyses metric picker's per-zone
+  "Time in <zone>" options (`"roi:" <> name` metric keys, see `metric_value/2`).
+  """
+  def roi_zone_names(videos) do
+    videos
+    |> Enum.filter(&(&1.tracking_result != nil))
+    |> Enum.flat_map(fn v -> Enum.map(v.tracking_result.roi_times, & &1.roi.name) end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   @doc """
@@ -437,11 +468,9 @@ defmodule MouseTracker.Experiments.Reporting do
   single named dot. Returns `[%{experiment:, value:}]`.
   """
   def per_experiment_means(videos, metric_key) do
-    metric_atom = String.to_existing_atom(metric_key)
-
     videos
     |> Enum.filter(&(&1.tracking_result != nil))
-    |> Enum.map(fn v -> {v.experiment, Map.get(v.tracking_result, metric_atom)} end)
+    |> Enum.map(fn v -> {v.experiment, metric_value(v.tracking_result, metric_key)} end)
     |> Enum.reject(fn {_e, val} -> is_nil(val) end)
     |> Enum.group_by(fn {e, _val} -> e.id end)
     |> Enum.map(fn {_eid, pairs} ->

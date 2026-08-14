@@ -41,7 +41,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     {"immobility_seconds", "Immobility", "s"}
   ]
   @metric_keys Enum.map(@metrics, &elem(&1, 0))
-  @views ~w(trend subject_box group_box speed_box)
+  @views ~w(trend subject_box group_box speed_box roi_box)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -110,6 +110,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     |> assign(:subject_categories, subject_categories(per_subject, metric))
     |> assign(:group_categories, group_categories(per_subject, metric))
     |> assign(:speed_categories, speed_categories(per_subject))
+    |> assign(:roi_categories, roi_categories(per_subject))
     |> assign(:ungrouped_selected?, Enum.any?(selected_subjects, &(&1.group in [nil, ""])))
     |> assign(:group_legend, group_legend(selected_subjects))
     |> assign(:total_sessions, Enum.sum_by(per_subject, &length(&1.videos)))
@@ -223,6 +224,46 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     end)
     |> Enum.reject(&(&1.box == nil))
     |> Enum.sort_by(& &1.label)
+  end
+
+  # One box per (ROI zone, group) pair — the "Time x ROI" view. Zones are the
+  # major axis (adjacent boxes share the same zone prefix in their label, so
+  # they read as a cluster) and every group gets its own box within a zone,
+  # pooling that group's raw per-session "time in zone" values (not
+  # per-experiment means, unlike `group_categories/2` — a session-level value
+  # is the natural unit for a single metric that doesn't need cross-metric
+  # comparability). Ungrouped subjects are excluded, same convention as
+  # `group_categories/2` (surfaced via `@ungrouped_selected?`).
+  defp roi_categories(per_subject) do
+    grouped = Enum.filter(per_subject, fn %{subject: s} -> s.group not in [nil, ""] end)
+
+    zone_names =
+      grouped
+      |> Enum.flat_map(fn %{videos: v} -> Reporting.roi_zone_names(v) end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    group_names =
+      grouped |> Enum.map(fn %{subject: s} -> s.group end) |> Enum.uniq() |> Enum.sort()
+
+    for zone <- zone_names, group <- group_names do
+      points =
+        grouped
+        |> Enum.filter(fn %{subject: s} -> s.group == group end)
+        |> Enum.flat_map(fn %{subject: s, videos: videos} ->
+          videos
+          |> Reporting.metric_values("roi:" <> zone)
+          |> Enum.map(&%{label: s.name, value: &1})
+        end)
+
+      %{
+        label: "#{zone} · #{group}",
+        color: group_color(group),
+        box: Reporting.boxplot_stats(Enum.map(points, & &1.value)),
+        points: points
+      }
+    end
+    |> Enum.reject(&(&1.box == nil))
   end
 
   # The distinct groups among the selected subjects, each with the swatch color
@@ -390,7 +431,6 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           title="No subjects yet"
           subtitle="Charts appear here once you have tracked videos for at least one subject."
         />
-
         <div :if={@subjects != []} class="mt-5 space-y-3">
           <div class="flex flex-wrap items-center gap-2 rounded-[13px] border border-[#e7e9ee] bg-white p-2">
             <span class="px-2 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
@@ -403,6 +443,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 class="rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
               >
                 <option value="all" selected={@experiment_id == nil}>All experiments</option>
+
                 <option :for={e <- @experiments} value={e.id} selected={@experiment_id == e.id}>
                   {e.name}
                 </option>
@@ -428,6 +469,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 class="rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[#667085] focus:border-[#CC5500] focus:outline-none"
               >
                 <option value="" selected>+ Add group…</option>
+
                 <option :for={g <- unselected_groups(@groups, @selected_groups)} value={g}>
                   {g}
                 </option>
@@ -462,6 +504,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 class="rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-1.5 text-[12.5px] font-medium text-[#667085] focus:border-[#CC5500] focus:outline-none"
               >
                 <option value="" selected>+ Add subject…</option>
+
                 <option
                   :for={s <- unselected_subjects(@picker_subjects, @selected_subjects)}
                   value={s.id}
@@ -491,7 +534,6 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
           title="No subject or group selected"
           subtitle="Pick an experiment and add a group or subject above to see its charts."
         />
-
         <div :if={@selected_subjects != [] or @selected_groups != []} class="mt-4">
           <div class="flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-[#e7e9ee] bg-white p-3">
             <div class="text-[12.5px] text-[#667085]">
@@ -522,7 +564,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
 
           <div class="mt-3 flex flex-wrap items-center gap-3">
             <div
-              :if={@view != "speed_box"}
+              :if={@view not in ["speed_box", "roi_box"]}
               class="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1"
             >
               <button
@@ -598,8 +640,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 categories={@subject_categories}
                 unit={metric_unit(@metric)}
                 log1p={@log1p}
-              />
-              <.chart_empty :if={@subject_categories == []} />
+              /> <.chart_empty :if={@subject_categories == []} />
             </div>
 
             <div :if={@view == "group_box"} class="mt-4">
@@ -638,6 +679,27 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               />
             </div>
 
+            <div :if={@view == "roi_box"} class="mt-4">
+              <.box_plot
+                :if={@roi_categories != []}
+                id="analyses-roi-box"
+                categories={@roi_categories}
+                unit="s"
+                log1p={@log1p}
+                jitter={false}
+              />
+              <.chart_empty
+                :if={@roi_categories == []}
+                message="No ROI zone time for the selected groups yet. Assign groups to the selected subjects and make sure their videos have ROI zones attached."
+              />
+              <p
+                :if={@roi_categories != [] and @ungrouped_selected?}
+                class="mt-2 text-[11.5px] text-[#8a93a3]"
+              >
+                Subjects without a group are not shown here.
+              </p>
+            </div>
+
             <div
               :if={@view != "trend"}
               class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-[#667085]"
@@ -648,6 +710,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 </svg>
                 Median
               </span>
+
               <span class="inline-flex items-center gap-1.5">
                 <svg width="20" height="6" viewBox="0 0 20 6" aria-hidden="true">
                   <line
@@ -663,21 +726,20 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                 Mean
               </span>
               <span class="text-[#98a2b3]">· whiskers at 1.5·IQR</span>
-
-              <span :if={@view == "group_box"} class="text-[#98a2b3]">
+              <span :if={@view in ["group_box", "roi_box"]} class="text-[#98a2b3]">
                 · hover a point for its subject
               </span>
 
               <span
-                :if={@view in ["subject_box", "speed_box"] and @group_legend != []}
+                :if={@view in ["subject_box", "speed_box", "roi_box"] and @group_legend != []}
                 class="ml-auto inline-flex flex-wrap items-center gap-x-3 gap-y-1"
               >
                 <span class="text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
                   Groups
                 </span>
+
                 <span :for={g <- @group_legend} class="inline-flex items-center gap-1.5">
-                  <span class="size-2.5 rounded-[3px]" style={"background:#{g.color}"}></span>
-                  {g.label}
+                  <span class="size-2.5 rounded-[3px]" style={"background:#{g.color}"}></span> {g.label}
                 </span>
               </span>
             </div>
@@ -691,13 +753,21 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
               <thead>
                 <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
                   <th class="pb-2">Subject</th>
+
                   <th class="pb-2">Date</th>
+
                   <th class="pb-2">Experiment</th>
+
                   <th class="pb-2">Video</th>
+
                   <th class="pb-2">Distance</th>
+
                   <th class="pb-2">Mean speed</th>
+
                   <th class="pb-2">Thigmotaxis</th>
+
                   <th class="pb-2">Tortuosity</th>
+
                   <th class="pb-2">Immobility</th>
                 </tr>
               </thead>
@@ -710,23 +780,31 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
                       <span class="font-data text-[#0f1729]">{s.name}</span>
                     </span>
                   </td>
+
                   <td class="py-2.5 font-data text-[#344054]">
                     {Calendar.strftime(v.inserted_at, "%Y-%m-%d")}
                   </td>
+
                   <td class="py-2.5 text-[#344054]">{v.experiment.name}</td>
+
                   <td class="py-2.5 font-data text-[#0f1729]">{v.filename}</td>
+
                   <td class="py-2.5 font-data text-[#344054]">
                     {fmt(v.tracking_result && v.tracking_result.distance_cm)} cm
                   </td>
+
                   <td class="py-2.5 font-data text-[#344054]">
                     {fmt(v.tracking_result && v.tracking_result.speed_mean_cm)} cm/s
                   </td>
+
                   <td class="py-2.5 font-data text-[#344054]">
                     {fmt(v.tracking_result && v.tracking_result.thigmotaxis_pct)}%
                   </td>
+
                   <td class="py-2.5 font-data text-[#344054]">
                     {fmt(v.tracking_result && v.tracking_result.path_tortuosity)}
                   </td>
+
                   <td class="py-2.5 font-data text-[#344054]">
                     {fmt(v.tracking_result && v.tracking_result.immobility_seconds)} s
                   </td>
@@ -759,7 +837,8 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
       {"trend", "Trend"},
       {"subject_box", "Per subject"},
       {"group_box", "Per group"},
-      {"speed_box", "Speed dist."}
+      {"speed_box", "Speed dist."},
+      {"roi_box", "Time x ROI"}
     ]
 
   defp metric_label(key), do: metrics() |> Enum.find(&(elem(&1, 0) == key)) |> elem(1)
@@ -770,9 +849,11 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   defp view_suffix("group_box"), do: "by group"
   defp view_suffix("speed_box"), do: "by subject"
 
-  # The metric selector is hidden on the speed view (it's always speed), so its
-  # title is fixed rather than derived from the selected metric.
+  # The metric selector is hidden on the speed and roi views (their Y axis is
+  # fixed — speed or ROI-zone time — not a picked TrackingResult field), so
+  # their title is fixed rather than derived from the selected metric.
   defp chart_title("speed_box", _metric), do: "Speed distribution by subject"
+  defp chart_title("roi_box", _metric), do: "Time in ROI zones by group"
   defp chart_title(view, metric), do: "#{metric_label(metric)} #{view_suffix(view)}"
 
   # Whether the current view actually has a chart rendered (so the Export button
@@ -781,7 +862,9 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   defp chart_present?(%{view: "subject_box", subject_categories: cats}), do: cats != []
   defp chart_present?(%{view: "group_box", group_categories: cats}), do: cats != []
   defp chart_present?(%{view: "speed_box", speed_categories: cats}), do: cats != []
+  defp chart_present?(%{view: "roi_box", roi_categories: cats}), do: cats != []
 
   defp export_name("speed_box", _metric), do: "analyses-speed-distribution"
+  defp export_name("roi_box", _metric), do: "analyses-time-by-roi"
   defp export_name(view, metric), do: "analyses-#{String.replace(view, "_", "-")}-#{metric}"
 end

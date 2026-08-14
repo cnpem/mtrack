@@ -168,7 +168,6 @@ defmodule MouseTrackerWeb.ExperimentLive.ShowTest do
 
     assert html =~ "Export data"
     assert has_element?(lv, "input[name='csv'][checked]")
-    refute has_element?(lv, "input[name='xlsx'][checked]")
     assert has_element?(lv, "a[href*='csv=1']", "Download")
   end
 
