@@ -8,8 +8,15 @@ import Config
 config :mouse_tracker, MouseTrackerWeb.Endpoint,
   cache_static_manifest: "priv/static/cache_manifest.json"
 
-# force_ssl moved to config/runtime.exs, gated behind FORCE_SSL=true, since it's only
-# correct once a reverse proxy terminating TLS sits in front of the app.
+# Always on: Caddy (docker-compose.yml) terminates TLS and forwards X-Forwarded-Proto,
+# and this app is only ever deployed behind it. This must be compile-time, not a
+# runtime/env-var toggle: Phoenix.Endpoint decides at compile time whether to inject
+# the Plug.SSL plug at all (`Application.compile_env(_, [_, :force_ssl])` in
+# deps/phoenix/lib/phoenix/endpoint.ex) — setting this only in config/runtime.exs
+# silently never adds the plug, and mix release's validate_compile_env check then
+# refuses to boot once it sees runtime disagree with the (unset) compile-time value.
+config :mouse_tracker, MouseTrackerWeb.Endpoint,
+  force_ssl: [rewrite_on: [:x_forwarded_proto], exclude: ["localhost", "127.0.0.1"]]
 
 # Configure Swoosh API Client
 config :swoosh, api_client: Swoosh.ApiClient.Req

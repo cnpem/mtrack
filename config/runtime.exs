@@ -64,24 +64,14 @@ if config_env() == :prod do
       """
 
   host = System.get_env("PHX_HOST") || "example.com"
-  port = String.to_integer(System.get_env("PORT") || "4000")
 
-  # Off by default: correct only once a reverse proxy terminating TLS sits in front of
-  # the app (it forwards `X-Forwarded-Proto` and force_ssl trusts that header to decide
-  # whether the original request was HTTPS). Without a proxy, turning this on would make
-  # the app redirect-loop trying to reach a TLS port that doesn't exist. Set FORCE_SSL=true
-  # once TLS termination (e.g. Caddy/nginx/Traefik) is in place; until then the app serves
-  # plain HTTP and generates http:// URLs (magic links, etc).
-  force_ssl? = System.get_env("FORCE_SSL") in ~w(true 1)
-
+  # force_ssl itself is fixed at compile time (config/prod.exs) — always on, since this
+  # app only ever runs behind Caddy's TLS termination. `url:` just needs to reflect that
+  # for generating correct absolute URLs (magic links, etc).
   config :mouse_tracker, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :mouse_tracker, MouseTrackerWeb.Endpoint,
-    url:
-      if(force_ssl?,
-        do: [host: host, port: 443, scheme: "https"],
-        else: [host: host, port: port, scheme: "http"]
-      ),
+    url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
@@ -90,14 +80,6 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
     secret_key_base: secret_key_base
-
-  if force_ssl? do
-    config :mouse_tracker, MouseTrackerWeb.Endpoint,
-      force_ssl: [
-        rewrite_on: [:x_forwarded_proto],
-        exclude: ["localhost", "127.0.0.1"]
-      ]
-  end
 
   # ## SSL Support
   #
