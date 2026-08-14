@@ -679,3 +679,65 @@ Um candidato concreto levantado numa revisão do estado do código, ainda penden
   adicionar testes de caracterização antes de separar (ex.: extrair o desenho
   interativo para um helper próprio, ou separar "rastrear posição" de "classificar
   zona").
+
+## Backlog — pós-deploy (levantado em 2026-08-14, ainda não iniciado)
+
+Ideias trazidas pelo usuário depois do primeiro deploy em produção, para atacar
+uma de cada vez em sessões futuras. Cada item abaixo já foi confrontado com o
+estado real do código antes de ser escrito aqui, pra não descrever como
+"a fazer" algo que já existe (ou existe parcialmente).
+
+- [ ] **Excluir experimento (UI)**: `Experiments.delete_experiment/2` já existe
+  no context (com limpeza de arquivos em disco via `FileCleanup`, ver Fase 2
+  parte 6), mas nenhuma LiveView (`ExperimentLive.Index`/`Show`) tem
+  botão/`handle_event` que o chame — hoje só é alcançável programaticamente.
+  Adicionar um botão de delete, mesmo padrão `data-confirm` nativo já usado em
+  `PipelineSettingsLive.Index` para Calibration/ROI/Subject.
+- [ ] **Renomear experimento (UI)**: mesma lacuna — `update_experiment/3`
+  existe no context, mas nenhuma tela chama pra editar o nome depois de
+  criado. Seguir o padrão de rename inline (`phx-blur`, dispatch por
+  `@resources`) já usado em `PipelineSettingsLive.Index`, ou um form simples
+  em `ExperimentLive.Show`.
+- [ ] **Reutilizar vídeos já enviados (evitar duplicidade)**: hoje
+  `Video.belongs_to :experiment` é 1:1 — um vídeo pertence a exatamente um
+  experimento, sem tabela de junção nem picker de vídeo existente na wizard
+  (`ExperimentLive.New` só tem `allow_upload`, upload novo sempre).
+  `Experiments.Reporting.list_all_videos/1` (usado por `DatasetLive.Index`)
+  já lista todos os vídeos do usuário cross-experiment, mas só para
+  leitura/relatório — não para reuso. Precisa de migração estrutural
+  (provavelmente `videos_experiments` N:N, no mesmo padrão de
+  `make_rois_shareable`/`make_subjects_shareable`) + um picker no passo 1 da
+  wizard.
+- [ ] **Reutilizar ROI/Calibração de outros experimentos na wizard**:
+  diferente de `Subject` (já reutilizável, populado via
+  `Subjects.list_subjects` no passo 3), o passo 2 da wizard não usa
+  `Rois.list_rois`/`Calibrations.list_calibrations` — ROI/escala são sempre
+  desenhados do zero por vídeo/lote e só viram recurso salvo depois que o
+  experimento é criado. Adicionar picker de ROI/Calibração já salvos do
+  usuário, com um checkbox para alternar entre "só referências criadas nesta
+  sessão/wizard" (comportamento atual) e "mostrar todas as salvas" (reuso
+  entre experimentos).
+- [ ] **"Tempo por zona de ROI" como métrica em Analyses**: `AnalysesLive.Index`
+  já tem 4 visões (Trend, Per-subject, Per-group boxplot, Speed-distribution),
+  com seletor de métrica (`distance_cm`, `speed_max_cm`, `thigmotaxis_pct`,
+  etc.) e coloração por `Subject.group` já existente
+  (`experiment_groups/2`/`group_metric_series/4` em `Experiments.Reporting`).
+  Decisão do usuário: **não** criar um tipo de gráfico novo (eixo X = zonas de
+  ROI) — em vez disso, expor **tempo em cada zona de ROI como mais uma
+  métrica selecionável** (uma métrica por zona, ex. "Time in zone: Center"),
+  reaproveitando as visões Trend/Per-subject/Per-group já existentes
+  (Speed-distribution fica de fora, é específica de velocidade). Dado já
+  disponível via `roi_times`/`tracking_result` (usado hoje em
+  `Export.roi_seconds_cells/2`); falta uma função de agregação por zona em
+  `Reporting`.
+- [ ] **Download — tradução + checkboxes multi-formato**: o export já existe
+  por completo (`ExportController` + `Experiments.Export`, CSV via
+  NimbleCSV, XLSX via Elixlsx, zip opcional com PNGs — painel em
+  `ExperimentLive.Show`), mas (a) os textos da UI estão em português (dados/
+  colunas já em inglês) e (b) CSV/XLSX são escolha única, não combináveis.
+  Mudanças: 1) traduzir o painel de export para inglês; 2) CSV e XLSX viram
+  checkboxes independentes — marcar os 2 baixa um `.zip` com ambos; marcar só
+  1 continua baixando um arquivo único (decisão do usuário, sem zip
+  desnecessário no caso simples); 3) metadados/calibração viram sub-itens
+  indentados abaixo dos checkboxes de formato, desabilitados até pelo menos 1
+  formato ser selecionado.
