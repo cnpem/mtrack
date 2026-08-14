@@ -3,6 +3,14 @@
 	# Let's Encrypt can't validate this VM — Caddy issues certs from its own internal
 	# CA instead. First-time clients see an "untrusted certificate" warning until the
 	# CA root is trusted on their machine (see README section this file is linked from).
+
+	# Clients never send SNI for an IP-literal host (forbidden by RFC 6066 — Windows'
+	# schannel even says so explicitly: "SNI is not supported" for IP addresses; Firefox/
+	# Chrome silently omit it too). Without this, Caddy has no way to pick a certificate
+	# for a ClientHello with no SNI and the handshake fails
+	# (SSL_ERROR_INTERNAL_ERROR_ALERT / schannel "failed to receive handshake"). This
+	# tells Caddy which site's cert to serve in that case.
+	default_sni 10.0.42.86
 }
 
 10.0.42.86 {
