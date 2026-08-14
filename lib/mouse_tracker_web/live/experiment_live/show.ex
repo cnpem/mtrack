@@ -21,11 +21,13 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
      |> assign(:export_open, false)
      |> assign(:menu_open, false)
      |> assign(:export_opts, %{
+       csv: true,
+       xlsx: true,
        date: true,
        video: true,
        calibration: true,
-       heatmap: false,
-       speed: false
+       heatmap: true,
+       speed: true
      })}
   end
 
@@ -85,6 +87,8 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   def handle_event("export_change", params, socket) do
     opts = %{
+      csv: Map.has_key?(params, "csv"),
+      xlsx: Map.has_key?(params, "xlsx"),
       date: Map.has_key?(params, "date"),
       video: Map.has_key?(params, "video"),
       calibration: Map.has_key?(params, "calibration"),
@@ -149,42 +153,68 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
                 :if={@export_open}
                 class="absolute right-0 z-20 mt-2 w-72 rounded-[12px] border border-[#e7e9ee] bg-white p-4 text-left shadow-[0_8px_24px_rgba(16,24,40,.12)]"
               >
-                <div class="text-[13px] font-bold text-[#0f1729]">Exportar dados</div>
+                <div class="text-[13px] font-bold text-[#0f1729]">Export data</div>
 
                 <p class="mt-0.5 text-[11.5px] text-[#8a93a3]">
-                  Cobaia e métricas sempre incluídas. Marcar imagens gera um .zip.
+                  Subject and metrics are always included. Selecting more than one file bundles them into a .zip.
                 </p>
 
                 <form phx-change="export_change" class="mt-3 space-y-2">
-                  <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <label class="flex items-center gap-2 text-[12.5px] font-medium text-[#344054]">
                     <input
                       type="checkbox"
-                      name="date"
-                      checked={@export_opts.date}
+                      name="csv"
+                      checked={@export_opts.csv}
                       class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
-                    /> Data (experimento/vídeo)
+                    /> CSV
                   </label>
 
-                  <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                  <label class="flex items-center gap-2 text-[12.5px] font-medium text-[#344054]">
                     <input
                       type="checkbox"
-                      name="video"
-                      checked={@export_opts.video}
+                      name="xlsx"
+                      checked={@export_opts.xlsx}
                       class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
-                    /> Metadados do vídeo
+                    /> XLSX
                   </label>
 
-                  <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
-                    <input
-                      type="checkbox"
-                      name="calibration"
-                      checked={@export_opts.calibration}
-                      class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
-                    /> Parâmetros de calibração
-                  </label>
+                  <div class={[
+                    "ml-5 space-y-2 border-l border-[#f0f1f4] pl-3",
+                    !any_format?(@export_opts) && "opacity-40"
+                  ]}>
+                    <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                      <input
+                        type="checkbox"
+                        name="date"
+                        checked={@export_opts.date}
+                        disabled={!any_format?(@export_opts)}
+                        class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                      /> Date (experiment/video)
+                    </label>
+
+                    <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                      <input
+                        type="checkbox"
+                        name="video"
+                        checked={@export_opts.video}
+                        disabled={!any_format?(@export_opts)}
+                        class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                      /> Video metadata
+                    </label>
+
+                    <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
+                      <input
+                        type="checkbox"
+                        name="calibration"
+                        checked={@export_opts.calibration}
+                        disabled={!any_format?(@export_opts)}
+                        class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
+                      /> Calibration parameters
+                    </label>
+                  </div>
 
                   <div class="!mt-3 border-t border-[#f0f1f4] pt-2 text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
-                    Imagens (zip)
+                    Images
                   </div>
 
                   <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
@@ -193,7 +223,7 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
                       name="heatmap"
                       checked={@export_opts.heatmap}
                       class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
-                    /> Mapa de calor
+                    /> Heatmap
                   </label>
 
                   <label class="flex items-center gap-2 text-[12.5px] text-[#344054]">
@@ -202,32 +232,29 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
                       name="speed"
                       checked={@export_opts.speed}
                       class="size-4 rounded border-[#d4d8df] text-[#CC5500] focus:ring-[#CC5500]"
-                    /> Gráfico de velocidade
+                    /> Speed chart
                   </label>
                 </form>
 
-                <div class="mt-4 flex flex-col gap-2">
-                  <.button
-                    size="sm"
-                    href={
-                      ~p"/experiments/#{@experiment.id}/export?#{export_query(@export_opts, "csv")}"
-                    }
-                    download
-                  >
-                    <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Baixar CSV
-                  </.button>
+                <.button
+                  :if={any_format?(@export_opts)}
+                  size="sm"
+                  class="mt-4 w-full"
+                  href={~p"/experiments/#{@experiment.id}/export?#{export_query(@export_opts)}"}
+                  download
+                >
+                  <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Download
+                </.button>
 
-                  <.button
-                    size="sm"
-                    variant="secondary"
-                    href={
-                      ~p"/experiments/#{@experiment.id}/export?#{export_query(@export_opts, "xlsx")}"
-                    }
-                    download
-                  >
-                    <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Baixar XLSX
-                  </.button>
-                </div>
+                <.button
+                  :if={!any_format?(@export_opts)}
+                  size="sm"
+                  class="mt-4 w-full"
+                  type="button"
+                  disabled
+                >
+                  <.icon name="hero-arrow-down-tray-micro" class="size-4" /> Download
+                </.button>
               </div>
             </div>
 
@@ -431,9 +458,10 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   # Builds the query string for the export download link from the current panel
   # state, so the `<.link download>` href always reflects the checkboxes.
-  defp export_query(opts, format) do
+  defp export_query(opts) do
     [
-      format: format,
+      csv: bool01(opts.csv),
+      xlsx: bool01(opts.xlsx),
       date: bool01(opts.date),
       video: bool01(opts.video),
       calibration: bool01(opts.calibration),
@@ -444,4 +472,6 @@ defmodule MouseTrackerWeb.ExperimentLive.Show do
 
   defp bool01(true), do: "1"
   defp bool01(_), do: "0"
+
+  defp any_format?(opts), do: opts.csv or opts.xlsx
 end
