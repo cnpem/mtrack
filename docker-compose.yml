@@ -9,7 +9,12 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mouse_tracker}"]
+      # Without -d, pg_isready defaults dbname to the same value as -U (libpq default),
+      # which isn't POSTGRES_DB here — every check then hits a real "database ... does
+      # not exist" FATAL in the postgres log. pg_isready still counts that as "server is
+      # up" (any error besides "not accepting connections yet" does), so this was log
+      # noise rather than a functional failure, but pointing it at the real db avoids it.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mouse_tracker} -d ${POSTGRES_DB:-mouse_tracker_prod}"]
       interval: 5s
       timeout: 5s
       retries: 10
