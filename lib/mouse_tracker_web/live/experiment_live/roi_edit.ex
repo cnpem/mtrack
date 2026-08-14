@@ -50,26 +50,10 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
   defp roi_draw_mode(_), do: "roi_polygon"
 
   defp assign_frame(socket, video) do
-    frame_path = video_frame_path(video)
-
     assign_async(socket, :frame_url, fn ->
-      if File.exists?(frame_path) do
-        {:ok, %{frame_url: video_frame_web_path(video)}}
-      else
-        case FrameExtractor.extract_first_frame(video.filepath, frame_path) do
-          {:ok, _meta} -> {:ok, %{frame_url: video_frame_web_path(video)}}
-          {:error, _reason} -> {:ok, %{frame_url: nil}}
-        end
-      end
+      {:ok, %{frame_url: FrameExtractor.ensure_cached_frame(video)}}
     end)
   end
-
-  defp video_frame_path(video),
-    do: Path.join([static_dir(), "uploads", "roi_edit_frames", "#{video.id}.png"])
-
-  defp video_frame_web_path(video), do: "/uploads/roi_edit_frames/#{video.id}.png"
-
-  defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")
 
   # --- Events ---
 
@@ -189,6 +173,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
         </.link>
 
         <h1 class="mt-3 text-[23px] font-bold text-[#0f1729]">Edit ROI</h1>
+
         <p class="mt-1 font-data text-[12.5px] text-[#8a93a3]">{@video.filename}</p>
 
         <div
@@ -198,12 +183,14 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
           <div class="text-[12.5px] font-semibold text-[#92400e]">
             Geometry is locked — a processed video uses this ROI
           </div>
+
           <p class="mt-1 text-[11.5px] text-[#92400e]">
             This ROI is attached to at least one video that is already done or currently
             processing. Editing its shape now would desync it from those results, so only
             the name can be changed here. Duplicate it to get an independent, freely
             editable copy.
           </p>
+
           <button
             type="button"
             phx-click="duplicate"
@@ -217,15 +204,16 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
           <label class="block text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             Name
           </label>
+
           <input
             type="text"
             name="value"
             value={@name}
             class="mt-2 w-full max-w-sm rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2 text-[14px] text-[#0f1729] focus:border-[#CC5500] focus:outline-none"
           />
-
           <div :if={!@locked?} class="mt-5">
             <div class="text-[12px] font-bold text-[#0f1729]">Geometry</div>
+
             <p class="mt-1 text-[11.5px] text-[#98a2b3]">
               The current shape is shown as a reference. Draw a new one on top to replace
               it, or leave it untouched to keep the existing geometry.
@@ -237,11 +225,13 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
                   Extracting frame…
                 </div>
               </:loading>
+
               <:failed>
                 <div class="mt-2 flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]">
                   Could not extract a frame from this video.
                 </div>
               </:failed>
+
               <div :if={frame_url} class="mt-2">
                 <div
                   id="roi-edit-canvas"
@@ -255,6 +245,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
                   <canvas data-role="overlay" class="absolute inset-0 h-full w-full cursor-crosshair"></canvas>
                 </div>
               </div>
+
               <div
                 :if={!frame_url}
                 class="mt-2 flex h-64 items-center justify-center rounded-[10px] border border-dashed border-[#d4d8df] text-center font-data text-[12px] text-[#98a2b3]"
@@ -268,6 +259,7 @@ defmodule MouseTrackerWeb.ExperimentLive.RoiEdit do
             <.button variant="secondary" navigate={~p"/experiments/#{@video.experiment_id}"}>
               Cancel
             </.button>
+
             <.button type="submit">
               Save
             </.button>

@@ -16,9 +16,16 @@ defmodule MouseTrackerWeb.ExperimentLive.New.Wizard do
 
   # --- Per-video spec (subject/reference/inherit-source flags) ---
 
-  def default_spec(filename) do
+  # `subject_id` pre-fills `subject_ref` as `{:existing, id}` when reusing a
+  # library video that already had a subject attached — more likely than
+  # "no subject" for a video the user is deliberately reusing.
+  def default_spec(filename, subject_id \\ nil) do
     %{
-      subject_ref: {:new, Path.rootname(filename), nil},
+      subject_ref:
+        if(subject_id,
+          do: {:existing, subject_id},
+          else: {:new, Path.rootname(filename), nil}
+        ),
       is_ref?: false,
       source: nil
     }

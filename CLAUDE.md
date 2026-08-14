@@ -680,34 +680,45 @@ Um candidato concreto levantado numa revisão do estado do código, ainda penden
   interativo para um helper próprio, ou separar "rastrear posição" de "classificar
   zona").
 
-## Backlog — pós-deploy (levantado em 2026-08-14, ainda não iniciado)
+## Backlog — pós-deploy (levantado em 2026-08-14)
 
-Ideias trazidas pelo usuário depois do primeiro deploy em produção, para atacar
-uma de cada vez em sessões futuras. Cada item abaixo já foi confrontado com o
-estado real do código antes de ser escrito aqui, pra não descrever como
-"a fazer" algo que já existe (ou existe parcialmente).
+Ideias trazidas pelo usuário depois do primeiro deploy em produção, atacadas
+uma de cada vez. Cada item abaixo foi confrontado com o estado real do código
+antes de ser escrito, pra não descrever como "a fazer" algo que já existe (ou
+existe parcialmente).
 
-- [ ] **Excluir experimento (UI)**: `Experiments.delete_experiment/2` já existe
-  no context (com limpeza de arquivos em disco via `FileCleanup`, ver Fase 2
-  parte 6), mas nenhuma LiveView (`ExperimentLive.Index`/`Show`) tem
-  botão/`handle_event` que o chame — hoje só é alcançável programaticamente.
-  Adicionar um botão de delete, mesmo padrão `data-confirm` nativo já usado em
-  `PipelineSettingsLive.Index` para Calibration/ROI/Subject.
-- [ ] **Renomear experimento (UI)**: mesma lacuna — `update_experiment/3`
-  existe no context, mas nenhuma tela chama pra editar o nome depois de
-  criado. Seguir o padrão de rename inline (`phx-blur`, dispatch por
-  `@resources`) já usado em `PipelineSettingsLive.Index`, ou um form simples
-  em `ExperimentLive.Show`.
-- [ ] **Reutilizar vídeos já enviados (evitar duplicidade)**: hoje
-  `Video.belongs_to :experiment` é 1:1 — um vídeo pertence a exatamente um
-  experimento, sem tabela de junção nem picker de vídeo existente na wizard
-  (`ExperimentLive.New` só tem `allow_upload`, upload novo sempre).
-  `Experiments.Reporting.list_all_videos/1` (usado por `DatasetLive.Index`)
-  já lista todos os vídeos do usuário cross-experiment, mas só para
-  leitura/relatório — não para reuso. Precisa de migração estrutural
-  (provavelmente `videos_experiments` N:N, no mesmo padrão de
-  `make_rois_shareable`/`make_subjects_shareable`) + um picker no passo 1 da
-  wizard.
+- [x] **Excluir experimento (UI)**: `ExperimentLive.Show` ganhou um menu "⋮"
+  (kebab) no header — posicionamento escolhido para ficar longe do painel de
+  export (os dois disputavam a mesma área) — com a ação Delete
+  (`data-confirm` nativo, mesmo padrão já usado em `PipelineSettingsLive.Index`
+  para Calibration/ROI/Subject), chamando `Experiments.delete_experiment/2`
+  (já existia no context, incluindo limpeza de arquivos via `FileCleanup`).
+- [x] **Renomear experimento (UI)**: `<.rename_input>` (novo componente
+  público em `core_components.ex`, extraído do que antes era um privado só de
+  `PipelineSettingsLive.Index`) usado também em `ExperimentLive.Show` para
+  renomear inline (`phx-blur`), chamando `update_experiment/3` (já existia).
+- [x] **Reutilizar vídeos já enviados (evitar duplicidade de upload)**: ao
+  perguntar ao usuário se o vídeo reaproveitado devia virar um único registro
+  compartilhado entre experimentos (exigiria `Video` virar N:N com
+  `Experiment`) ou cada experimento manter sua própria análise independente,
+  a resposta foi a segunda — o que elimina qualquer migração de schema.
+  `Video` continua `belongs_to :experiment` (1:1). O passo 1 da wizard
+  (`ExperimentLive.New`) ganhou uma seção "Reuse from your library": lista
+  todos os vídeos do usuário (`Reporting.list_all_videos/1`, já existente),
+  com busca e seleção múltipla; "Add N selected" copia cada arquivo
+  (`File.cp`, cópia local em disco — rápida, evita reenviar do navegador) para
+  um novo `ref`/diretório da wizard, reaproveita o frame já cacheado
+  (`FrameExtractor.ensure_cached_frame/1`, extraída desta função pública
+  compartilhada — antes duplicada como `defp ensure_thumbnail/1` em
+  `DatasetLive.Index` e inline em `ExperimentLive.RoiEdit`) quando existe, e
+  copia metadados (`fps`/`duration_seconds`/etc.) direto do `Video` fonte, sem
+  reextrair via OpenCV. `Wizard.default_spec/1` virou `default_spec/2`,
+  pré-preenchendo o subject do vídeo reaproveitado (`{:existing, subject_id}`)
+  em vez do padrão "novo subject com nome do arquivo". Copiar (em vez de
+  apontar pro mesmo `filepath`) é necessário porque
+  `Experiments.FileCleanup.cleanup_video_files/1` dá `File.rm` incondicional
+  no vídeo deletado — dois `Video` rows compartilhando um path fariam a
+  exclusão de um quebrar o outro.
 - [ ] **Reutilizar ROI/Calibração de outros experimentos na wizard**:
   diferente de `Subject` (já reutilizável, populado via
   `Subjects.list_subjects` no passo 3), o passo 2 da wizard não usa
@@ -717,27 +728,22 @@ estado real do código antes de ser escrito aqui, pra não descrever como
   usuário, com um checkbox para alternar entre "só referências criadas nesta
   sessão/wizard" (comportamento atual) e "mostrar todas as salvas" (reuso
   entre experimentos).
-- [ ] **"Tempo por zona de ROI" como métrica em Analyses**: `AnalysesLive.Index`
-  já tem 4 visões (Trend, Per-subject, Per-group boxplot, Speed-distribution),
-  com seletor de métrica (`distance_cm`, `speed_max_cm`, `thigmotaxis_pct`,
-  etc.) e coloração por `Subject.group` já existente
-  (`experiment_groups/2`/`group_metric_series/4` em `Experiments.Reporting`).
-  Decisão do usuário: **não** criar um tipo de gráfico novo (eixo X = zonas de
-  ROI) — em vez disso, expor **tempo em cada zona de ROI como mais uma
-  métrica selecionável** (uma métrica por zona, ex. "Time in zone: Center"),
-  reaproveitando as visões Trend/Per-subject/Per-group já existentes
-  (Speed-distribution fica de fora, é específica de velocidade). Dado já
-  disponível via `roi_times`/`tracking_result` (usado hoje em
-  `Export.roi_seconds_cells/2`); falta uma função de agregação por zona em
-  `Reporting`.
-- [ ] **Download — tradução + checkboxes multi-formato**: o export já existe
-  por completo (`ExportController` + `Experiments.Export`, CSV via
-  NimbleCSV, XLSX via Elixlsx, zip opcional com PNGs — painel em
-  `ExperimentLive.Show`), mas (a) os textos da UI estão em português (dados/
-  colunas já em inglês) e (b) CSV/XLSX são escolha única, não combináveis.
-  Mudanças: 1) traduzir o painel de export para inglês; 2) CSV e XLSX viram
-  checkboxes independentes — marcar os 2 baixa um `.zip` com ambos; marcar só
-  1 continua baixando um arquivo único (decisão do usuário, sem zip
-  desnecessário no caso simples); 3) metadados/calibração viram sub-itens
-  indentados abaixo dos checkboxes de formato, desabilitados até pelo menos 1
-  formato ser selecionado.
+- [x] **"Tempo por zona de ROI" em Analyses**: decisão do usuário mudou
+  durante a implementação — em vez de expor "tempo em cada zona" como mais
+  uma métrica selecionável nas visões existentes (Trend/Per-subject/
+  Per-group, ideia original deste item), virou uma aba dedicada **"Time x
+  ROI"** (`roi_box` view) em `AnalysesLive.Index`: eixo X = zonas de ROI dos
+  subjects/grupos selecionados, um boxplot por par (zona, grupo), colorido
+  por grupo (`Reporting.roi_zone_names/1`, novo). Subjects sem grupo ficam de
+  fora, com aviso. Junto veio um fix genérico em
+  `LocomoComponents.box_plot/1`: labels de categoria longos demais pro slot
+  agora quebram em até 2 linhas (`wrap_label/2`) em vez de sobrepor o label
+  vizinho — vale para todas as visões com boxplot (Per subject, Per group,
+  Speed dist. e Time x ROI).
+- [x] **Download — tradução + checkboxes multi-formato**: painel de export em
+  `ExperimentLive.Show` traduzido para inglês; CSV e XLSX viram checkboxes
+  independentes (`ExportController`, `selected_formats/1`) — marcar os 2 baixa
+  um `.zip` com ambos, só 1 marcado continua baixando arquivo único (zip só
+  quando há mais de 1 entrada no total, contando também as imagens);
+  metadados/calibração viram sub-itens indentados abaixo dos checkboxes de
+  formato, desabilitados até pelo menos 1 formato ser selecionado.

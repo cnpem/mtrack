@@ -6,9 +6,11 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
   per-video table and a per-subject aggregate (reusing
   `Experiments.subject_metric_aggregate/1`).
 
-  True cross-experiment *reuse* of a video (attaching an already-uploaded video
-  to a new experiment) needs a schema change (Video is `belongs_to :experiment`
-  today) and is a later phase — this screen is the read-only library.
+  This screen itself is read-only. Reusing a video already listed here in a
+  *new* experiment is done from the wizard's upload step
+  (`ExperimentLive.New`'s "Reuse from your library"), which copies the file
+  into a fresh, independent `Video` row rather than attaching this one —
+  `Video` stays `belongs_to :experiment` (1:1), no schema change needed.
   """
   use MouseTrackerWeb, :live_view
 
@@ -93,16 +95,19 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
 
   # --- Thumbnails (async, cached per video on disk) ---
 
-  # Shares RoiEdit's per-video frame cache (`uploads/roi_edit_frames/<id>.png`),
-  # so a frame extracted here or there is reused. Extraction shells out to
-  # Python, so it runs off the socket via assign_async with bounded concurrency;
+  # Shares the per-video frame cache with RoiEdit and the wizard's "reuse
+  # video" picker (`FrameExtractor.ensure_cached_frame/1`), so a frame
+  # extracted anywhere is reused everywhere. Extraction shells out to Python,
+  # so it runs off the socket via assign_async with bounded concurrency;
   # already-cached frames skip the subprocess.
   defp assign_thumbnails(socket, videos) do
     assign_async(socket, :thumbnails, fn ->
       thumbs =
         videos
         |> Task.async_stream(
-          fn video -> {video.id, ensure_thumbnail(video)} end,
+          fn video ->
+            {video.id, MouseTracker.Tracking.FrameExtractor.ensure_cached_frame(video)}
+          end,
           max_concurrency: System.schedulers_online(),
           timeout: :timer.seconds(30),
           on_timeout: :kill_task
@@ -115,27 +120,6 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
       {:ok, %{thumbnails: thumbs}}
     end)
   end
-
-  defp ensure_thumbnail(video) do
-    frame_path = Path.join([static_dir(), "uploads", "roi_edit_frames", "#{video.id}.png"])
-    web_path = "/uploads/roi_edit_frames/#{video.id}.png"
-
-    cond do
-      File.exists?(frame_path) ->
-        web_path
-
-      is_binary(video.filepath) and File.exists?(video.filepath) ->
-        case MouseTracker.Tracking.FrameExtractor.extract_first_frame(video.filepath, frame_path) do
-          {:ok, _meta} -> web_path
-          {:error, _} -> nil
-        end
-
-      true ->
-        nil
-    end
-  end
-
-  defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")
 
   defp thumb_src(%{ok?: true, result: thumbs}, id), do: Map.get(thumbs, id)
   defp thumb_src(_async, _id), do: nil
@@ -154,10 +138,12 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <div class="flex items-start justify-between">
           <div>
             <h1 class="text-[24px] font-bold text-[#0f1729]">Datasets</h1>
+
             <p class="mt-1 text-[13px] text-[#667085]">
               Raw videos and tracked trajectories from every experiment.
             </p>
           </div>
+
           <.button size="lg" shadow navigate={~p"/experiments/new"}>
             <.icon name="hero-arrow-up-tray-micro" class="size-4" /> Upload video
           </.button>
@@ -179,8 +165,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
             label="Tracked"
             value={"#{@summary.tracked} / #{@summary.count}"}
             sub="Finished processing"
-          />
-          <.storage_card bytes={@summary.storage_bytes} />
+          /> <.storage_card bytes={@summary.storage_bytes} />
         </div>
 
         <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -212,7 +197,6 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
               query={@query}
               placeholder="Search by file, subject, group or experiment"
             />
-
             <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
               <button
                 :for={{value, label} <- tabs()}
@@ -284,13 +268,19 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Experiment</th>
+
             <th class="px-2 py-3">File</th>
+
             <th class="px-2 py-3">Subject</th>
+
             <th class="px-2 py-3">Duration / size</th>
+
             <th class="px-2 py-3">Status</th>
+
             <th class="px-[18px] py-3"></th>
           </tr>
         </thead>
+
         <tbody>
           <tr :for={v <- @videos} class="border-b border-[#f4f5f7] last:border-0 hover:bg-[#fafbfc]">
             <td class="px-[18px] py-3">
@@ -301,6 +291,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                 {v.experiment.name}
               </.link>
             </td>
+
             <td class="px-2 py-3">
               <div class="flex items-center gap-2">
                 <div class="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[7px] border border-[#eef1f4] bg-[#11161f]">
@@ -317,10 +308,12 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                     class="size-3.5 text-[#475467]"
                   />
                 </div>
+
                 <div class="min-w-0 max-w-[160px]">
                   <div class="truncate font-data text-[12.5px] font-medium text-[#0f1729]">
                     {v.filename}
                   </div>
+
                   <div
                     :if={v.status == "done"}
                     class="mt-0.5 truncate font-data text-[11px] text-[#8a93a3]"
@@ -330,6 +323,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                 </div>
               </div>
             </td>
+
             <td class="px-2 py-3">
               <div :if={v.subject} class="flex items-center gap-1.5">
                 <span
@@ -338,6 +332,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
                 ></span>
                 <div class="min-w-0 max-w-[120px]">
                   <div class="truncate font-data text-[12px] text-[#344054]">{v.subject.name}</div>
+
                   <div :if={subject_tags(v.subject)} class="truncate text-[10.5px] text-[#98a2b3]">
                     {subject_tags(v.subject)}
                   </div>
@@ -345,18 +340,22 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
               </div>
               <span :if={!v.subject} class="text-[12px] text-[#98a2b3]">—</span>
             </td>
+
             <td class="px-2 py-3 font-data text-[12px] text-[#344054]">
               <div class="truncate">{duration_fps(v)}</div>
+
               <div class="mt-0.5 truncate text-[11px] text-[#98a2b3]">
                 {format_size(v.file_size_bytes)}
               </div>
             </td>
+
             <td class="px-2 py-3">
               <.status_pill status={v.status} />
               <div class="mt-1 truncate text-[10.5px] text-[#98a2b3]">
                 {calibration_px_per_cm(v) || "No calibration"}
               </div>
             </td>
+
             <td class="px-[18px] py-3 text-right">
               <.link navigate={row_action_path(v)} class="text-[#b0b7c1] hover:text-[#667085]">
                 <.icon name="hero-chevron-right-mini" class="size-4" />
@@ -393,12 +392,15 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         <span class="font-data text-[14px] font-bold text-[#0f1729]">
           {(@group.subject && @group.subject.name) || "No subject"}
         </span>
+
         <span :if={@group.subject && @group.subject.genotype} class="text-[11.5px] text-[#98a2b3]">
           {@group.subject.genotype}
         </span>
+
         <span :if={@group.subject && @group.subject.group} class="text-[11.5px] text-[#98a2b3]">
           {@group.subject.group}
         </span>
+
         <span class="ml-auto font-data text-[11.5px] text-[#8a93a3]">
           {length(@group.videos)} video(s) · {@group.aggregate.n} tracked
         </span>
@@ -415,7 +417,6 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         ]}
         class="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4"
       />
-
       <div class="mt-3 divide-y divide-[#f4f5f7]">
         <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
           <.link
@@ -461,7 +462,6 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
         ]}
         class="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4"
       />
-
       <div class="mt-3 divide-y divide-[#f4f5f7]">
         <div :for={v <- @group.videos} class="flex items-center gap-3 py-2">
           <.link
@@ -474,6 +474,7 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
           <span class="min-w-0 flex-1 truncate font-data text-[12px] text-[#344054]">
             <span :if={v.subject}>{v.subject.name} · </span>{v.filename}
           </span>
+
           <span class="hidden font-data text-[11.5px] text-[#8a93a3] sm:inline">{duration_fps(v)}</span>
         </div>
       </div>
@@ -492,12 +493,14 @@ defmodule MouseTrackerWeb.DatasetLive.Index do
     ~H"""
     <div class="rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a93a3]">Storage</div>
+
       <div class="mt-2 flex items-baseline gap-1">
         <span class="font-data text-[32px] font-semibold leading-none text-[#0f1729]">
           {format_gb(@bytes)}
         </span>
         <span class="font-data text-[13px] text-[#98a2b3]">GB</span>
       </div>
+
       <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[#f2f4f7]">
         <div class="h-full rounded-full bg-[#CC5500]" style={"width:#{@pct}%"}></div>
       </div>
