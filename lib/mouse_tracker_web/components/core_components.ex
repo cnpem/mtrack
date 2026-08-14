@@ -71,6 +71,7 @@ defmodule MouseTrackerWeb.CoreComponents do
         <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
         <div>
           <p :if={@title} class="font-semibold">{@title}</p>
+
           <p>{msg}</p>
         </div>
         <div class="flex-1" />
@@ -256,6 +257,7 @@ defmodule MouseTrackerWeb.CoreComponents do
           {@rest}
         />{@label}
       </label>
+
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -281,6 +283,7 @@ defmodule MouseTrackerWeb.CoreComponents do
           {Phoenix.HTML.Form.options_for_select(@options, @value)}
         </select>
       </label>
+
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -290,8 +293,7 @@ defmodule MouseTrackerWeb.CoreComponents do
     ~H"""
     <div class="mb-2">
       <label for={@id}>
-        <span :if={@label} class="mb-1 block text-sm font-medium text-[#344054]">{@label}</span>
-        <textarea
+        <span :if={@label} class="mb-1 block text-sm font-medium text-[#344054]">{@label}</span> <textarea
           id={@id}
           name={@name}
           class={[
@@ -302,6 +304,7 @@ defmodule MouseTrackerWeb.CoreComponents do
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
       </label>
+
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -326,6 +329,7 @@ defmodule MouseTrackerWeb.CoreComponents do
           {@rest}
         />
       </label>
+
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """
@@ -335,8 +339,7 @@ defmodule MouseTrackerWeb.CoreComponents do
   defp error(assigns) do
     ~H"""
     <p class="mt-1.5 flex gap-2 items-center text-sm text-red-600">
-      <.icon name="hero-exclamation-circle" class="size-5" />
-      {render_slot(@inner_block)}
+      <.icon name="hero-exclamation-circle" class="size-5" /> {render_slot(@inner_block)}
     </p>
     """
   end
@@ -355,10 +358,12 @@ defmodule MouseTrackerWeb.CoreComponents do
         <h1 class="text-lg font-semibold leading-8">
           {render_slot(@inner_block)}
         </h1>
+
         <p :if={@subtitle != []} class="text-sm text-[#8a93a3]">
           {render_slot(@subtitle)}
         </p>
       </div>
+
       <div class="flex-none">{render_slot(@actions)}</div>
     </header>
     """
@@ -400,11 +405,13 @@ defmodule MouseTrackerWeb.CoreComponents do
       <thead class="border-b border-[#e7e9ee] text-[11px] font-semibold uppercase tracking-wide text-[#8a93a3]">
         <tr>
           <th :for={col <- @col} class="px-3 py-2">{col[:label]}</th>
+
           <th :if={@action != []} class="px-3 py-2">
             <span class="sr-only">{gettext("Actions")}</span>
           </th>
         </tr>
       </thead>
+
       <tbody id={@id} phx-update={is_struct(@rows, Phoenix.LiveView.LiveStream) && "stream"}>
         <tr
           :for={row <- @rows}
@@ -418,6 +425,7 @@ defmodule MouseTrackerWeb.CoreComponents do
           >
             {render_slot(col, @row_item.(row))}
           </td>
+
           <td :if={@action != []} class="w-0 px-3 py-2.5 font-semibold">
             <div class="flex gap-4">
               <%= for action <- @action do %>
@@ -451,6 +459,7 @@ defmodule MouseTrackerWeb.CoreComponents do
       <li :for={item <- @item} class="flex items-center gap-4 py-3">
         <div class="min-w-0 flex-1">
           <div class="text-sm font-semibold text-[#0f1729]">{item.title}</div>
+
           <div class="text-sm text-[#344054]">{render_slot(item)}</div>
         </div>
       </li>
@@ -490,7 +499,9 @@ defmodule MouseTrackerWeb.CoreComponents do
       >
         <.icon name={@icon} class="size-6" />
       </div>
+
       <h2 class={["text-[15px] font-bold text-[#0f1729]", @icon && "mt-4"]}>{@title}</h2>
+
       <p :if={@subtitle} class="mt-1 max-w-sm text-[13px] text-[#667085]">{@subtitle}</p>
       {render_slot(@inner_block)}
     </div>
@@ -523,6 +534,33 @@ defmodule MouseTrackerWeb.CoreComponents do
         class="w-full rounded-[8px] border border-[#e7e9ee] bg-white py-2 pl-9 pr-3 text-[13px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
       />
     </form>
+    """
+  end
+
+  @doc """
+  Inline click-to-rename text input: transparent until hovered/focused, saves
+  on blur by pushing `event` with `id`/`value` params. Used by
+  `PipelineSettingsLive.Index` (Calibration/ROI/Subject name) and
+  `ExperimentLive.Show` (experiment name).
+  """
+  attr :event, :string, required: true
+  attr :id, :any, required: true
+  attr :name, :string, required: true
+  attr :class, :string, default: "font-data text-[12.5px] font-medium text-[#0f1729]"
+
+  def rename_input(assigns) do
+    ~H"""
+    <input
+      type="text"
+      name="value"
+      value={@name}
+      phx-blur={@event}
+      phx-value-id={@id}
+      class={[
+        "w-full min-w-[140px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none",
+        @class
+      ]}
+    />
     """
   end
 

@@ -7,7 +7,7 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
   import MouseTracker.AccountsFixtures
 
   alias MouseTracker.Repo
-  alias MouseTracker.Experiments.Video
+  alias MouseTracker.Experiments.{Rois, Video}
 
   setup :register_and_log_in_user
 
@@ -495,6 +495,30 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
       assert html =~ "CNO"
     end
 
+    test "a category label too long for its slot wraps onto a second line instead of overlapping",
+         %{conn: conn, user: user} do
+      # Several categories narrow each one's slot, so even a moderately long
+      # name among them needs to wrap instead of overlapping its neighbors.
+      long_named = subject_fixture(user, %{name: "Mouse With A Long Descriptive Name"})
+      others = for i <- 1..4, do: subject_fixture(user, %{name: "M-#{i}"})
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+
+      for s <- [long_named | others] do
+        video = video_fixture(experiment, cal, %{status: "done", subject_id: s.id})
+        tracking_result_fixture(video, %{distance_cm: 10.0})
+      end
+
+      subject_ids = Enum.map_join([long_named | others], ",", & &1.id)
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{subject_ids}&view=subject_box")
+
+      html = render(lv)
+      tspan_count = length(String.split(html, "<tspan")) - 1
+      # 5 categories, so 5 tspans if every label stayed on one line — more
+      # than that means at least one label actually wrapped onto a 2nd line.
+      assert tspan_count > 5
+    end
+
     test "the per-group view renders, hides point names, and log1p toggles", %{
       conn: conn,
       s1: s1,
@@ -595,6 +619,95 @@ defmodule MouseTrackerWeb.AnalysesLive.IndexTest do
         live(conn, "/analyses?subjects=#{s1.id}&view=subject_box&metric=thigmotaxis_pct")
 
       refute has_element?(lv, "#analyses-export")
+    end
+  end
+
+  describe "time x roi view" do
+    setup %{user: user} do
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+
+      s1 = subject_fixture(user, %{name: "M-01", group: "Control"})
+      s2 = subject_fixture(user, %{name: "M-02", group: "CNO"})
+
+      v1 = video_fixture(experiment, cal, %{status: "done", subject_id: s1.id, filename: "a.mp4"})
+      v2 = video_fixture(experiment, cal, %{status: "done", subject_id: s2.id, filename: "b.mp4"})
+
+      roi = roi_fixture(v1, %{name: "Center"})
+      :ok = Rois.attach_roi_to_video(v2, roi)
+
+      r1 = tracking_result_fixture(v1)
+      r2 = tracking_result_fixture(v2)
+      roi_time_fixture(roi, r1, %{seconds: 10.0})
+      roi_time_fixture(roi, r2, %{seconds: 20.0})
+
+      %{s1: s1, s2: s2}
+    end
+
+    test "renders one box per zone/group pair, with a group legend", %{
+      conn: conn,
+      s1: s1,
+      s2: s2
+    } do
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id},#{s2.id}&view=roi_box")
+
+      html = render(lv)
+      assert html =~ ~s(id="analyses-roi-box")
+      assert html =~ "Time in ROI zones by group"
+      assert html =~ "Groups"
+      assert html =~ "Control"
+      assert html =~ "CNO"
+    end
+
+    test "hides the metric selector on this view", %{conn: conn, s1: s1} do
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id}&view=roi_box")
+
+      refute has_element?(lv, "button[phx-click='select_metric']")
+    end
+
+    test "ungrouped subjects are excluded, with a hint shown", %{conn: conn, user: user} do
+      cal = calibration_fixture(user)
+      experiment = experiment_fixture(user)
+      grouped = subject_fixture(user, %{name: "M-03", group: "Control"})
+      ungrouped = subject_fixture(user, %{name: "M-04"})
+
+      v1 = video_fixture(experiment, cal, %{status: "done", subject_id: grouped.id})
+      v2 = video_fixture(experiment, cal, %{status: "done", subject_id: ungrouped.id})
+      roi = roi_fixture(v1, %{name: "Periphery"})
+      :ok = Rois.attach_roi_to_video(v2, roi)
+      r1 = tracking_result_fixture(v1)
+      r2 = tracking_result_fixture(v2)
+      roi_time_fixture(roi, r1, %{seconds: 5.0})
+      roi_time_fixture(roi, r2, %{seconds: 99.0})
+
+      {:ok, lv, _html} =
+        live(conn, "/analyses?subjects=#{grouped.id},#{ungrouped.id}&view=roi_box")
+
+      chart_html = lv |> element("#analyses-roi-box") |> render()
+      refute chart_html =~ ungrouped.name
+      assert render(lv) =~ "Subjects without a group are not shown here."
+    end
+
+    test "shows an empty state when no selected group has roi zone data", %{
+      conn: conn,
+      user: user
+    } do
+      subject = subject_fixture(user, %{name: "M-05", group: "Control"})
+      experiment = experiment_fixture(user)
+      video_fixture(experiment, nil, %{status: "done", subject_id: subject.id})
+
+      {:ok, _lv, html} = live(conn, "/analyses?subjects=#{subject.id}&view=roi_box")
+
+      assert html =~ "No ROI zone time"
+      refute html =~ ~s(id="analyses-roi-box")
+    end
+
+    test "the exported filename is fixed for this view", %{conn: conn, s1: s1, s2: s2} do
+      {:ok, lv, _html} = live(conn, "/analyses?subjects=#{s1.id},#{s2.id}&view=roi_box")
+
+      assert lv
+             |> element("#analyses-export")
+             |> render() =~ ~s(data-name="analyses-time-by-roi")
     end
   end
 end

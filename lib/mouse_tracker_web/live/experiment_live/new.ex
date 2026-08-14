@@ -20,6 +20,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
   use MouseTrackerWeb, :live_view
 
   alias MouseTracker.Experiments
+  alias MouseTracker.Experiments.Reporting
   alias MouseTracker.Experiments.Subjects
   alias MouseTracker.Tracking.FrameExtractor
   alias MouseTrackerWeb.ExperimentLive.New.Wizard
@@ -34,6 +35,8 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       peripheral_pct: to_string(user.default_peripheral_pct || 20),
       immobility_threshold_cm: to_string(user.default_immobility_threshold_cm || 2)
     }
+
+    library_videos = Reporting.list_all_videos(socket.assigns.current_scope)
 
     {:ok,
      socket
@@ -50,6 +53,10 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
      |> assign(:pipeline_defaults, pipeline_defaults)
      |> assign(:existing_subjects, Subjects.list_subjects(socket.assigns.current_scope))
      |> assign(:subject_groups, Subjects.list_subject_groups(socket.assigns.current_scope))
+     |> assign(:library_videos, library_videos)
+     |> assign(:library_query, "")
+     |> assign(:library_selected, MapSet.new())
+     |> assign_library_thumbnails(library_videos)
      |> allow_upload(:videos, upload_opts())}
   end
 
@@ -95,6 +102,28 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
   def handle_event("remove_saved", %{"ref" => ref}, socket) do
     {:noreply, remove_saved_video(socket, ref)}
+  end
+
+  # --- Reuse-from-library events ---
+
+  def handle_event("search", %{"query" => query}, socket) do
+    {:noreply, assign(socket, :library_query, query)}
+  end
+
+  def handle_event("toggle_library_pick", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    selected = socket.assigns.library_selected
+
+    selected =
+      if MapSet.member?(selected, id),
+        do: MapSet.delete(selected, id),
+        else: MapSet.put(selected, id)
+
+    {:noreply, assign(socket, :library_selected, selected)}
+  end
+
+  def handle_event("add_from_library", _params, socket) do
+    {:noreply, add_from_library(socket)}
   end
 
   # Continue → save completed uploads (video file + first-frame PNG), then patch.
@@ -284,11 +313,19 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         {{:exit, _reason}, original} -> Map.put(original, :frame_url, nil)
       end)
 
+    merge_saved_videos(socket, consumed)
+  end
+
+  # Appends freshly-prepared video entries (uploaded or reused from the
+  # library — both produce maps of the same shape) to `saved_videos`/`specs`
+  # and activates the first one if nothing is active yet. Shared by
+  # `save_pending_uploads/1` and `add_from_library/1`.
+  defp merge_saved_videos(socket, consumed) do
     saved = socket.assigns.saved_videos ++ consumed
 
     specs =
       Enum.reduce(consumed, socket.assigns.specs, fn v, acc ->
-        Map.put_new(acc, v.ref, Wizard.default_spec(v.filename))
+        Map.put_new(acc, v.ref, Wizard.default_spec(v.filename, Map.get(v, :subject_id)))
       end)
 
     active = socket.assigns.active_ref || saved |> List.first() |> then(&(&1 && &1.ref))
@@ -297,6 +334,154 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
     |> assign(:saved_videos, saved)
     |> assign(:specs, specs)
     |> assign(:active_ref, active)
+  end
+
+  # --- Reuse-from-library: copy an already-uploaded video into this batch ---
+
+  # `Video` stays 1:1 with `Experiment` (no schema change) — reusing a
+  # library video means this new experiment gets its own independent `Video`
+  # row, calibration, ROI and status, just like an upload. Copying the file
+  # (instead of pointing at the same `filepath`) is required because
+  # `Experiments.FileCleanup.cleanup_video_files/1` unconditionally removes a
+  # deleted video's file from disk — two rows sharing one path would make
+  # deleting either of them destroy the other's source video.
+  defp add_from_library(socket) do
+    sources =
+      Enum.filter(socket.assigns.library_videos, &(&1.id in socket.assigns.library_selected))
+
+    token = socket.assigns.upload_token
+    video_dir = Path.join([static_dir(), "uploads", "videos", token])
+    File.mkdir_p!(video_dir)
+
+    {copied, failed} =
+      Enum.reduce(sources, {[], []}, fn source, {ok, failed} ->
+        case copy_library_video(source, video_dir) do
+          {:ok, v} -> {[v | ok], failed}
+          {:error, _reason} -> {ok, [source.filename | failed]}
+        end
+      end)
+
+    copied = Enum.reverse(copied)
+    frame_dir = Path.join([static_dir(), "uploads", "frames", token])
+
+    consumed =
+      copied
+      |> Task.async_stream(
+        &add_library_frame(&1, frame_dir, token),
+        max_concurrency: System.schedulers_online(),
+        timeout: :timer.seconds(30),
+        on_timeout: :kill_task
+      )
+      |> Enum.zip(copied)
+      |> Enum.map(fn
+        {{:ok, v}, _original} -> v
+        {{:exit, _reason}, original} -> Map.put(original, :frame_url, nil)
+      end)
+
+    socket =
+      socket
+      |> merge_saved_videos(consumed)
+      |> assign(:library_selected, MapSet.new())
+
+    case failed do
+      [] ->
+        socket
+
+      names ->
+        put_flash(socket, :error, "Could not reuse (file missing): #{Enum.join(names, ", ")}.")
+    end
+  end
+
+  defp copy_library_video(source, video_dir) do
+    ref = Ecto.UUID.generate()
+    filepath = Path.join(video_dir, "#{ref}-#{source.filename}")
+
+    case File.cp(source.filepath, filepath) do
+      :ok ->
+        {:ok,
+         %{
+           ref: ref,
+           filename: source.filename,
+           filepath: filepath,
+           file_size_bytes: source.file_size_bytes,
+           fps: source.fps,
+           duration_seconds: source.duration_seconds,
+           frame_count: source.frame_count,
+           width: source.width,
+           height: source.height,
+           subject_id: source.subject_id,
+           reused_from_video_id: source.id,
+           reused_from_experiment: source.experiment.name,
+           start_time_seconds: 0.0,
+           end_time_seconds: nil,
+           start_frame_url: nil,
+           end_frame_url: nil
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Reuses the source video's already-cached first frame
+  # (`FrameExtractor.ensure_cached_frame/1`, shared with Datasets/RoiEdit) when
+  # present, instead of paying for another Python subprocess to re-extract a
+  # frame from bytes that are identical to what's already on disk.
+  defp add_library_frame(v, frame_dir, token) do
+    frame_path = Path.join(frame_dir, "#{v.ref}.png")
+    cached = FrameExtractor.cached_frame_path(%{id: v.reused_from_video_id})
+
+    frame_url =
+      cond do
+        File.exists?(cached) and match?(:ok, File.cp(cached, frame_path)) ->
+          "/uploads/frames/#{token}/#{v.ref}.png"
+
+        true ->
+          case FrameExtractor.extract_first_frame(v.filepath, frame_path) do
+            {:ok, _meta} -> "/uploads/frames/#{token}/#{v.ref}.png"
+            {:error, _} -> nil
+          end
+      end
+
+    Map.put(v, :frame_url, frame_url)
+  end
+
+  defp assign_library_thumbnails(socket, videos) do
+    assign_async(socket, :library_thumbnails, fn ->
+      thumbs =
+        videos
+        |> Task.async_stream(
+          fn video -> {video.id, FrameExtractor.ensure_cached_frame(video)} end,
+          max_concurrency: System.schedulers_online(),
+          timeout: :timer.seconds(30),
+          on_timeout: :kill_task
+        )
+        |> Enum.reduce(%{}, fn
+          {:ok, {id, url}}, acc -> Map.put(acc, id, url)
+          {:exit, _reason}, acc -> acc
+        end)
+
+      {:ok, %{library_thumbnails: thumbs}}
+    end)
+  end
+
+  defp filtered_library_videos(assigns) do
+    reused_ids =
+      assigns.saved_videos
+      |> Enum.map(&Map.get(&1, :reused_from_video_id))
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    q = assigns.library_query |> String.trim() |> String.downcase()
+
+    assigns.library_videos
+    |> Enum.reject(&(&1.id in reused_ids))
+    |> Enum.filter(fn v -> q == "" or matches_library_query?(v, q) end)
+  end
+
+  defp matches_library_query?(video, q) do
+    [video.filename, video.subject && video.subject.name, video.experiment.name]
+    |> Enum.any?(fn s -> s && String.contains?(String.downcase(s), q) end)
   end
 
   # Re-extracts the reference frame (used as the tracking background model and
@@ -692,6 +877,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           {v.filename}
         </div>
 
+        <span
+          :if={Map.get(v, :reused_from_video_id)}
+          class="inline-flex items-center gap-1 rounded-[6px] bg-[#f2f4f7] px-2 py-0.5 text-[10.5px] font-semibold text-[#475467]"
+        >
+          <.icon name="hero-arrow-path-rounded-square-micro" class="size-3.5" /> from library
+        </span>
+
         <span class="inline-flex items-center gap-1 rounded-[6px] bg-[#fbeee4] px-2 py-0.5 text-[10.5px] font-semibold text-[#b34a00]">
           <.icon name="hero-check-micro" class="size-3.5" /> saved
         </span>
@@ -747,6 +939,13 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
       </div>
     </div>
 
+    <.library_section
+      :if={@library_videos != []}
+      library_videos={filtered_library_videos(assigns)}
+      library_query={@library_query}
+      library_selected={@library_selected}
+      library_thumbnails={@library_thumbnails}
+    />
     <div class="mt-6 flex items-center justify-between">
       <.button variant="secondary" navigate={~p"/experiments"}>
         Cancel
@@ -761,11 +960,114 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         >
           Continue → ROI & scale
         </.button>
+
         <span class="text-[11px] text-[#98a2b3]">This may take a while — extracting a frame from each video.</span>
       </div>
     </div>
     """
   end
+
+  attr :library_videos, :list, required: true
+  attr :library_query, :string, required: true
+  attr :library_selected, :any, required: true
+  attr :library_thumbnails, :any, required: true
+
+  # "Reuse from your library" — skips re-uploading a video already sent in a
+  # previous experiment. Selecting videos and clicking "Add selected" copies
+  # each file server-side (fast, local disk-to-disk) into this batch (see
+  # `add_from_library/1`); each copy still gets its own independent
+  # calibration/ROI/status, exactly like an upload — see the module doc.
+  defp library_section(assigns) do
+    ~H"""
+    <div class="mt-6 rounded-[13px] border border-[#e7e9ee] bg-white p-[16px]">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="text-[13px] font-bold text-[#0f1729]">Reuse from your library</div>
+
+          <div class="mt-0.5 text-[11.5px] text-[#667085]">
+            Skip re-uploading a video you've already sent — each reused video still gets its own analysis.
+          </div>
+        </div>
+
+        <.search_input
+          id="library-search"
+          query={@library_query}
+          placeholder="Search videos"
+          class="relative w-full max-w-[220px]"
+        />
+      </div>
+
+      <.empty_state
+        :if={@library_videos == []}
+        icon="hero-film"
+        title="No matches"
+        subtitle="No videos in your library match this search."
+        class="mt-3 py-8"
+      />
+      <ul :if={@library_videos != []} class="mt-3 max-h-72 space-y-1.5 overflow-y-auto">
+        <li
+          :for={v <- @library_videos}
+          id={"library-video-#{v.id}"}
+          phx-click="toggle_library_pick"
+          phx-value-id={v.id}
+          class={[
+            "flex cursor-pointer items-center gap-3 rounded-[10px] border p-2.5 transition-colors",
+            MapSet.member?(@library_selected, v.id) &&
+              "border-[#CC5500] bg-[#fdf6f0] ring-1 ring-[#CC5500]/20",
+            !MapSet.member?(@library_selected, v.id) && "border-[#e7e9ee] hover:border-[#d4d8df]"
+          ]}
+        >
+          <input
+            type="checkbox"
+            checked={MapSet.member?(@library_selected, v.id)}
+            class="pointer-events-none size-4 rounded border-[#cdd2da] text-[#CC5500]"
+          />
+          <div class="flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[7px] border border-[#eef1f4] bg-[#11161f]">
+            <img
+              :if={library_thumb_src(@library_thumbnails, v.id)}
+              src={library_thumb_src(@library_thumbnails, v.id)}
+              alt={v.filename}
+              class="h-full w-full object-cover"
+              loading="lazy"
+            />
+            <.icon
+              :if={!library_thumb_src(@library_thumbnails, v.id)}
+              name="hero-film"
+              class="size-3.5 text-white/60"
+            />
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <div class="truncate font-data text-[12px] font-medium text-[#0f1729]">
+              {v.filename}
+            </div>
+
+            <div class="mt-0.5 truncate text-[10.5px] text-[#98a2b3]">
+              {v.experiment.name}<span :if={v.subject}> · {v.subject.name}</span>
+            </div>
+          </div>
+          <.status_pill status={v.status} />
+        </li>
+      </ul>
+
+      <div :if={@library_videos != []} class="mt-3 flex justify-end">
+        <.button
+          type="button"
+          id="add-from-library-btn"
+          size="sm"
+          variant="secondary"
+          phx-click="add_from_library"
+          disabled={MapSet.size(@library_selected) == 0}
+        >
+          Add {MapSet.size(@library_selected)} selected
+        </.button>
+      </div>
+    </div>
+    """
+  end
+
+  defp library_thumb_src(%{ok?: true, result: thumbs}, id), do: Map.get(thumbs, id)
+  defp library_thumb_src(_async, _id), do: nil
 
   # --- Step 2: ROI & scale (visual) ---
 
@@ -791,19 +1093,15 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         draw_mode={@draw_mode}
         shapes_json={@shapes_json}
       />
-
       <div class="space-y-4">
         <.reference_switch :if={@active_spec} active_spec={@active_spec} active_ref={@active_ref} />
-
         <%= if @active_spec && @active_spec.is_ref? do %>
           <.scale_card
             active_ref={@active_ref}
             draw_mode={@draw_mode}
             calibrations={@calibrations}
             scale_summary={@scale_summary}
-          />
-
-          <.roi_card active_ref={@active_ref} draw_mode={@draw_mode} active_rois={@active_rois} />
+          /> <.roi_card active_ref={@active_ref} draw_mode={@draw_mode} active_rois={@active_rois} />
         <% end %>
 
         <.inherit_control
@@ -814,9 +1112,7 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
           ref={@active_ref}
           options={Wizard.source_options(assigns)}
           selected={Wizard.current_source_ref(@active_spec)}
-        />
-
-        <.batch_list saved_videos={@saved_videos} active_ref={@active_ref} specs={@specs} />
+        /> <.batch_list saved_videos={@saved_videos} active_ref={@active_ref} specs={@specs} />
       </div>
     </div>
 
@@ -888,7 +1184,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         active_ref={@active_ref}
         active_video={@active_video}
       />
-
       <.trim_control
         :if={@active_video && @active_video.frame_url}
         active_ref={@active_ref}
@@ -932,7 +1227,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
         <span class="text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3]">
           Analysis window
         </span>
-
         <span class="font-data text-[11px] text-[#8a93a3]">total {format_seconds(@duration)}</span>
       </div>
 
@@ -954,7 +1248,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
             class="absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#CC5500] bg-white shadow cursor-grab touch-none"
             aria-label="Analysis start"
           ></button>
-
           <button
             type="button"
             data-role="handle-end"
@@ -965,7 +1258,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
 
         <div class="mt-2 flex justify-between font-data text-[11px] text-[#667085]">
           <span data-role="label-start">{format_seconds(@start_s)}</span>
-
           <span data-role="label-end">
             {if @end_s, do: format_seconds(@end_s), else: format_seconds(@duration)}
           </span>
@@ -1358,6 +1650,12 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               label="Reference"
               tag={Wizard.resolve_label(v.ref, @specs, @saved_videos)}
             />
+            <.resource_badge
+              :if={Map.get(v, :reused_from_video_id)}
+              label="Reused from"
+              tag={Map.get(v, :reused_from_experiment)}
+              optional
+            />
           </div>
         </li>
       </ul>
@@ -1432,7 +1730,6 @@ defmodule MouseTrackerWeb.ExperimentLive.New do
               placeholder="New subject name"
               class="w-full rounded-[6px] border border-[#e7e9ee] bg-white px-2 py-1.5 font-data text-[12.5px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
             />
-
             <input
               :if={match?({:new, _, _}, @specs[v.ref].subject_ref)}
               type="text"

@@ -61,12 +61,12 @@ defmodule MouseTrackerWeb.LocomoComponents do
       <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a93a3]">
         {@label}
       </div>
-
+      
       <div class="mt-2 flex items-baseline gap-1">
         <span class="font-data text-[32px] font-semibold leading-none text-[#0f1729]">{@value}</span>
         <span :if={@unit} class="font-data text-[13px] text-[#98a2b3]">{@unit}</span>
       </div>
-
+      
       <div :if={@sub} class="mt-1.5 text-[11.5px] text-[#8a93a3]">{@sub}</div>
     </div>
     """
@@ -195,9 +195,9 @@ defmodule MouseTrackerWeb.LocomoComponents do
             {tick.label}
           </text>
         </g>
-
+        
         <text :if={@unit} x={@chart.pad_left} y="11" font-size="10" fill="#98a2b3">{@unit}</text>
-
+        
         <line
           x1={@chart.pad_left}
           y1={@chart.pad_top}
@@ -214,7 +214,6 @@ defmodule MouseTrackerWeb.LocomoComponents do
           stroke="#e7e9ee"
           stroke-width="1"
         />
-
         <text
           :for={tick <- @chart.x_ticks}
           x={tick.x}
@@ -225,7 +224,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
         >
           {tick.label}
         </text>
-
+        
         <g :for={s <- @chart.series}>
           <polyline
             :if={length(s.coords) > 1}
@@ -415,11 +414,11 @@ defmodule MouseTrackerWeb.LocomoComponents do
             {tick.label}
           </text>
         </g>
-
+        
         <text :if={@unit} x={@chart.pad_left} y="11" font-size="10" fill="#98a2b3">
           {if @log1p, do: "#{@unit} (log1p)", else: @unit}
         </text>
-
+        
         <line
           x1={@chart.pad_left}
           y1={@chart.pad_top}
@@ -436,7 +435,6 @@ defmodule MouseTrackerWeb.LocomoComponents do
           stroke="#e7e9ee"
           stroke-width="1"
         />
-
         <g :for={b <- @chart.boxes}>
           <!-- whisker stem + caps -->
           <line
@@ -508,6 +506,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
             <circle cx={p.x} cy={p.y} r="3" fill={b.color} fill-opacity="0.85">
               <title>{p.tooltip}</title>
             </circle>
+            
             <text
               :if={@show_point_labels and p.label}
               x={p.x + 5}
@@ -518,15 +517,15 @@ defmodule MouseTrackerWeb.LocomoComponents do
               {p.label}
             </text>
           </g>
-
-          <text
-            x={b.cx}
-            y={@height - @chart.pad_bottom + 15}
-            text-anchor="middle"
-            font-size="10.5"
-            fill="#475467"
-          >
-            {b.label}
+          
+          <text x={b.cx} text-anchor="middle" font-size="10.5" fill="#475467">
+            <tspan
+              :for={{line, idx} <- Enum.with_index(b.label_lines)}
+              x={b.cx}
+              y={@height - @chart.pad_bottom + 15 + idx * 11}
+            >
+              {line}
+            </tspan>
           </text>
         </g>
       </svg>
@@ -554,11 +553,17 @@ defmodule MouseTrackerWeb.LocomoComponents do
     pad_left = 44
     pad_right = 12
     pad_top = 12
-    pad_bottom = 34
 
     n = length(categories)
     slot_w = if n > 0, do: (w - pad_left - pad_right) / n, else: 0.0
     box_w = min(46.0, slot_w * 0.5)
+
+    # Category labels wrap onto extra lines (instead of overlapping the
+    # neighboring box) when they don't fit the width one category "owns" —
+    # `pad_bottom` grows to fit however many lines the longest label needs.
+    label_lines = Enum.map(categories, &wrap_label(&1.label, label_char_budget(slot_w)))
+    max_lines = label_lines |> Enum.map(&length/1) |> Enum.max(fn -> 1 end)
+    pad_bottom = 34 + (max_lines - 1) * 11
 
     to_y_t = fn t -> h - pad_bottom - (t - min_t) / range * (h - pad_top - pad_bottom) end
     to_y = fn value -> to_y_t.(tf.(value)) end
@@ -566,8 +571,9 @@ defmodule MouseTrackerWeb.LocomoComponents do
 
     boxes =
       categories
+      |> Enum.zip(label_lines)
       |> Enum.with_index()
-      |> Enum.map(fn {c, i} ->
+      |> Enum.map(fn {{c, lines}, i} ->
         cx = center_x.(i)
         b = c.box
 
@@ -585,6 +591,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
 
         %{
           label: c.label,
+          label_lines: lines,
           color: c.color,
           cx: Float.round(cx, 1),
           box_w: Float.round(box_w, 1),
@@ -624,6 +631,52 @@ defmodule MouseTrackerWeb.LocomoComponents do
 
   defp jitter_offset(j, box_w, true) do
     (:erlang.phash2(j, 1000) / 1000 - 0.5) * box_w * 0.7
+  end
+
+  # Rough chars-per-line a category's slot can hold at the label's 10.5px font
+  # size (~5.6px/char average for this font), floored so tightly packed charts
+  # (many categories) still wrap instead of running into the next box's label.
+  defp label_char_budget(slot_w), do: max(6, trunc(slot_w / 5.6))
+
+  # Greedily wraps `label` onto lines no longer than `max_chars`, capped at 2
+  # lines — a 3rd+ line would push `pad_bottom` (and the whole chart) taller
+  # than a couple of long labels warrant, so any overflow past line 2 is
+  # folded in and ellipsized instead of growing further.
+  defp wrap_label(label, max_chars) do
+    case String.split(label) |> greedy_wrap(max_chars) do
+      [_, _ | _] = lines when length(lines) > 2 ->
+        [first | rest] = lines
+        [first, rest |> Enum.join(" ") |> truncate_line(max_chars)]
+
+      lines ->
+        lines
+    end
+  end
+
+  defp greedy_wrap(words, max_chars) do
+    words
+    |> Enum.reduce([], fn word, lines ->
+      case lines do
+        [] ->
+          [word]
+
+        [current | rest] ->
+          candidate = "#{current} #{word}"
+
+          if String.length(candidate) <= max_chars,
+            do: [candidate | rest],
+            else: [word, current | rest]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp truncate_line(line, max_chars) do
+    if String.length(line) > max_chars do
+      String.slice(line, 0, max(max_chars - 1, 1)) <> "…"
+    else
+      line
+    end
   end
 
   defp point_tooltip(%{label: nil, value: value}), do: "#{fmt(value)}"

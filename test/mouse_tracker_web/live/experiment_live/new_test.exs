@@ -231,6 +231,406 @@ defmodule MouseTrackerWeb.ExperimentLive.NewTest do
     end
   end
 
+  describe "step 1 — reuse from library" do
+    setup %{conn: conn, user: user} do
+      source_experiment = experiment_fixture(user, %{name: "Cohort A"})
+      subject = subject_fixture(user, %{name: "Mouse 7"})
+
+      source_path =
+        Path.join(System.tmp_dir!(), "library-src-#{System.unique_integer([:positive])}.mp4")
+
+      File.write!(source_path, "source video bytes")
+
+      source =
+        video_fixture(source_experiment, nil, %{
+          filename: "source.mp4",
+          filepath: source_path,
+          status: "done",
+          subject_id: subject.id
+        })
+
+      %{source: source, subject: subject, source_path: source_path}
+    end
+
+    test "lists videos from the user's library and filters by search",
+         %{conn: conn, source: source} do
+      {:ok, lv, html} = live(conn, ~p"/experiments/new")
+
+      assert html =~ "Reuse from your library"
+      assert html =~ source.filename
+
+      html = lv |> form("#library-search", %{query: "no-such-video"}) |> render_change()
+      refute html =~ source.filename
+
+      html = lv |> form("#library-search", %{query: "source"}) |> render_change()
+      assert html =~ source.filename
+    end
+
+    test "adding a library video copies the file into an independent Video row, without touching the original",
+         %{conn: conn, source: source, source_path: source_path} do
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      lv |> element("#library-video-#{source.id}") |> render_click()
+      html = lv |> element("#add-from-library-btn") |> render_click()
+
+      assert html =~ source.filename
+      assert html =~ "from library"
+      # already added — the library list no longer offers it again
+      refute has_element?(lv, "#library-video-#{source.id}")
+
+      assert File.exists?(source_path)
+    end
+
+    test "the reused video keeps the source's subject and creates its own experiment/video row",
+         %{conn: conn, source: source, subject: subject, source_path: source_path, scope: scope} do
+      existing_experiment_ids =
+        MapSet.new(Experiments.list_experiments(scope), & &1.id)
+
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      lv |> element("#library-video-#{source.id}") |> render_click()
+      lv |> element("#add-from-library-btn") |> render_click()
+
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+      assert html =~ "Reused from"
+
+      [_, ref] = Regex.run(~r/phx-value-ref="([^"]+)"/, html)
+
+      lv |> element("#ref-own-#{ref}") |> render_click()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv |> form("form[phx-change='set_scale_cm']", %{"value" => "10"}) |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"}) |> render_change()
+
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      review_html = render(lv)
+      assert review_html =~ ~s(value="#{subject.id}" selected)
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Reused run"})
+      |> render_submit()
+
+      [experiment] =
+        Enum.reject(Experiments.list_experiments(scope), &(&1.id in existing_experiment_ids))
+
+      [new_video] = Experiments.list_videos(experiment)
+
+      assert new_video.subject_id == subject.id
+      assert new_video.id != source.id
+      assert new_video.filepath != source.filepath
+      assert File.exists?(new_video.filepath)
+      assert File.exists?(source_path)
+
+      # reused the existing subject instead of duplicating it
+      assert length(Subjects.list_subjects(scope)) == 1
+    end
+
+    test "reusing multiple videos, each set as its own reference, combined with a fresh upload — all survive to the created experiment",
+         %{conn: conn, user: user, scope: scope} do
+      sources =
+        for n <- 1..3 do
+          path =
+            Path.join(System.tmp_dir!(), "lib-src-#{n}-#{System.unique_integer([:positive])}.mp4")
+
+          File.write!(path, "bytes #{n}")
+
+          video_fixture(experiment_fixture(user, %{name: "Src exp #{n}"}), nil, %{
+            filename: "lib#{n}.mp4",
+            filepath: path,
+            status: "done"
+          })
+        end
+
+      existing_experiment_ids = MapSet.new(Experiments.list_experiments(scope), & &1.id)
+
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      for s <- sources, do: lv |> element("#library-video-#{s.id}") |> render_click()
+      lv |> element("#add-from-library-btn") |> render_click()
+
+      tmp = Path.join(System.tmp_dir!(), "wizard-fresh-#{System.unique_integer([:positive])}.mp4")
+      File.write!(tmp, "fresh upload bytes")
+
+      video =
+        file_input(lv, "form[phx-change=validate_upload]", :videos, [
+          %{name: "fresh.mp4", content: File.read!(tmp), type: "video/mp4"}
+        ])
+
+      render_upload(video, "fresh.mp4")
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+
+      refs =
+        Regex.scan(~r/phx-value-ref="([^"]+)"/, html) |> Enum.map(&Enum.at(&1, 1)) |> Enum.uniq()
+
+      assert length(refs) == 4
+
+      for ref <- refs do
+        render_click(lv, "select_active", %{"ref" => ref})
+        render_click(lv, "toggle_ref", %{"ref" => ref})
+
+        render_hook(lv, "shape_drawn", %{
+          "kind" => "valid_region",
+          "x" => 0,
+          "y" => 0,
+          "w" => 100,
+          "h" => 100
+        })
+
+        render_hook(lv, "shape_drawn", %{
+          "kind" => "scale",
+          "x1" => 0,
+          "y1" => 0,
+          "x2" => 50,
+          "y2" => 0
+        })
+
+        lv |> form("form[phx-change='set_scale_cm']", %{"value" => "10"}) |> render_change()
+
+        render_hook(lv, "shape_drawn", %{
+          "kind" => "scale2",
+          "x1" => 0,
+          "y1" => 10,
+          "x2" => 40,
+          "y2" => 10
+        })
+
+        lv |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"}) |> render_change()
+      end
+
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Combo run"})
+      |> render_submit()
+
+      [experiment] =
+        Enum.reject(Experiments.list_experiments(scope), &(&1.id in existing_experiment_ids))
+
+      assert Experiments.list_videos(experiment) |> Enum.map(& &1.filename) |> Enum.sort() ==
+               ["fresh.mp4", "lib1.mp4", "lib2.mp4", "lib3.mp4"]
+    end
+
+    test "reusing multiple videos that inherit ROI/scale from one of the reused videos (no fresh upload)",
+         %{conn: conn, user: user, scope: scope} do
+      sources =
+        for n <- 1..3 do
+          path =
+            Path.join(
+              System.tmp_dir!(),
+              "lib-src2-#{n}-#{System.unique_integer([:positive])}.mp4"
+            )
+
+          File.write!(path, "bytes #{n}")
+
+          video_fixture(experiment_fixture(user, %{name: "Src2 exp #{n}"}), nil, %{
+            filename: "lib2_#{n}.mp4",
+            filepath: path,
+            status: "done"
+          })
+        end
+
+      existing_experiment_ids = MapSet.new(Experiments.list_experiments(scope), & &1.id)
+
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      for s <- sources, do: lv |> element("#library-video-#{s.id}") |> render_click()
+      lv |> element("#add-from-library-btn") |> render_click()
+
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+
+      refs =
+        Regex.scan(~r/phx-value-ref="([^"]+)"/, html) |> Enum.map(&Enum.at(&1, 1)) |> Enum.uniq()
+
+      [ref_video | inherit_videos] = refs
+
+      render_click(lv, "select_active", %{"ref" => ref_video})
+      render_click(lv, "toggle_ref", %{"ref" => ref_video})
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv |> form("form[phx-change='set_scale_cm']", %{"value" => "10"}) |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"}) |> render_change()
+
+      for ref <- inherit_videos do
+        render_click(lv, "select_active", %{"ref" => ref})
+        render_click(lv, "set_source", %{"ref" => ref, "source" => ref_video})
+      end
+
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Inherit run"})
+      |> render_submit()
+
+      [experiment] =
+        Enum.reject(Experiments.list_experiments(scope), &(&1.id in existing_experiment_ids))
+
+      assert Experiments.list_videos(experiment) |> Enum.map(& &1.filename) |> Enum.sort() ==
+               ["lib2_1.mp4", "lib2_2.mp4", "lib2_3.mp4"]
+    end
+
+    test "reused videos inheriting ROI/scale from a freshly-uploaded reference video",
+         %{conn: conn, user: user, scope: scope} do
+      sources =
+        for n <- 1..3 do
+          path =
+            Path.join(
+              System.tmp_dir!(),
+              "lib-src3-#{n}-#{System.unique_integer([:positive])}.mp4"
+            )
+
+          File.write!(path, "bytes #{n}")
+
+          video_fixture(experiment_fixture(user, %{name: "Src3 exp #{n}"}), nil, %{
+            filename: "lib3_#{n}.mp4",
+            filepath: path,
+            status: "done"
+          })
+        end
+
+      existing_experiment_ids = MapSet.new(Experiments.list_experiments(scope), & &1.id)
+
+      {:ok, lv, _html} = live(conn, ~p"/experiments/new")
+
+      for s <- sources, do: lv |> element("#library-video-#{s.id}") |> render_click()
+      lv |> element("#add-from-library-btn") |> render_click()
+
+      tmp =
+        Path.join(System.tmp_dir!(), "wizard-fresh3-#{System.unique_integer([:positive])}.mp4")
+
+      File.write!(tmp, "fresh upload bytes")
+
+      video =
+        file_input(lv, "form[phx-change=validate_upload]", :videos, [
+          %{name: "fresh3.mp4", content: File.read!(tmp), type: "video/mp4"}
+        ])
+
+      render_upload(video, "fresh3.mp4")
+      lv |> element("button", "Continue → ROI & scale") |> render_click()
+
+      html = render(lv)
+
+      refs =
+        Regex.scan(~r/phx-value-ref="([^"]+)"/, html) |> Enum.map(&Enum.at(&1, 1)) |> Enum.uniq()
+
+      reused_refs = Enum.take(refs, 3)
+      fresh_ref = List.last(refs)
+
+      render_click(lv, "select_active", %{"ref" => fresh_ref})
+      render_click(lv, "toggle_ref", %{"ref" => fresh_ref})
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "valid_region",
+        "x" => 0,
+        "y" => 0,
+        "w" => 100,
+        "h" => 100
+      })
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale",
+        "x1" => 0,
+        "y1" => 0,
+        "x2" => 50,
+        "y2" => 0
+      })
+
+      lv |> form("form[phx-change='set_scale_cm']", %{"value" => "10"}) |> render_change()
+
+      render_hook(lv, "shape_drawn", %{
+        "kind" => "scale2",
+        "x1" => 0,
+        "y1" => 10,
+        "x2" => 40,
+        "y2" => 10
+      })
+
+      lv |> form("form[phx-change='set_scale_cm2']", %{"value" => "8"}) |> render_change()
+
+      for ref <- reused_refs do
+        render_click(lv, "select_active", %{"ref" => ref})
+        render_click(lv, "set_source", %{"ref" => ref, "source" => fresh_ref})
+      end
+
+      refute has_element?(lv, ~s(button[phx-value-step="review"][disabled]))
+      lv |> element("button[phx-value-step='review']") |> render_click()
+
+      stub_python_port_success()
+
+      lv
+      |> form("form[phx-submit='create']", %{"experiment_name" => "Fresh-ref run"})
+      |> render_submit()
+
+      [experiment] =
+        Enum.reject(Experiments.list_experiments(scope), &(&1.id in existing_experiment_ids))
+
+      assert Experiments.list_videos(experiment) |> Enum.map(& &1.filename) |> Enum.sort() ==
+               ["fresh3.mp4", "lib3_1.mp4", "lib3_2.mp4", "lib3_3.mp4"]
+    end
+  end
+
   describe "step 2 requires both scale segments" do
     setup %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/experiments/new")

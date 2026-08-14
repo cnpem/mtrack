@@ -127,4 +127,94 @@ defmodule MouseTrackerWeb.ExperimentLive.ShowTest do
     assert html =~ "Zona central"
     assert html =~ ~p"/videos/#{video.id}/rois/#{roi.id}/edit"
   end
+
+  test "renaming the experiment persists the new name", %{conn: conn, experiment: experiment} do
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    html =
+      lv
+      |> element("input[phx-value-id='#{experiment.id}']")
+      |> render_blur(%{"value" => "Renamed experiment"})
+
+    assert html =~ "Renamed experiment"
+    assert Repo.get!(Experiments.Experiment, experiment.id).name == "Renamed experiment"
+  end
+
+  test "renaming to a name already used by the user shows an error and keeps the old name", %{
+    conn: conn,
+    user: user,
+    experiment: experiment
+  } do
+    experiment_fixture(user, %{name: "Taken name"})
+
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    html =
+      lv
+      |> element("input[phx-value-id='#{experiment.id}']")
+      |> render_blur(%{"value" => "Taken name"})
+
+    assert html =~ "has already been taken"
+    assert Repo.get!(Experiments.Experiment, experiment.id).name == experiment.name
+  end
+
+  test "export panel starts with the CSV format checked and Download enabled", %{
+    conn: conn,
+    experiment: experiment
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    html = lv |> element("button[phx-click='toggle_export']") |> render_click()
+
+    assert html =~ "Export data"
+    assert has_element?(lv, "input[name='csv'][checked]")
+    assert has_element?(lv, "a[href*='csv=1']", "Download")
+  end
+
+  test "unchecking every format disables Download and the metadata sub-checkboxes", %{
+    conn: conn,
+    experiment: experiment
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    lv |> element("button[phx-click='toggle_export']") |> render_click()
+    render_change(lv, "export_change", %{})
+
+    refute has_element?(lv, "a", "Download")
+    assert has_element?(lv, "button[disabled]", "Download")
+    assert has_element?(lv, "input[name='date'][disabled]")
+  end
+
+  test "checking both CSV and XLSX points the download link at both formats", %{
+    conn: conn,
+    experiment: experiment
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    lv |> element("button[phx-click='toggle_export']") |> render_click()
+    render_change(lv, "export_change", %{"csv" => "on", "xlsx" => "on"})
+
+    assert has_element?(lv, "a[href*='csv=1'][href*='xlsx=1']", "Download")
+  end
+
+  test "deleting the experiment removes it and redirects to the experiments list", %{
+    conn: conn,
+    experiment: experiment
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/experiments/#{experiment.id}")
+
+    refute has_element?(lv, "button[phx-click='delete_experiment']")
+
+    lv |> element("button[phx-click='toggle_menu']") |> render_click()
+
+    {:ok, index_lv, html} =
+      lv
+      |> element("button[phx-click='delete_experiment']")
+      |> render_click()
+      |> follow_redirect(conn, ~p"/experiments")
+
+    assert html =~ "Experiment deleted."
+    refute has_element?(index_lv, "li", experiment.name)
+    assert_raise Ecto.NoResultsError, fn -> Repo.get!(Experiments.Experiment, experiment.id) end
+  end
 end

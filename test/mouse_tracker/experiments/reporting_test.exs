@@ -504,6 +504,66 @@ defmodule MouseTracker.Experiments.ReportingTest do
 
       assert Reporting.metric_series(videos, "path_tortuosity") == []
     end
+
+    test "aceita uma métrica de zona de ROI (\"roi:<nome>\"), resolvendo pelo nome do ROI" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      video = video_fixture(exp, nil, %{status: "done"})
+      roi = roi_fixture(video, %{name: "Center"})
+      result = tracking_result_fixture(video)
+      roi_time_fixture(roi, result, %{seconds: 12.5})
+
+      videos = Repo.preload([video], [:experiment, tracking_result: [roi_times: :roi]])
+
+      assert [%{value: 12.5}] = Reporting.metric_series(videos, "roi:Center")
+    end
+
+    test "métrica de zona de ROI vira nil (e o vídeo some) quando o vídeo não tem essa zona" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      video = video_fixture(exp, nil, %{status: "done"})
+      roi = roi_fixture(video, %{name: "Periphery"})
+      result = tracking_result_fixture(video)
+      roi_time_fixture(roi, result, %{seconds: 5.0})
+
+      videos = Repo.preload([video], [:experiment, tracking_result: [roi_times: :roi]])
+
+      assert Reporting.metric_series(videos, "roi:Center") == []
+    end
+  end
+
+  describe "roi_zone_names/1" do
+    test "nomes distintos de zona com tempo registrado, ordenados" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      v1 = video_fixture(exp, nil, %{status: "done"})
+      v2 = video_fixture(exp, nil, %{status: "done"})
+
+      roi_center = roi_fixture(v1, %{name: "Center"})
+      roi_periphery = roi_fixture(v1, %{name: "Periphery"})
+      :ok = Rois.attach_roi_to_video(v2, roi_center)
+
+      r1 = tracking_result_fixture(v1)
+      r2 = tracking_result_fixture(v2)
+      roi_time_fixture(roi_center, r1, %{seconds: 10.0})
+      roi_time_fixture(roi_periphery, r1, %{seconds: 5.0})
+      roi_time_fixture(roi_center, r2, %{seconds: 8.0})
+
+      videos = Repo.preload([v1, v2], [:experiment, tracking_result: [roi_times: :roi]])
+
+      assert Reporting.roi_zone_names(videos) == ["Center", "Periphery"]
+    end
+
+    test "vazio quando nenhum vídeo tem roi_times" do
+      user = user_fixture()
+      exp = experiment_fixture(user)
+      video = video_fixture(exp, nil, %{status: "done"})
+      tracking_result_fixture(video)
+
+      videos = Repo.preload([video], [:experiment, tracking_result: [roi_times: :roi]])
+
+      assert Reporting.roi_zone_names(videos) == []
+    end
   end
 
   describe "group_metric_series/4" do
@@ -696,6 +756,26 @@ defmodule MouseTracker.Experiments.ReportingTest do
         |> Enum.sort()
 
       assert means == [15.0, 100.0]
+    end
+
+    test "também funciona com uma métrica de zona de ROI" do
+      user = user_fixture()
+      scope = user_scope_fixture(user)
+      subject = subject_fixture(user)
+      exp = experiment_fixture(user)
+
+      video = video_fixture(exp, nil, %{status: "done", subject_id: subject.id})
+      roi = roi_fixture(video, %{name: "Center"})
+      result = tracking_result_fixture(video)
+      roi_time_fixture(roi, result, %{seconds: 30.0})
+
+      means =
+        scope
+        |> Reporting.subject_result_videos(subject.id)
+        |> Reporting.per_experiment_means("roi:Center")
+        |> Enum.map(& &1.value)
+
+      assert means == [30.0]
     end
   end
 end

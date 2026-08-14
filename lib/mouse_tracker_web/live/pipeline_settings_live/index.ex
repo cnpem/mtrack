@@ -265,13 +265,12 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
       <div class="mx-auto max-w-[1100px]">
         <div>
           <h1 class="text-[24px] font-bold text-[#0f1729]">Pipeline settings</h1>
+
           <p class="mt-1 text-[13px] text-[#667085]">
             Defaults for new calibrations, and a library to rename or clean up your reusable calibrations, ROIs and subjects.
           </p>
         </div>
-
         <.defaults_card form={@defaults_form} />
-
         <div class="mt-8 flex flex-wrap items-center justify-between gap-3">
           <div class="inline-flex items-center gap-1 rounded-[9px] border border-[#e7e9ee] bg-white p-1">
             <button
@@ -288,7 +287,6 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
               {label}
             </button>
           </div>
-
           <.search_input id="pipeline-settings-search" query={@query} placeholder="Search by name" />
         </div>
 
@@ -304,19 +302,16 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
                 "Created from the upload wizard's step 2 (ROI & scale) and step 3 (review) — reuse them across experiments."
           }
         />
-
         <.calibration_table
           :if={@tab == "calibrations" and @visible != []}
           calibrations={@visible}
           usage={@calibration_usage}
-        />
-        <.roi_table :if={@tab == "rois" and @visible != []} rois={@visible} usage={@roi_usage} />
+        /> <.roi_table :if={@tab == "rois" and @visible != []} rois={@visible} usage={@roi_usage} />
         <.subject_table
           :if={@tab == "subjects" and @visible != []}
           subjects={@visible}
           usage={@subject_usage}
         />
-
         <datalist id="subject-groups-datalist">
           <option :for={g <- @subject_groups} value={g} />
         </datalist>
@@ -331,6 +326,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
     ~H"""
     <div class="mt-5 rounded-[13px] border border-[#e7e9ee] bg-white p-[18px] shadow-[0_1px_2px_rgba(16,24,40,.04)]">
       <h2 class="text-[15px] font-bold text-[#0f1729]">Pipeline defaults</h2>
+
       <p class="mt-1 text-[12.5px] text-[#667085]">
         Prefill threshold, min area, peripheral zone and immobility threshold on step 2 of the upload wizard. Leave a field blank to fall back to the built-in default (threshold 80, min area 250, peripheral 20%, immobility 2 cm/s).
       </p>
@@ -428,15 +424,23 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
+
             <th class="px-3 py-3">px / 10cm</th>
+
             <th class="px-3 py-3">Threshold</th>
+
             <th class="px-3 py-3">Min area</th>
+
             <th class="px-3 py-3">Peripheral %</th>
+
             <th class="px-3 py-3">Immobility (cm/s)</th>
+
             <th class="px-3 py-3">Used in</th>
+
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
         </thead>
+
         <tbody>
           <tr
             :for={cal <- @calibrations}
@@ -445,16 +449,23 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-[18px] py-3">
               <.rename_input event="rename_calibration" id={cal.id} name={cal.name} />
             </td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.px_per_10cm)}</td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.threshold}</td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{cal.min_area}</td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">{fmt(cal.peripheral_pct)}</td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {fmt(cal.immobility_threshold_cm)}
             </td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {usage_label(usage_count(@usage, cal.id))}
             </td>
+
             <td class="px-[18px] py-3 text-right">
               <.delete_button
                 event="delete_calibration"
@@ -480,20 +491,27 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
+
             <th class="px-3 py-3">Shape</th>
+
             <th class="px-3 py-3">Used in</th>
+
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
         </thead>
+
         <tbody>
           <tr :for={roi <- @rois} class="border-b border-[#f4f5f7] last:border-0 hover:bg-[#fafbfc]">
             <td class="px-[18px] py-3">
               <.rename_input event="rename_roi" id={roi.id} name={roi.name} />
             </td>
+
             <td class="px-3 py-3 font-data text-[12px] capitalize text-[#344054]">{roi.shape}</td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {usage_label(usage_count(@usage, roi.id))}
             </td>
+
             <td class="px-[18px] py-3 text-right">
               <div class="flex items-center justify-end gap-3">
                 <button
@@ -504,6 +522,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
                 >
                   Duplicate
                 </button>
+
                 <.delete_button
                   event="delete_roi"
                   id={roi.id}
@@ -529,13 +548,19 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         <thead>
           <tr class="border-b border-[#f4f5f7] text-[10.5px] font-semibold uppercase tracking-wide text-[#98a2b3]">
             <th class="px-[18px] py-3">Name</th>
+
             <th class="px-3 py-3">Sex</th>
+
             <th class="px-3 py-3">Genotype</th>
+
             <th class="px-3 py-3">Group</th>
+
             <th class="px-3 py-3">Used in</th>
+
             <th class="px-[18px] py-3 text-right"></th>
           </tr>
         </thead>
+
         <tbody>
           <tr
             :for={subject <- @subjects}
@@ -544,9 +569,11 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
             <td class="px-[18px] py-3">
               <.rename_input event="rename_subject" id={subject.id} name={subject.name} />
             </td>
+
             <td class="px-3 py-3">
               <.sex_select id={subject.id} value={subject.sex} />
             </td>
+
             <td class="px-3 py-3">
               <.text_field_input
                 event="update_subject_genotype"
@@ -554,6 +581,7 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
                 value={subject.genotype}
               />
             </td>
+
             <td class="px-3 py-3">
               <.text_field_input
                 event="update_subject_group"
@@ -562,9 +590,11 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
                 list="subject-groups-datalist"
               />
             </td>
+
             <td class="px-3 py-3 font-data text-[12px] text-[#344054]">
               {usage_label(usage_count(@usage, subject.id))}
             </td>
+
             <td class="px-[18px] py-3 text-right">
               <.delete_button
                 event="delete_subject"
@@ -577,23 +607,6 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         </tbody>
       </table>
     </div>
-    """
-  end
-
-  attr :event, :string, required: true
-  attr :id, :integer, required: true
-  attr :name, :string, required: true
-
-  defp rename_input(assigns) do
-    ~H"""
-    <input
-      type="text"
-      name="value"
-      value={@name}
-      phx-blur={@event}
-      phx-value-id={@id}
-      class="w-full min-w-[140px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12.5px] font-medium text-[#0f1729] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
-    />
     """
   end
 
@@ -629,7 +642,9 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         class="w-full min-w-[64px] rounded-[6px] border border-transparent bg-transparent px-1.5 py-1 font-data text-[12px] text-[#344054] hover:border-[#e7e9ee] focus:border-[#CC5500] focus:bg-white focus:outline-none"
       >
         <option value="" selected={@value in [nil, ""]}>—</option>
+
         <option value="M" selected={@value == "M"}>M</option>
+
         <option value="F" selected={@value == "F"}>F</option>
       </select>
     </form>

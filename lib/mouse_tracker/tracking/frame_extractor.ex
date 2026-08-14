@@ -84,4 +84,38 @@ defmodule MouseTracker.Tracking.FrameExtractor do
     |> Path.join("..")
     |> Path.expand()
   end
+
+  @doc """
+  Web path to a cached first-frame PNG for `video` (`uploads/roi_edit_frames/<id>.png`),
+  extracting and caching it on first use. Shared by the Datasets library, the
+  ROI editor, and the wizard's "reuse video" picker — all show a thumbnail
+  keyed by video id and should reuse whichever of them extracted it first.
+  Returns `nil` if the frame can't be produced (e.g. the source file is
+  missing from disk).
+  """
+  def ensure_cached_frame(video) do
+    frame_path = cached_frame_path(video)
+    web_path = cached_frame_web_path(video)
+
+    cond do
+      File.exists?(frame_path) ->
+        web_path
+
+      is_binary(video.filepath) and File.exists?(video.filepath) ->
+        case extract_first_frame(video.filepath, frame_path) do
+          {:ok, _meta} -> web_path
+          {:error, _} -> nil
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  def cached_frame_path(video),
+    do: Path.join([static_dir(), "uploads", "roi_edit_frames", "#{video.id}.png"])
+
+  def cached_frame_web_path(video), do: "/uploads/roi_edit_frames/#{video.id}.png"
+
+  defp static_dir, do: Path.join(:code.priv_dir(:mouse_tracker), "static")
 end
