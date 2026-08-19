@@ -51,4 +51,4 @@ erl_crash.dump
 /.venv/
 /priv/static/uploads/
 *.zip
-MTrack_logo.png
+docs/MTrack_logo.png
