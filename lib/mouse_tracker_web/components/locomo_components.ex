@@ -641,15 +641,19 @@ defmodule MouseTrackerWeb.LocomoComponents do
   # Greedily wraps `label` onto lines no longer than `max_chars`, capped at 2
   # lines — a 3rd+ line would push `pad_bottom` (and the whole chart) taller
   # than a couple of long labels warrant, so any overflow past line 2 is
-  # folded in and ellipsized instead of growing further.
+  # folded in and ellipsized instead of growing further. Every line is also
+  # truncated individually — greedy_wrap only breaks *between* words, so a
+  # single word longer than `max_chars` (a label with no spaces at all, e.g.
+  # a one-token ROI/subject name) would otherwise sail through unwrapped and
+  # overlap the neighboring box's label.
   defp wrap_label(label, max_chars) do
     case String.split(label) |> greedy_wrap(max_chars) do
       [_, _ | _] = lines when length(lines) > 2 ->
         [first | rest] = lines
-        [first, rest |> Enum.join(" ") |> truncate_line(max_chars)]
+        [truncate_line(first, max_chars), rest |> Enum.join(" ") |> truncate_line(max_chars)]
 
       lines ->
-        lines
+        Enum.map(lines, &truncate_line(&1, max_chars))
     end
   end
 
