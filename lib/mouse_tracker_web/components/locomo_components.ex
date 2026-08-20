@@ -638,19 +638,24 @@ defmodule MouseTrackerWeb.LocomoComponents do
   # (many categories) still wrap instead of running into the next box's label.
   defp label_char_budget(slot_w), do: max(6, trunc(slot_w / 5.6))
 
-  # Greedily wraps `label` onto lines no longer than `max_chars`, capped at 2
-  # lines — a 3rd+ line would push `pad_bottom` (and the whole chart) taller
-  # than a couple of long labels warrant, so any overflow past line 2 is
-  # folded in and ellipsized instead of growing further. Every line is also
-  # truncated individually — greedy_wrap only breaks *between* words, so a
-  # single word longer than `max_chars` (a label with no spaces at all, e.g.
-  # a one-token ROI/subject name) would otherwise sail through unwrapped and
-  # overlap the neighboring box's label.
+  # `pad_bottom` already grows with however many lines the longest label
+  # needs (see `build_box_chart/5`), so a long name should keep wrapping onto
+  # its own line rather than vanishing behind an ellipsis after just 2 —
+  # capped at `@max_label_lines` so a pathological label (many words, or one
+  # long chart with dozens of categories) can't blow out the chart height
+  # unbounded; only overflow past that gets folded into the last line and
+  # ellipsized. Every line is also truncated individually — greedy_wrap only
+  # breaks *between* words, so a single word longer than `max_chars` (a label
+  # with no spaces at all, e.g. a one-token ROI/subject name) would otherwise
+  # sail through unwrapped and overlap the neighboring box's label.
+  @max_label_lines 4
+
   defp wrap_label(label, max_chars) do
     case String.split(label) |> greedy_wrap(max_chars) do
-      [_, _ | _] = lines when length(lines) > 2 ->
-        [first | rest] = lines
-        [truncate_line(first, max_chars), rest |> Enum.join(" ") |> truncate_line(max_chars)]
+      lines when length(lines) > @max_label_lines ->
+        {kept, overflow} = Enum.split(lines, @max_label_lines - 1)
+        last = overflow |> Enum.join(" ") |> truncate_line(max_chars)
+        Enum.map(kept, &truncate_line(&1, max_chars)) ++ [last]
 
       lines ->
         Enum.map(lines, &truncate_line(&1, max_chars))
