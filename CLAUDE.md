@@ -558,7 +558,7 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
 | Campo | Descrição |
 |---|---|
 | `thigmotaxis_pct` | % do tempo na zona periférica (margem configurável, default 20% da borda — ver "Parâmetros de tigmotaxia/imobilidade configuráveis" abaixo), suporte a arenas retangulares e circulares |
-| `immobility_seconds` | Segundos totais com velocidade abaixo de um limiar configurável (default 2 cm/s) |
+| `immobility_seconds` | Segundos totais em runs contínuas de pelo menos `IMMOBILITY_MIN_BOUT_S` (2) segundos com velocidade abaixo de um limiar configurável (default 2 cm/s) — blips isolados de 1 segundo não contam, ver "Backlog — pós-deploy" abaixo |
 | `path_tortuosity` | Distância total / deslocamento em linha reta |
 | `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea |
 
@@ -747,3 +747,69 @@ existe parcialmente).
   quando há mais de 1 entrada no total, contando também as imagens);
   metadados/calibração viram sub-itens indentados abaixo dos checkboxes de
   formato, desabilitados até pelo menos 1 formato ser selecionado.
+- [x] **Fix: `path_tortuosity` com variação muito grande entre sessões**. Causa
+  raiz: a fórmula antiga (`metrics.compute_tortuosity`) era
+  `distância total percorrida ÷ deslocamento em linha reta entre a primeira e a
+  última posição detectadas` — depende só de 2 pontos, então dispara pra
+  valores enormes sempre que o animal termina perto de onde começou (comum em
+  campo aberto/home cage), sem que isso signifique de fato uma sessão mais
+  "reta" ou mais "tortuosa". Não era bug de implementação, era a fórmula
+  errada pro tipo de movimento (comportamento documentado em Benhamou, S.
+  (2004), "How to reliably estimate the tortuosity of an animal's path:
+  straightness, sinuosity, or fractal dimension?", J. Theor. Biol. 229(2),
+  209–220). Fix: `metrics.compute_sinuosity/2` implementa o índice de
+  sinuosidade corrigido do mesmo artigo (eq. 8 — mesma fórmula do
+  `TrajSinuosity2` do pacote R `trajr`, referência padrão em análise de
+  trajetória animal), calculado a partir da distribuição de ângulos de giro +
+  comprimento de passo ao longo de **toda** a trajetória, amostrada a 1Hz (mesma
+  cadência já usada pelo speed profile) — em vez de só 2 pontos, é uma média
+  sobre muitos passos locais, então não explode por causa de onde o animal
+  terminou. `MotionState` (`metrics.py`) ganhou o campo `positions` (a mesma
+  amostragem 1Hz que já alimentava `speeds`, só que guardando os pontos, não só
+  as distâncias); `analyzer.process/9` passou a devolver essa lista como 9º
+  elemento da tupla (`test_analyzer.py` atualizado, baseline dourado
+  recalculado rodando o código, não derivado à mão). O campo `path_tortuosity`
+  (JSON/DB/UI) foi mantido — troca de fórmula no lugar, sem campo novo/back-compat,
+  mesmo padrão já usado no resto do projeto. **Ressalva aceita**: a escala
+  mudou (de uma razão adimensional ~1-pra-cima para um índice com unidade
+  1/√cm), então valores de `path_tortuosity` já gravados no banco (vídeos
+  processados antes deste fix) não são comparáveis numericamente com os novos
+  — sem ferramenta de reprocessamento em lote, fora de escopo deste fix.
+- [x] **Fix: `immobility_seconds` contava segundos abaixo do limiar de forma
+  isolada**. Causa raiz: `metrics.compute_immobility_seconds` somava qualquer
+  segundo com velocidade abaixo do limiar (`speeds_cm`, já amostrado a 1Hz),
+  sem exigir que a imobilidade persistisse — um único segundo de detecção
+  ruidosa (ex. o animal se move ligeiramente para fora e para dentro da mesma
+  posição dentro daquela janela de 1s) contava igual a uma sessão de
+  imobilidade sustentada de vários segundos seguidos. Documentado em
+  Anagnostaras, S. G. et al. (2010), "Automated Assessment of Pavlovian
+  Conditioned Freezing and Shock Reactivity in Mice Using the Video Freeze
+  System", Front. Behav. Neurosci. 4:158 — validando o sistema VideoFreeze
+  (Med Associates) contra scoring humano, os autores mostram que exigir uma
+  **duração mínima de bout** de imobilidade (não só um instante isolado
+  abaixo do limiar) foi necessário pra correlacionar bem com observadores
+  humanos (r=0,971 no ponto ótimo, ~1s mínimo de bout a 30Hz de amostragem
+  bruta). Fix: `compute_immobility_seconds` (`priv/python/metrics.py`) passou
+  a contar só *runs* de pelo menos `min_bout_s` segundos **consecutivos**
+  abaixo do limiar, descartando blips isolados — novo parâmetro opcional com
+  default `IMMOBILITY_MIN_BOUT_S = 2` (constante do módulo, mesmo padrão de
+  `NOISE_THRESHOLD_PX`), adaptando a duração mínima de ~1s do paper (medida
+  sobre um sinal bruto de alta frequência) para a granularidade de amostragem
+  do projeto (1 amostra = 1 segundo já inteiro): exige 2 amostras seguidas em
+  vez de 1, já que uma única amostra isolada aqui é exatamente o caso que se
+  quer filtrar. **Diferente do fix de tortuosidade, não virou parâmetro
+  configurável por Calibration/User/UI** (decisão explícita, evitar escopo
+  maior do que o pedido) — ao contrário de `immobility_threshold_cm`
+  (limiar de velocidade, já configurável via wizard/Pipeline Settings desde
+  "Parâmetros de tigmotaxia/imobilidade configuráveis" acima), a duração
+  mínima de bout fica fixa no código Python, revisitável se um dia for pedido
+  que vire configurável. Sem mudança de assinatura em `compute_all`/`run.py`
+  (usa o default). **Ressalva aceita**: mesmo tipo de mudança de valor que a
+  tortuosidade — `immobility_seconds` tende a cair (blips isolados deixam de
+  contar), então valores já gravados no banco antes deste fix não são
+  diretamente comparáveis com os novos.
+- Testes: novo `priv/python/tests/test_metrics.py` (não existia cobertura
+  unitária direta de nenhuma função de `metrics.py` antes, só indireta via
+  `test_analyzer.py`/`test_equivalence.py`) — casos para blip isolado
+  ignorado, run consecutiva contada, múltiplas runs somadas, run que termina
+  no fim da série, e `min_bout_s` configurável.

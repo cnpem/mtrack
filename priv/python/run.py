@@ -151,15 +151,15 @@ def _run_headless(json_str):
     analyzer.skip_frames(vs, int(start_time * fps))
     len_frames = (int(end_time) - int(start_time)) * fps
 
-    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected = analyzer.process(
+    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected, positions = analyzer.process(
         vs, bg, valid_region, threshold, min_area, rois, len_frames,
         headless=True, progress_every=progress_every, thigmotaxis_zone=central_zone,
     )
 
     immobility_threshold = params.get("immobility_threshold_cm", 2.0)
     m = metrics.compute_all(
-        dist_px, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected,
-        px_per_10cm, immobility_threshold,
+        dist_px, speeds_px, nframe_peripheral, nframe_detected,
+        px_per_10cm, immobility_threshold, positions=positions,
     )
 
     print(json.dumps({
@@ -225,15 +225,15 @@ def _run_interactive(args):
 
     # 6. Run the main processing loop
     central_zone = metrics.get_central_zone_rectangular(valid_region)
-    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected = analyzer.process(
+    heatmap, dist_px, frames_into_roi, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected, positions = analyzer.process(
         vs, bg, valid_region, args["threshold"], args["min_area"], rois, len_frames,
         thigmotaxis_zone=central_zone,
     )
 
     # 7. Convert pixels to metric scale (cm) and derive every stat
     m = metrics.compute_all(
-        dist_px, speeds_px, initial_pos, final_pos, nframe_peripheral, nframe_detected,
-        px_per_10cm,
+        dist_px, speeds_px, nframe_peripheral, nframe_detected,
+        px_per_10cm, positions=positions,
     )
 
     # 8. Print report
@@ -242,7 +242,7 @@ def _run_interactive(args):
     print("Speed median: {:.2f} px/s ({:.2f} cm/s)".format(m["speed_median_px"], m["speed_median_cm"]))
     print("Speed max: {:.2f} px/s ({:.2f} cm/s)".format(m["speed_max_px"], m["speed_max_cm"]))
     print("Immobility: {:.2f} s".format(m["immobility_seconds"]))
-    print("Tortuosity: {:.4f}".format(m["path_tortuosity"]))
+    print("Tortuosity (sinuosity index): {:.4f}".format(m["path_tortuosity"]))
     print("Thigmotaxis: {:.2f}%".format(m["thigmotaxis_pct"]))
 
     print("# frames into ROI {}".format(frames_into_roi))

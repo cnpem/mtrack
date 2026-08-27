@@ -80,22 +80,23 @@ def synthetic_video(tmp_path_factory):
 
 def test_process_returns_expected_shape(synthetic_video):
     result = _run_process(synthetic_video)
-    assert len(result) == 8
+    assert len(result) == 9
 
-    heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_pos, nframe_peripheral, nframe_detected = result
+    heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_pos, nframe_peripheral, nframe_detected, positions = result
 
     assert heatmap.shape == (FRAME_SIZE, FRAME_SIZE)
     assert len(nframe_into_roi) == len(ROIS)
     assert isinstance(speeds, list)
     assert initial_pos is not None
     assert final_pos is not None
+    assert isinstance(positions, list)
 
 
 def test_process_pinned_baseline(synthetic_video):
     """Valores capturados rodando o `process/9` atual (pré-refactor) contra o
     vídeo sintético acima — golden baseline, não uma verdade matemática
     derivada à mão. Qualquer refactor interno tem que preservar esta tupla."""
-    heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_pos, nframe_peripheral, nframe_detected = (
+    heatmap, dist_total, nframe_into_roi, speeds, initial_pos, final_pos, nframe_peripheral, nframe_detected, positions = (
         _run_process(synthetic_video)
     )
 
@@ -107,3 +108,4 @@ def test_process_pinned_baseline(synthetic_video):
     assert nframe_peripheral == 3
     assert nframe_detected == 25
     assert float(heatmap.sum()) == pytest.approx(20400.0)
+    assert positions == pytest.approx([(28.0, 28.0), (73.0, 73.0), (123.0, 123.0)])
