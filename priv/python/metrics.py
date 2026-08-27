@@ -15,6 +15,12 @@ from statistics import mean, pstdev
 # distribution) so the two can't drift apart.
 NOISE_THRESHOLD_PX = 5
 
+# Minimum run length (in consecutive 1 Hz samples, i.e. seconds) of
+# below-threshold speed required for `compute_immobility_seconds` to count it
+# as immobility, instead of a single isolated low-speed sample. See that
+# function's docstring for the rationale/citation.
+IMMOBILITY_MIN_BOUT_S = 2
+
 
 def distance(pt0, pt1):
     """Euclidean distance between two 2-D points."""
@@ -52,9 +58,34 @@ def compute_speed_max(speeds):
     """Returns the maximum speed, or 0.0 if there is none."""
     return float(max(speeds)) if speeds else 0.0
 
-def compute_immobility_seconds(speeds_cm, threshold_cm=2.0):
-    """Returns the total immobility time (speed < threshold per second)."""
-    return float(sum(1 for s in speeds_cm if s < threshold_cm))
+def compute_immobility_seconds(speeds_cm, threshold_cm=2.0, min_bout_s=IMMOBILITY_MIN_BOUT_S):
+    """
+    Returns the total immobility time, counting only runs of at least
+    `min_bout_s` *consecutive* below-threshold seconds — not every
+    below-threshold second in isolation.
+
+    Anagnostaras et al. (2010), "Automated Assessment of Pavlovian
+    Conditioned Freezing and Shock Reactivity in Mice Using the Video Freeze
+    System", Front. Behav. Neurosci. 4:158, found that a minimum freeze-bout
+    duration is necessary to correlate well with human scoring (r=0.971 at
+    their optimal ~1s minimum bout) — without it, single low-motion instants
+    caused by detector noise get counted the same as sustained freezing.
+    `speeds_cm` here is already sampled at 1 sample/second (see
+    `update_motion`), so `min_bout_s` maps directly to a run length in
+    samples.
+    """
+    total = 0
+    run = 0
+    for s in speeds_cm:
+        if s < threshold_cm:
+            run += 1
+        else:
+            if run >= min_bout_s:
+                total += run
+            run = 0
+    if run >= min_bout_s:
+        total += run
+    return float(total)
 
 def compute_sinuosity(positions, conv, min_step_px=NOISE_THRESHOLD_PX):
     """

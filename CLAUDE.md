@@ -558,7 +558,7 @@ Todos os campos abaixo já estão implementados em `priv/python/metrics.py` e ex
 | Campo | Descrição |
 |---|---|
 | `thigmotaxis_pct` | % do tempo na zona periférica (margem configurável, default 20% da borda — ver "Parâmetros de tigmotaxia/imobilidade configuráveis" abaixo), suporte a arenas retangulares e circulares |
-| `immobility_seconds` | Segundos totais com velocidade abaixo de um limiar configurável (default 2 cm/s) |
+| `immobility_seconds` | Segundos totais em runs contínuas de pelo menos `IMMOBILITY_MIN_BOUT_S` (2) segundos com velocidade abaixo de um limiar configurável (default 2 cm/s) — blips isolados de 1 segundo não contam, ver "Backlog — pós-deploy" abaixo |
 | `path_tortuosity` | Distância total / deslocamento em linha reta |
 | `speed_max_px` / `speed_max_cm` | Velocidade máxima instantânea |
 
@@ -775,3 +775,41 @@ existe parcialmente).
   1/√cm), então valores de `path_tortuosity` já gravados no banco (vídeos
   processados antes deste fix) não são comparáveis numericamente com os novos
   — sem ferramenta de reprocessamento em lote, fora de escopo deste fix.
+- [x] **Fix: `immobility_seconds` contava segundos abaixo do limiar de forma
+  isolada**. Causa raiz: `metrics.compute_immobility_seconds` somava qualquer
+  segundo com velocidade abaixo do limiar (`speeds_cm`, já amostrado a 1Hz),
+  sem exigir que a imobilidade persistisse — um único segundo de detecção
+  ruidosa (ex. o animal se move ligeiramente para fora e para dentro da mesma
+  posição dentro daquela janela de 1s) contava igual a uma sessão de
+  imobilidade sustentada de vários segundos seguidos. Documentado em
+  Anagnostaras, S. G. et al. (2010), "Automated Assessment of Pavlovian
+  Conditioned Freezing and Shock Reactivity in Mice Using the Video Freeze
+  System", Front. Behav. Neurosci. 4:158 — validando o sistema VideoFreeze
+  (Med Associates) contra scoring humano, os autores mostram que exigir uma
+  **duração mínima de bout** de imobilidade (não só um instante isolado
+  abaixo do limiar) foi necessário pra correlacionar bem com observadores
+  humanos (r=0,971 no ponto ótimo, ~1s mínimo de bout a 30Hz de amostragem
+  bruta). Fix: `compute_immobility_seconds` (`priv/python/metrics.py`) passou
+  a contar só *runs* de pelo menos `min_bout_s` segundos **consecutivos**
+  abaixo do limiar, descartando blips isolados — novo parâmetro opcional com
+  default `IMMOBILITY_MIN_BOUT_S = 2` (constante do módulo, mesmo padrão de
+  `NOISE_THRESHOLD_PX`), adaptando a duração mínima de ~1s do paper (medida
+  sobre um sinal bruto de alta frequência) para a granularidade de amostragem
+  do projeto (1 amostra = 1 segundo já inteiro): exige 2 amostras seguidas em
+  vez de 1, já que uma única amostra isolada aqui é exatamente o caso que se
+  quer filtrar. **Diferente do fix de tortuosidade, não virou parâmetro
+  configurável por Calibration/User/UI** (decisão explícita, evitar escopo
+  maior do que o pedido) — ao contrário de `immobility_threshold_cm`
+  (limiar de velocidade, já configurável via wizard/Pipeline Settings desde
+  "Parâmetros de tigmotaxia/imobilidade configuráveis" acima), a duração
+  mínima de bout fica fixa no código Python, revisitável se um dia for pedido
+  que vire configurável. Sem mudança de assinatura em `compute_all`/`run.py`
+  (usa o default). **Ressalva aceita**: mesmo tipo de mudança de valor que a
+  tortuosidade — `immobility_seconds` tende a cair (blips isolados deixam de
+  contar), então valores já gravados no banco antes deste fix não são
+  diretamente comparáveis com os novos.
+- Testes: novo `priv/python/tests/test_metrics.py` (não existia cobertura
+  unitária direta de nenhuma função de `metrics.py` antes, só indireta via
+  `test_analyzer.py`/`test_equivalence.py`) — casos para blip isolado
+  ignorado, run consecutiva contada, múltiplas runs somadas, run que termina
+  no fim da série, e `min_bout_s` configurável.
