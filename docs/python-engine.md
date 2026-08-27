@@ -110,7 +110,7 @@ All computed in `metrics.py` and surfaced in the `result` JSON:
 | `speed_mean/median/max_*` | speed statistics (sampled at 1-second intervals) |
 | `thigmotaxis_pct` | % of time in the peripheral zone (margin configurable; rect or circular arena) |
 | `immobility_seconds` | total seconds with speed below `immobility_threshold_cm` |
-| `path_tortuosity` | total distance ÷ straight-line displacement |
+| `path_tortuosity` | corrected sinuosity index (Benhamou, 2004, *J. Theor. Biol.* 229(2), 209–220, eq. 8 — same formula as `trajr::TrajSinuosity2`), computed from turning angles + step lengths over the trajectory sampled at 1-second intervals; replaces a naive total-distance ÷ start-end-displacement ratio, which spikes toward infinity whenever the animal ends up near where it started |
 | `time_into_roi_s` | seconds spent inside each ROI (parallel to the `rois` input order) |
 
 ## How Phoenix calls it

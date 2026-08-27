@@ -5,7 +5,15 @@ No I/O, no OpenCV calls, no rendering.
 """
 
 from collections import namedtuple
-from math import sqrt
+from math import atan2, cos, pi, sqrt
+from statistics import mean, pstdev
+
+# Minimum pixel displacement between two consecutive detections to be treated
+# as real movement rather than detector jitter. Shared by `update_motion`
+# (gates the debug "moved" marker / distance accumulation) and
+# `compute_sinuosity` (gates which steps contribute to the turning-angle
+# distribution) so the two can't drift apart.
+NOISE_THRESHOLD_PX = 5
 
 
 def distance(pt0, pt1):
@@ -48,16 +56,60 @@ def compute_immobility_seconds(speeds_cm, threshold_cm=2.0):
     """Returns the total immobility time (speed < threshold per second)."""
     return float(sum(1 for s in speeds_cm if s < threshold_cm))
 
-def compute_tortuosity(total_distance, initial_pos, final_pos):
+def compute_sinuosity(positions, conv, min_step_px=NOISE_THRESHOLD_PX):
     """
-    Toruosity = total distance/straight line movement
-    0.0 if displacement == 0
-    """
-    displacement = distance(initial_pos, final_pos)
+    Corrected sinuosity index (Benhamou, S. (2004), "How to reliably estimate
+    the tortuosity of an animal's path: straightness, sinuosity, or fractal
+    dimension?", J. Theor. Biol. 229(2), 209-220, eq. 8 — same formula as
+    `TrajSinuosity2` in the `trajr` R package).
 
-    if displacement == 0:
+    Unlike a naive total-distance/displacement ratio (which depends only on
+    the first and last sampled point, and spikes toward infinity whenever
+    the animal ends up near where it started), this is computed from the
+    turning-angle and step-length distribution across the whole trajectory,
+    so it doesn't hinge on 2 endpoints:
+
+        S = 2 / sqrt(p * ((1 + c) / (1 - c) + b**2))
+
+    where p = mean step length (cm), b = coefficient of variation of step
+    length, c = mean cosine of the turning angle between consecutive steps.
+    Lower S = straighter path, higher S = more tortuous.
+
+    `positions` is a trajectory sampled at ~constant time intervals (here,
+    1 Hz — the same cadence already used for the per-second speed profile).
+    Steps shorter than `min_step_px` are dropped before computing angles,
+    since a near-zero step's direction is dominated by detector jitter, not
+    real heading. Returns 0.0 (same "undefined" sentinel this function has
+    always used) when fewer than 3 usable steps are available.
+    """
+    steps = []
+    for i in range(1, len(positions)):
+        dx = positions[i][0] - positions[i - 1][0]
+        dy = positions[i][1] - positions[i - 1][1]
+        length_px = sqrt(dx * dx + dy * dy)
+        if length_px >= min_step_px:
+            steps.append((dx, dy, length_px))
+
+    if len(steps) < 3:
         return 0.0
-    return total_distance/displacement
+
+    lengths_cm = [s[2] * conv for s in steps]
+    p = mean(lengths_cm)
+    if p <= 0:
+        return 0.0
+    b = pstdev(lengths_cm) / p
+
+    angles = []
+    for i in range(1, len(steps)):
+        a0 = atan2(steps[i - 1][1], steps[i - 1][0])
+        a1 = atan2(steps[i][1], steps[i][0])
+        da = (a1 - a0 + pi) % (2 * pi) - pi
+        angles.append(da)
+    c = mean(cos(a) for a in angles)
+    c = max(min(c, 0.999999), -0.999999)
+
+    denom = p * (((1 + c) / (1 - c)) + b ** 2)
+    return 2.0 / sqrt(denom) if denom > 0 else 0.0
 
 def get_central_zone_rectangular(valid_region, margin_pct=0.20):
     """Return (x, y, w, h) of the central zone, each edge inset by margin_pct of that dimension."""
@@ -115,7 +167,7 @@ def is_pt_into_polygon(pt, flat_pts):
 
 MotionState = namedtuple(
     "MotionState",
-    "pos_prev t_pos dist_total initial_pos final_pos s0 t0 t1 speeds",
+    "pos_prev t_pos dist_total initial_pos final_pos s0 t0 t1 speeds positions",
 )
 
 
@@ -132,6 +184,7 @@ def new_motion_state():
         t0=0,
         t1=0,
         speeds=[],
+        positions=[],
     )
 
 
@@ -156,7 +209,7 @@ def update_motion(state, pos, fps):
     if t_pos >= 5:
         if pos_prev is not None:
             d = distance(pos_prev, pos)
-            moved = d > 5
+            moved = d > NOISE_THRESHOLD_PX
             if moved:
                 dist_total += d
         pos_prev = pos
@@ -166,10 +219,17 @@ def update_motion(state, pos, fps):
     final_pos = pos
 
     s0 = state.s0 if state.s0 is not None else pos
+    # `positions` mirrors the same 1 Hz cadence as `speeds`/`s0` — seeded once
+    # with the first detected position, then one point appended per elapsed
+    # second — so positions[i-1] -> positions[i] is exactly the step whose
+    # length is recorded in speeds[i-1]. Used by `compute_sinuosity` to build
+    # a turning-angle distribution across the whole trajectory.
+    positions = state.positions if state.positions else [pos]
     t1 = state.t1 + 1
     speeds = state.speeds
     if t1 - state.t0 >= fps:
         speeds = speeds + [distance(pos, s0)]
+        positions = positions + [pos]
         t0 = state.t0 + fps
         s0 = pos
     else:
@@ -185,6 +245,7 @@ def update_motion(state, pos, fps):
         t0=t0,
         t1=t1,
         speeds=speeds,
+        positions=positions,
     )
     return new_state, moved
 
@@ -220,12 +281,11 @@ def compute_thigmotaxis_pct(nframe_peripheral, nframe_detected):
 def compute_all(
     dist_px,
     speeds_px,
-    initial_pos,
-    final_pos,
     nframe_peripheral,
     nframe_detected,
     px_per_10cm,
     immobility_threshold_cm=2.0,
+    positions=(),
 ):
     """
     Derive every per-run metric from the raw outputs of `analyzer.process/9`.
@@ -237,11 +297,7 @@ def compute_all(
 
     speed_mean_cm, speed_median_cm = compute_speed_stats(speeds_cm)
     speed_mean_px, speed_median_px = compute_speed_stats(speeds_px)
-    tortuosity = (
-        compute_tortuosity(dist_px, initial_pos, final_pos)
-        if initial_pos and final_pos
-        else 0.0
-    )
+    tortuosity = compute_sinuosity(positions, conv)
 
     return {
         "distance_px": dist_px,

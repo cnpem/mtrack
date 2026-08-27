@@ -747,3 +747,31 @@ existe parcialmente).
   quando há mais de 1 entrada no total, contando também as imagens);
   metadados/calibração viram sub-itens indentados abaixo dos checkboxes de
   formato, desabilitados até pelo menos 1 formato ser selecionado.
+- [x] **Fix: `path_tortuosity` com variação muito grande entre sessões**. Causa
+  raiz: a fórmula antiga (`metrics.compute_tortuosity`) era
+  `distância total percorrida ÷ deslocamento em linha reta entre a primeira e a
+  última posição detectadas` — depende só de 2 pontos, então dispara pra
+  valores enormes sempre que o animal termina perto de onde começou (comum em
+  campo aberto/home cage), sem que isso signifique de fato uma sessão mais
+  "reta" ou mais "tortuosa". Não era bug de implementação, era a fórmula
+  errada pro tipo de movimento (comportamento documentado em Benhamou, S.
+  (2004), "How to reliably estimate the tortuosity of an animal's path:
+  straightness, sinuosity, or fractal dimension?", J. Theor. Biol. 229(2),
+  209–220). Fix: `metrics.compute_sinuosity/2` implementa o índice de
+  sinuosidade corrigido do mesmo artigo (eq. 8 — mesma fórmula do
+  `TrajSinuosity2` do pacote R `trajr`, referência padrão em análise de
+  trajetória animal), calculado a partir da distribuição de ângulos de giro +
+  comprimento de passo ao longo de **toda** a trajetória, amostrada a 1Hz (mesma
+  cadência já usada pelo speed profile) — em vez de só 2 pontos, é uma média
+  sobre muitos passos locais, então não explode por causa de onde o animal
+  terminou. `MotionState` (`metrics.py`) ganhou o campo `positions` (a mesma
+  amostragem 1Hz que já alimentava `speeds`, só que guardando os pontos, não só
+  as distâncias); `analyzer.process/9` passou a devolver essa lista como 9º
+  elemento da tupla (`test_analyzer.py` atualizado, baseline dourado
+  recalculado rodando o código, não derivado à mão). O campo `path_tortuosity`
+  (JSON/DB/UI) foi mantido — troca de fórmula no lugar, sem campo novo/back-compat,
+  mesmo padrão já usado no resto do projeto. **Ressalva aceita**: a escala
+  mudou (de uma razão adimensional ~1-pra-cima para um índice com unidade
+  1/√cm), então valores de `path_tortuosity` já gravados no banco (vídeos
+  processados antes deste fix) não são comparáveis numericamente com os novos
+  — sem ferramenta de reprocessamento em lote, fora de escopo deste fix.

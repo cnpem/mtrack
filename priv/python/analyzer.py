@@ -34,6 +34,11 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
         dist_total: accumulated distance in pixels
         nframe_into_roi: list of frame counts per ROI
         speeds: list of pixel distances calculated at 1-second intervals
+        initial_pos, final_pos: first/last detected position
+        nframe_peripheral, nframe_detected: thigmotaxis frame counts
+        positions: trajectory sampled at the same 1-second cadence as
+            `speeds` (positions[i-1] -> positions[i] is the step measured
+            in speeds[i-1]); used to compute path sinuosity
     """
     heatmap = None
     motion = metrics.new_motion_state()
@@ -120,4 +125,5 @@ def process(vs, bg, valid_region, threshold, min_area, rois, len_frames,
         motion.final_pos,
         nframe_peripheral,
         nframe_detected,
+        motion.positions,
     )
