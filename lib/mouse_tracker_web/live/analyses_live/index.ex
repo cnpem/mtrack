@@ -108,11 +108,11 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
     |> assign(:picker_subjects, Reporting.experiment_subjects(scope, experiment_id))
     |> assign(:trend_series, subject_series(per_subject) ++ group_series(per_group))
     |> assign(:subject_categories, subject_categories(per_subject, metric))
-    |> assign(:group_categories, group_categories(per_subject, metric))
+    |> assign(:group_categories, group_categories(per_subject, metric, selected_groups))
     |> assign(:speed_categories, speed_categories(per_subject))
-    |> assign(:roi_categories, roi_categories(per_subject))
+    |> assign(:roi_categories, roi_categories(per_subject, selected_groups))
     |> assign(:ungrouped_selected?, Enum.any?(selected_subjects, &(&1.group in [nil, ""])))
-    |> assign(:group_legend, group_legend(selected_subjects))
+    |> assign(:group_legend, group_legend(selected_subjects, selected_groups))
     |> assign(:total_sessions, Enum.sum_by(per_subject, &length(&1.videos)))
     |> assign(:table_rows, table_rows(per_subject))
   end
@@ -198,7 +198,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   # One box per group; each dot is a (subject, experiment) pair (a subject's
   # mean within one experiment), named by subject. Subjects with no group are
   # excluded (surfaced via `@ungrouped_selected?`).
-  defp group_categories(per_subject, metric) do
+  defp group_categories(per_subject, metric, selected_groups) do
     per_subject
     |> Enum.flat_map(fn %{subject: s, videos: videos} ->
       case s.group do
@@ -223,7 +223,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
       }
     end)
     |> Enum.reject(&(&1.box == nil))
-    |> Enum.sort_by(& &1.label)
+    |> Enum.sort_by(&group_rank(&1.label, selected_groups))
   end
 
   # One box per (ROI zone, group) pair — the "Time x ROI" view. Zones are the
@@ -234,7 +234,7 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   # is the natural unit for a single metric that doesn't need cross-metric
   # comparability). Ungrouped subjects are excluded, same convention as
   # `group_categories/2` (surfaced via `@ungrouped_selected?`).
-  defp roi_categories(per_subject) do
+  defp roi_categories(per_subject, selected_groups) do
     grouped = Enum.filter(per_subject, fn %{subject: s} -> s.group not in [nil, ""] end)
 
     zone_names =
@@ -244,7 +244,10 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
       |> Enum.sort()
 
     group_names =
-      grouped |> Enum.map(fn %{subject: s} -> s.group end) |> Enum.uniq() |> Enum.sort()
+      grouped
+      |> Enum.map(fn %{subject: s} -> s.group end)
+      |> Enum.uniq()
+      |> Enum.sort_by(&group_rank(&1, selected_groups))
 
     for zone <- zone_names, group <- group_names do
       points =
@@ -268,15 +271,27 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
 
   # The distinct groups among the selected subjects, each with the swatch color
   # used to fill its boxes in the per-subject view — drives that view's legend.
-  # `nil`/blank group is shown as "No group", sorted last.
-  defp group_legend(selected_subjects) do
+  # Ordered the same way as the chart boxes (insertion order via
+  # `selected_groups`); `nil`/blank group is shown as "No group", sorted last.
+  defp group_legend(selected_subjects, selected_groups) do
     selected_subjects
     |> Enum.map(& &1.group)
     |> Enum.uniq()
-    |> Enum.sort_by(fn g -> {g in [nil, ""], g} end)
+    |> Enum.sort_by(fn g -> {g in [nil, ""], group_rank(g, selected_groups)} end)
     |> Enum.map(fn g ->
       %{label: if(g in [nil, ""], do: "No group", else: g), color: group_color(g)}
     end)
+  end
+
+  # Position of `group` within `selected_groups` (the order the user added
+  # groups in), used to keep chart/legend ordering insertion-order rather than
+  # alphabetical. Groups not in `selected_groups` (e.g. a subject added
+  # individually whose group wasn't explicitly picked) sort after all of them.
+  defp group_rank(group, selected_groups) do
+    case Enum.find_index(selected_groups, &(&1 == group)) do
+      nil -> length(selected_groups)
+      idx -> idx
+    end
   end
 
   # --- Selection parsing ---
@@ -292,20 +307,17 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   end
 
   defp selected_subjects(str, subjects) do
-    valid_ids = MapSet.new(subjects, & &1.id)
+    by_id = Map.new(subjects, &{&1.id, &1})
 
-    ids =
-      str
-      |> String.split(",", trim: true)
-      |> Enum.flat_map(fn s ->
-        case Integer.parse(s) do
-          {id, ""} -> if MapSet.member?(valid_ids, id), do: [id], else: []
-          _ -> []
-        end
-      end)
-      |> Enum.uniq()
-
-    Enum.filter(subjects, &(&1.id in ids))
+    str
+    |> String.split(",", trim: true)
+    |> Enum.flat_map(fn s ->
+      case Integer.parse(s) do
+        {id, ""} -> if Map.has_key?(by_id, id), do: [Map.fetch!(by_id, id)], else: []
+        _ -> []
+      end
+    end)
+    |> Enum.uniq_by(& &1.id)
   end
 
   defp unselected_subjects(picker_subjects, selected_subjects) do

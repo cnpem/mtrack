@@ -565,6 +565,36 @@ defmodule MouseTrackerWeb.CoreComponents do
   end
 
   @doc """
+  Small "i" icon that reveals an explanatory tooltip on hover/focus — pure
+  CSS (group/group-hover), no JS. Used next to configurable pipeline
+  parameter labels so researchers can see what a field does without leaving
+  the form.
+  """
+  attr :text, :string, required: true
+  attr :class, :any, default: nil
+
+  def info_tooltip(assigns) do
+    ~H"""
+    <span class={["group relative inline-flex", @class]}>
+      <button
+        type="button"
+        tabindex="0"
+        class="flex size-3.5 items-center justify-center rounded-full bg-[#e7e9ee] text-[#667085] hover:bg-[#CC5500] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#CC5500]/40"
+        aria-label="More info"
+      >
+        <.icon name="hero-information-circle-micro" class="size-3.5" />
+      </button>
+      <span
+        role="tooltip"
+        class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 w-56 -translate-x-1/2 rounded-[8px] bg-[#0f1729] px-2.5 py-2 text-[11px] leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {@text}
+      </span>
+    </span>
+    """
+  end
+
+  @doc """
   Renders a [Heroicon](https://heroicons.com).
 
   Heroicons come in three styles – outline, solid, and mini.

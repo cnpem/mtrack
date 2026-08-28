@@ -339,7 +339,12 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         class="mt-4 grid grid-cols-2 gap-3 sm:max-w-md"
       >
         <label class="block">
-          <span class="text-[11px] text-[#667085]">Default threshold</span>
+          <span class="text-[11px] text-[#667085]">
+            Default threshold<.info_tooltip
+              text="Frame-difference intensity (0–255) needed to count a pixel as movement. Lower = more sensitive to subtle motion but noisier; higher = only strong contrast changes register. Default: 80."
+              class="ml-1 align-middle"
+            />
+          </span>
           <input
             type="number"
             name={@form[:default_threshold].name}
@@ -355,7 +360,12 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         </label>
 
         <label class="block">
-          <span class="text-[11px] text-[#667085]">Default min area</span>
+          <span class="text-[11px] text-[#667085]">
+            Default min area<.info_tooltip
+              text="Minimum size (in pixels) a detected blob must have to count as the animal, filtering out small noise. Raise it if noise is being tracked as the animal; lower it if the animal is small in frame and getting missed. Default: 250."
+              class="ml-1 align-middle"
+            />
+          </span>
           <input
             type="number"
             name={@form[:default_min_area].name}
@@ -371,7 +381,12 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         </label>
 
         <label class="block">
-          <span class="text-[11px] text-[#667085]">Default peripheral %</span>
+          <span class="text-[11px] text-[#667085]">
+            Default peripheral %<.info_tooltip
+              text="Width of the peripheral &quot;wall-hugging&quot; zone, as a percentage of the arena measured inward from its border, used to compute thigmotaxis (% of time near the walls). Default: 20%."
+              class="ml-1 align-middle"
+            />
+          </span>
           <input
             type="number"
             step="0.1"
@@ -388,7 +403,12 @@ defmodule MouseTrackerWeb.PipelineSettingsLive.Index do
         </label>
 
         <label class="block">
-          <span class="text-[11px] text-[#667085]">Default immobility threshold (cm/s)</span>
+          <span class="text-[11px] text-[#667085]">
+            Default immobility threshold (cm/s)<.info_tooltip
+              text="Speed below which the animal counts as immobile/freezing. Must stay below this for at least ~2 consecutive seconds — brief dips don't count. Default: 2 cm/s."
+              class="ml-1 align-middle"
+            />
+          </span>
           <input
             type="number"
             step="0.1"
