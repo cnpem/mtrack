@@ -307,20 +307,17 @@ defmodule MouseTrackerWeb.AnalysesLive.Index do
   end
 
   defp selected_subjects(str, subjects) do
-    valid_ids = MapSet.new(subjects, & &1.id)
+    by_id = Map.new(subjects, &{&1.id, &1})
 
-    ids =
-      str
-      |> String.split(",", trim: true)
-      |> Enum.flat_map(fn s ->
-        case Integer.parse(s) do
-          {id, ""} -> if MapSet.member?(valid_ids, id), do: [id], else: []
-          _ -> []
-        end
-      end)
-      |> Enum.uniq()
-
-    Enum.filter(subjects, &(&1.id in ids))
+    str
+    |> String.split(",", trim: true)
+    |> Enum.flat_map(fn s ->
+      case Integer.parse(s) do
+        {id, ""} -> if Map.has_key?(by_id, id), do: [Map.fetch!(by_id, id)], else: []
+        _ -> []
+      end
+    end)
+    |> Enum.uniq_by(& &1.id)
   end
 
   defp unselected_subjects(picker_subjects, selected_subjects) do
