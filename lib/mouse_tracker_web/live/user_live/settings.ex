@@ -15,12 +15,12 @@ defmodule MouseTrackerWeb.UserLive.Settings do
       breadcrumb="Account"
       page_title="Settings"
     >
-      <div class="mx-auto max-w-xl">
+      <div class="mx-auto max-w-xl space-y-4">
         <div class="rounded-2xl border border-[#e7e9ee] bg-white p-7 shadow-sm">
           <div class="text-center">
             <.header>
               Account Settings
-              <:subtitle>Manage your account email address and password settings</:subtitle>
+              <:subtitle>Manage your profile details</:subtitle>
             </.header>
           </div>
 
@@ -35,64 +35,26 @@ defmodule MouseTrackerWeb.UserLive.Settings do
             <.input field={@profile_form[:institution]} type="text" label="Institution / Lab" />
             <.button variant="primary" phx-disable-with="Saving...">Save profile</.button>
           </.form>
+        </div>
 
-          <div class="my-6 border-t border-[#e7e9ee]" />
+        <div class="rounded-2xl border border-[#e7e9ee] bg-white p-7 shadow-sm">
+          <h2 class="text-sm font-semibold text-[#0f1729]">Email and password</h2>
+          <p class="mt-2 text-sm text-[#667085]">
+            MTrack signs you in through Keycloak, so your e-mail address, password and
+            two-factor settings are managed there — not here.
+          </p>
 
-          <.form
-            for={@email_form}
-            id="email_form"
-            phx-submit="update_email"
-            phx-change="validate_email"
-            class="space-y-4"
+          <p class="mt-3 text-sm text-[#667085]">
+            Signed in as <span class="font-medium text-[#344054]">{@current_scope.user.email}</span>.
+          </p>
+
+          <.link
+            :if={@account_url}
+            href={@account_url}
+            class="mt-4 inline-flex items-center gap-1.5 rounded-[8px] border border-[#e7e9ee] px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f3f4f6]"
           >
-            <.input
-              field={@email_form[:email]}
-              type="email"
-              label="Email"
-              autocomplete="username"
-              spellcheck="false"
-              required
-            /> <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
-          </.form>
-
-          <div class="my-6 border-t border-[#e7e9ee]" />
-
-          <.form
-            for={@password_form}
-            id="password_form"
-            action={~p"/users/update-password"}
-            method="post"
-            phx-change="validate_password"
-            phx-submit="update_password"
-            phx-trigger-action={@trigger_submit}
-            class="space-y-4"
-          >
-            <input
-              name={@password_form[:email].name}
-              type="hidden"
-              id="hidden_user_email"
-              spellcheck="false"
-              value={@current_email}
-            />
-            <.input
-              field={@password_form[:password]}
-              type="password"
-              label="New password"
-              autocomplete="new-password"
-              spellcheck="false"
-              required
-            />
-            <.input
-              field={@password_form[:password_confirmation]}
-              type="password"
-              label="Confirm new password"
-              autocomplete="new-password"
-              spellcheck="false"
-            />
-            <.button variant="primary" phx-disable-with="Saving...">
-              Save Password
-            </.button>
-          </.form>
+            Open Keycloak account console <span aria-hidden="true">→</span>
+          </.link>
         </div>
       </div>
     </Layouts.locomo>
@@ -100,32 +62,13 @@ defmodule MouseTrackerWeb.UserLive.Settings do
   end
 
   @impl true
-  def mount(%{"token" => token}, _session, socket) do
-    socket =
-      case Accounts.update_user_email(socket.assigns.current_scope.user, token) do
-        {:ok, _user} ->
-          put_flash(socket, :info, "Email changed successfully.")
-
-        {:error, _} ->
-          put_flash(socket, :error, "Email change link is invalid or it has expired.")
-      end
-
-    {:ok, push_navigate(socket, to: ~p"/users/settings")}
-  end
-
   def mount(_params, _session, socket) do
     user = socket.assigns.current_scope.user
-    email_changeset = Accounts.change_user_email(user, %{}, validate_unique: false)
-    password_changeset = Accounts.change_user_password(user, %{}, hash_password: false)
-    profile_changeset = Accounts.change_user_profile(user)
 
     socket =
       socket
-      |> assign(:current_email, user.email)
-      |> assign(:email_form, to_form(email_changeset))
-      |> assign(:password_form, to_form(password_changeset))
-      |> assign(:profile_form, to_form(profile_changeset))
-      |> assign(:trigger_submit, false)
+      |> assign(:profile_form, to_form(Accounts.change_user_profile(user)))
+      |> assign(:account_url, MouseTracker.Auth.account_url())
 
     {:ok, socket}
   end
@@ -153,65 +96,6 @@ defmodule MouseTrackerWeb.UserLive.Settings do
 
       {:error, changeset} ->
         {:noreply, assign(socket, profile_form: to_form(changeset, action: :insert))}
-    end
-  end
-
-  def handle_event("validate_email", params, socket) do
-    %{"user" => user_params} = params
-
-    email_form =
-      socket.assigns.current_scope.user
-      |> Accounts.change_user_email(user_params, validate_unique: false)
-      |> Map.put(:action, :validate)
-      |> to_form()
-
-    {:noreply, assign(socket, email_form: email_form)}
-  end
-
-  def handle_event("update_email", params, socket) do
-    %{"user" => user_params} = params
-    user = socket.assigns.current_scope.user
-    true = Accounts.sudo_mode?(user)
-
-    case Accounts.change_user_email(user, user_params) do
-      %{valid?: true} = changeset ->
-        Accounts.deliver_user_update_email_instructions(
-          Ecto.Changeset.apply_action!(changeset, :insert),
-          user.email,
-          &url(~p"/users/settings/confirm-email/#{&1}")
-        )
-
-        info = "A link to confirm your email change has been sent to the new address."
-        {:noreply, socket |> put_flash(:info, info)}
-
-      changeset ->
-        {:noreply, assign(socket, :email_form, to_form(changeset, action: :insert))}
-    end
-  end
-
-  def handle_event("validate_password", params, socket) do
-    %{"user" => user_params} = params
-
-    password_form =
-      socket.assigns.current_scope.user
-      |> Accounts.change_user_password(user_params, hash_password: false)
-      |> Map.put(:action, :validate)
-      |> to_form()
-
-    {:noreply, assign(socket, password_form: password_form)}
-  end
-
-  def handle_event("update_password", params, socket) do
-    %{"user" => user_params} = params
-    user = socket.assigns.current_scope.user
-    true = Accounts.sudo_mode?(user)
-
-    case Accounts.change_user_password(user, user_params) do
-      %{valid?: true} = changeset ->
-        {:noreply, assign(socket, trigger_submit: true, password_form: to_form(changeset))}
-
-      changeset ->
-        {:noreply, assign(socket, password_form: to_form(changeset, action: :insert))}
     end
   end
 end

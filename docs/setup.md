@@ -47,8 +47,13 @@ iex -S mix phx.server
 Enabled when `:dev_routes` is on (default in dev):
 
 - `/dev/dashboard` — Phoenix LiveDashboard (metrics, processes, Ecto, Oban)
-- `/dev/mailbox` — Swoosh mailbox preview. **Magic-link login and confirmation
-  emails are delivered here in dev**, not to a real inbox.
+- `/dev/mailbox` — Swoosh mailbox preview.
+- `/dev/login?email=...` — signs in as a local user without Keycloak, for UI work
+  on a machine that cannot reach the realm. Mounted only when `:dev_routes` is on
+  (never in production).
+
+Authentication is handled by Keycloak; see [`keycloak.md`](keycloak.md) for
+running a local realm, the test users and the troubleshooting checklist.
 
 `/` redirects to `/experiments` when logged in, or `/users/log-in` otherwise.
 

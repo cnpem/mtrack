@@ -149,5 +149,6 @@ else
   {:ok, _} = Rois.create_roi_time(roi_zone, result, %{frame_count: 540, seconds: 18.0})
 
   IO.puts("Seeded experiment '#{experiment.name}' with #{length(created)} videos.")
-  IO.puts("Log in at /users/log-in as #{demo_email} / #{demo_password}")
+  IO.puts("Local dev users cannot sign in with a password: authentication goes through Keycloak.")
+  IO.puts("For UI work without Keycloak, open /dev/login?email=#{demo_email}")
 end

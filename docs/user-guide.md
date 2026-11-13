@@ -5,11 +5,13 @@ running (see [setup.md](setup.md)); no command line is needed after that.
 
 ## 1. Account & sign-in
 
-- **Register** at `/users/register` with your name (required), email, password and
-  optionally your institution. The account is confirmed immediately.
-- **Sign in** at `/users/log-in` with your password, or request a **magic link**
-  (a one-time email link). In development, magic-link emails appear in the mailbox
-  preview at `/dev/mailbox` rather than a real inbox.
+- **Sign in** at `/users/log-in` with **Continue with Keycloak**. MTrack delegates
+  authentication to your institution's Keycloak realm, so there is no separate
+  MTrack password and no registration form: the account is created on your first
+  successful login, from the claims Keycloak returns.
+- Your **e-mail and password are managed in Keycloak**, not in MTrack. Settings has
+  a link to the Keycloak account console; the MTrack profile form only edits your
+  display name and institution.
 
 After sign-in you land on **Experiments**.
 

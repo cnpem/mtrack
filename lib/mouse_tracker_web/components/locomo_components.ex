@@ -61,12 +61,12 @@ defmodule MouseTrackerWeb.LocomoComponents do
       <div class="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a93a3]">
         {@label}
       </div>
-      
+
       <div class="mt-2 flex items-baseline gap-1">
         <span class="font-data text-[32px] font-semibold leading-none text-[#0f1729]">{@value}</span>
         <span :if={@unit} class="font-data text-[13px] text-[#98a2b3]">{@unit}</span>
       </div>
-      
+
       <div :if={@sub} class="mt-1.5 text-[11.5px] text-[#8a93a3]">{@sub}</div>
     </div>
     """
@@ -195,9 +195,9 @@ defmodule MouseTrackerWeb.LocomoComponents do
             {tick.label}
           </text>
         </g>
-        
+
         <text :if={@unit} x={@chart.pad_left} y="11" font-size="10" fill="#98a2b3">{@unit}</text>
-        
+
         <line
           x1={@chart.pad_left}
           y1={@chart.pad_top}
@@ -224,7 +224,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
         >
           {tick.label}
         </text>
-        
+
         <g :for={s <- @chart.series}>
           <polyline
             :if={length(s.coords) > 1}
@@ -414,11 +414,11 @@ defmodule MouseTrackerWeb.LocomoComponents do
             {tick.label}
           </text>
         </g>
-        
+
         <text :if={@unit} x={@chart.pad_left} y="11" font-size="10" fill="#98a2b3">
           {if @log1p, do: "#{@unit} (log1p)", else: @unit}
         </text>
-        
+
         <line
           x1={@chart.pad_left}
           y1={@chart.pad_top}
@@ -506,7 +506,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
             <circle cx={p.x} cy={p.y} r="3" fill={b.color} fill-opacity="0.85">
               <title>{p.tooltip}</title>
             </circle>
-            
+
             <text
               :if={@show_point_labels and p.label}
               x={p.x + 5}
@@ -517,7 +517,7 @@ defmodule MouseTrackerWeb.LocomoComponents do
               {p.label}
             </text>
           </g>
-          
+
           <text x={b.cx} text-anchor="middle" font-size="10.5" fill="#475467">
             <tspan
               :for={{line, idx} <- Enum.with_index(b.label_lines)}

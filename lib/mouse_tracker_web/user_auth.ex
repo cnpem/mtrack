@@ -46,6 +46,20 @@ defmodule MouseTrackerWeb.UserAuth do
   It clears all session data for safety. See renew_session.
   """
   def log_out_user(conn) do
+    conn
+    |> clear_user_session()
+    |> redirect(to: ~p"/users/log-in")
+  end
+
+  @doc """
+  Clears the session, the remember-me cookie and any connected LiveViews.
+
+  Split out from `log_out_user/1` because this part must not respond: the
+  federated logout has to clear the local session *and then* send the browser to
+  Keycloak's `end_session_endpoint`, and `redirect/2` writes the response. Doing
+  both in one function caused `Plug.Conn.AlreadySentError`.
+  """
+  def clear_user_session(conn) do
     user_token = get_session(conn, :user_token)
     user_token && Accounts.delete_user_session_token(user_token)
 
@@ -56,7 +70,6 @@ defmodule MouseTrackerWeb.UserAuth do
     conn
     |> renew_session(nil)
     |> delete_resp_cookie(@remember_me_cookie, @remember_me_options)
-    |> redirect(to: ~p"/users/log-in")
   end
 
   @doc """

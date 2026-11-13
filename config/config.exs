@@ -24,6 +24,37 @@ config :mouse_tracker,
   ecto_repos: [MouseTracker.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Keycloak / OpenID Connect — the only production login path.
+#
+# The `nil`s here are deliberate: a deployment that forgets to set the
+# environment variables should fail loudly on the login screen ("Keycloak is not
+# configured") instead of redirecting the user to a half-built authorization URL
+# or, worse, booting with a hard-coded realm. `config/runtime.exs` fills these
+# from the environment.
+#
+# `redirect_uri` / `post_logout_redirect_uri` are derived from the endpoint URL
+# when left nil, which is correct for dev and for any deployment whose public
+# URL matches the endpoint URL. Set them explicitly behind a proxy that rewrites
+# host/scheme.
+config :mouse_tracker, :oidc,
+  issuer: nil,
+  client_id: nil,
+  client_secret: nil,
+  scopes: "openid profile email",
+  # Must match the client's "Client authentication" setting in Keycloak. Do not
+  # leave this to oidcc's auto-negotiation: the realm advertises
+  # private_key_jwt/client_secret_jwt for *every* client, so auto-negotiation
+  # picks a method this confidential client is not configured for and every
+  # request fails with 401 "Authentication failed.".
+  client_auth_method: "client_secret_basic",
+  redirect_uri: nil,
+  post_logout_redirect_uri: nil,
+  provider_name: MouseTracker.Auth.OIDC.ProviderConfiguration
+
+# Which `MouseTracker.Auth.OIDCProvider` implementation to use. Swapped for a
+# Mox mock in config/test.exs, so `mix test` never talks to an identity provider.
+config :mouse_tracker, :oidc_provider, MouseTracker.Auth.OIDC
+
 # Configure the endpoint
 config :mouse_tracker, MouseTrackerWeb.Endpoint,
   url: [host: "localhost"],

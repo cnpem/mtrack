@@ -46,3 +46,19 @@ config :phoenix,
 config :mouse_tracker, Oban, testing: :inline, plugins: false
 
 config :mouse_tracker, :python_port, MouseTracker.Tracking.PythonPortMock
+
+# The Keycloak client is replaced by a Mox mock (`MouseTracker.Auth.OIDCProviderMock`):
+# the suite never contacts an identity provider, never needs a container, and can
+# exercise branches a real realm cannot easily produce (replayed state, token
+# exchange failure, unverified e-mail, ...).
+config :mouse_tracker, :oidc_provider, MouseTracker.Auth.OIDCProviderMock
+
+# Plausible values so the "configured" branches are exercised by default.
+config :mouse_tracker, :oidc,
+  issuer: "https://keycloak.example.org/realms/mtrack",
+  client_id: "mtrack-web",
+  client_secret: "test-client-secret",
+  scopes: "openid profile email",
+  redirect_uri: "http://localhost:4002/users/auth/keycloak/callback",
+  post_logout_redirect_uri: "http://localhost:4002/users/log-in",
+  provider_name: MouseTracker.Auth.OIDC.ProviderConfiguration

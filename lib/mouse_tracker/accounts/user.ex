@@ -15,6 +15,12 @@ defmodule MouseTracker.Accounts.User do
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
 
+    # OpenID Connect identity (Keycloak). `(idp_issuer, idp_sub)` is the
+    # stable identity; `idp_username` is kept for display/diagnostics only.
+    field :idp_issuer, :string
+    field :idp_sub, :string
+    field :idp_username, :string
+
     timestamps(type: :utc_datetime)
   end
 
@@ -117,6 +123,27 @@ defmodule MouseTracker.Accounts.User do
     |> validate_number(:default_min_area, greater_than: 0)
     |> validate_number(:default_peripheral_pct, greater_than: 0, less_than_or_equal_to: 50)
     |> validate_number(:default_immobility_threshold_cm, greater_than: 0)
+  end
+
+  @doc """
+  A user changeset for accounts that authenticate through OpenID Connect.
+
+  No password is involved: the identity is `(idp_issuer, idp_sub)` and Keycloak
+  owns the credentials. `name` is not required here because a provider may
+  legitimately omit it — `MouseTracker.Accounts.provision_user_from_oidc/1`
+  falls back to the e-mail local part so the profile form stays usable.
+  """
+  def oidc_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :name, :idp_issuer, :idp_sub, :idp_username])
+    |> validate_required([:email, :idp_issuer, :idp_sub])
+    |> validate_length(:email, max: 160)
+    |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+$/,
+      message: "must have the @ sign and no spaces"
+    )
+    |> validate_length(:name, max: 160)
+    |> unique_constraint(:email)
+    |> unique_constraint([:idp_issuer, :idp_sub], name: :users_idp_issuer_idp_sub_index)
   end
 
   @doc """

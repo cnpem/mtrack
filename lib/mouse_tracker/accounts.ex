@@ -4,6 +4,7 @@ defmodule MouseTracker.Accounts do
   """
 
   import Ecto.Query, warn: false
+  require Logger
   alias MouseTracker.Repo
 
   alias MouseTracker.Accounts.{User, UserToken, UserNotifier}
@@ -59,6 +60,137 @@ defmodule MouseTracker.Accounts do
 
   """
   def get_user!(id), do: Repo.get!(User, id)
+
+  ## OpenID Connect (Keycloak) provisioning
+
+  @doc """
+  Gets the local user bound to an OpenID Connect identity.
+
+  The pair `(issuer, sub)` is the identity. `sub` is opaque and stable inside a
+  realm; the e-mail and username are attributes that can change at any time.
+  """
+  def get_user_by_idp_identity(sub, issuer) when is_binary(sub) and is_binary(issuer) do
+    Repo.get_by(User, idp_sub: sub, idp_issuer: issuer)
+  end
+
+  @doc """
+  Resolves the local user for a set of *verified* OIDC claims, provisioning it
+  on first login (just-in-time).
+
+  Returns `{:ok, user}` or `{:error, reason}` where `reason` is one of:
+
+    * `:missing_sub` / `:missing_issuer` — the token is unusable
+    * `:missing_email` — the app requires an e-mail and Keycloak returned none
+      (usually a missing `email` scope, or a user without an address)
+    * `:email_in_use` — a *new* identity claims an e-mail that already belongs
+      to an existing account, and the claim is not verified
+
+  Linking policy: an existing local account (created before the move to Keycloak,
+  or by a seed) is adopted by the incoming identity **only** when
+  `email_verified` is true. An unverified e-mail must never be able to take over
+  an account — that is an account-takeover primitive, not a convenience.
+  """
+  def provision_user_from_oidc(claims) when is_map(claims) do
+    with {:ok, sub} <- require_claim(claims, :sub),
+         {:ok, issuer} <- require_claim(claims, :issuer) do
+      case get_user_by_idp_identity(sub, issuer) do
+        %User{} = user -> {:ok, sync_claims(user, claims)}
+        nil -> provision_first_login(sub, issuer, claims)
+      end
+    end
+  end
+
+  defp provision_first_login(sub, issuer, claims) do
+    case claims[:email] do
+      email when is_binary(email) and email != "" ->
+        case get_user_by_email(email) do
+          nil ->
+            insert_from_claims(sub, issuer, claims)
+
+          # An account that already belongs to another IdP identity is never
+          # re-linked: e-mail is mutable and not authoritative, so allowing it
+          # here would let a second identity take over an SSO account.
+          %User{idp_sub: linked_sub} when is_binary(linked_sub) ->
+            {:error, :email_in_use}
+
+          %User{} = existing ->
+            if claims[:email_verified] do
+              link_from_claims(existing, sub, issuer, claims)
+            else
+              {:error, :email_in_use}
+            end
+        end
+
+      _ ->
+        {:error, :missing_email}
+    end
+  end
+
+  defp insert_from_claims(sub, issuer, claims) do
+    %User{}
+    |> User.oidc_changeset(%{
+      email: claims[:email],
+      name: display_name(claims),
+      idp_issuer: issuer,
+      idp_sub: sub,
+      idp_username: claims[:username]
+    })
+    |> Ecto.Changeset.put_change(:confirmed_at, DateTime.utc_now(:second))
+    |> Repo.insert()
+  end
+
+  defp link_from_claims(%User{} = user, sub, issuer, claims) do
+    user
+    |> User.oidc_changeset(%{
+      idp_issuer: issuer,
+      idp_sub: sub,
+      idp_username: claims[:username],
+      name: user.name || display_name(claims)
+    })
+    |> Repo.update()
+  end
+
+  # Refresh the attributes Keycloak owns. A cosmetic sync must never block a
+  # login, so failures are logged and the current row is kept (e.g. if the new
+  # e-mail collides with another account, the user is still allowed in).
+  defp sync_claims(%User{} = user, claims) do
+    attrs = %{
+      idp_username: claims[:username] || user.idp_username,
+      name: claims[:name] || user.name
+    }
+
+    attrs =
+      case claims[:email] do
+        email when is_binary(email) -> Map.put(attrs, :email, email)
+        _ -> attrs
+      end
+
+    case user |> User.oidc_changeset(attrs) |> Repo.update() do
+      {:ok, user} ->
+        user
+
+      {:error, changeset} ->
+        Logger.warning(
+          "Could not sync OIDC attributes for user #{user.id}: #{inspect(changeset.errors)}"
+        )
+
+        user
+    end
+  end
+
+  defp display_name(claims) do
+    claims[:name] || claims[:username] || local_part(claims[:email])
+  end
+
+  defp local_part(email) when is_binary(email), do: email |> String.split("@") |> hd()
+  defp local_part(_), do: nil
+
+  defp require_claim(claims, key) do
+    case Map.get(claims, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:error, :"missing_#{key}"}
+    end
+  end
 
   ## User registration
 

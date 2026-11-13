@@ -33,6 +33,12 @@ defmodule MouseTrackerWeb.ConnCase do
 
   setup tags do
     MouseTracker.DataCase.setup_sandbox(tags)
+
+    # Default for every controller test: the realm does not advertise an
+    # `end_session_endpoint`, so logging out only clears the local session.
+    # Tests that exercise the federated logout override this with `expect/3`.
+    Mox.stub(MouseTracker.Auth.OIDCProviderMock, :logout_url, fn -> :not_supported end)
+
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end
 
