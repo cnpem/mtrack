@@ -1,0 +1,76 @@
+{
+  "realm": "mtrack",
+  "enabled": true,
+  "displayName": "MTrack (dev)",
+  "displayNameHtml": "<strong>MTrack</strong> dev",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 3600,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 36000,
+  "clients": [
+    {
+      "clientId": "mtrack-web",
+      "name": "MTrack web (Phoenix)",
+      "description": "Confidential client for the Phoenix authorization-code flow. Dev realm only.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "mtrack-dev-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:4000/users/auth/keycloak/callback",
+        "http://127.0.0.1:4000/users/auth/keycloak/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:4000/users/log-in##http://127.0.0.1:4000/users/log-in",
+        "oauth2.device.authorization.grant.enabled": "false"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "pesquisador",
+      "enabled": true,
+      "email": "pesquisador@example.org",
+      "emailVerified": true,
+      "firstName": "Pesquisador",
+      "lastName": "Teste",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "mtrack-dev-123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "pesquisador2",
+      "enabled": true,
+      "email": "pesquisador2@example.org",
+      "emailVerified": true,
+      "firstName": "Segundo",
+      "lastName": "Pesquisador",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "mtrack-dev-123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

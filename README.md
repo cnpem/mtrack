@@ -57,9 +57,12 @@ uv sync
 mix phx.server
 ```
 
-Open <http://localhost:4000>. Register an account (in dev, magic-link emails show
-up in the Swoosh mailbox at <http://localhost:4000/dev/mailbox>), or load the demo
-data — see [`docs/setup.md`](docs/setup.md) for details, seeds and common tasks.
+Open <http://localhost:4000> and sign in. MTrack has no local login: authentication
+goes through Keycloak (OpenID Connect). For development, start the bundled Keycloak
+with `podman compose -f docker-compose.keycloak.yml up -d` and export
+`KEYCLOAK_ISSUER` / `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` — see
+[`docs/keycloak.md`](docs/keycloak.md). Seeds and common tasks are in
+[`docs/setup.md`](docs/setup.md).
 
 ## Documentation
 

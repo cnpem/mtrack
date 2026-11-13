@@ -5,105 +5,78 @@ defmodule MouseTrackerWeb.UserLive.LoginTest do
   import MouseTracker.AccountsFixtures
 
   describe "login page" do
-    test "renders login page", %{conn: conn} do
+    test "offers Keycloak as the way in", %{conn: conn} do
       {:ok, _lv, html} = live(conn, ~p"/users/log-in")
 
       assert html =~ "Log in"
-      assert html =~ "Sign up"
-      assert html =~ "Log in with email"
-    end
-  end
-
-  describe "user login - magic link" do
-    test "sends magic link email when user exists", %{conn: conn} do
-      user = user_fixture()
-
-      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
-
-      {:ok, _lv, html} =
-        form(lv, "#login_form_magic", user: %{email: user.email})
-        |> render_submit()
-        |> follow_redirect(conn, ~p"/users/log-in")
-
-      assert html =~ "If your email is in our system"
-
-      assert MouseTracker.Repo.get_by!(MouseTracker.Accounts.UserToken, user_id: user.id).context ==
-               "login"
+      assert html =~ "Continue with Keycloak"
+      assert html =~ ~s(href="/users/auth/keycloak")
     end
 
-    test "does not disclose if user is registered", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
+    test "no longer offers local registration or any credentials form", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/users/log-in")
 
-      {:ok, _lv, html} =
-        form(lv, "#login_form_magic", user: %{email: "idonotexist@example.com"})
-        |> render_submit()
-        |> follow_redirect(conn, ~p"/users/log-in")
-
-      assert html =~ "If your email is in our system"
-    end
-  end
-
-  describe "user login - password" do
-    test "redirects if user logs in with valid credentials", %{conn: conn} do
-      user = user_fixture() |> set_password()
-
-      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
-
-      form =
-        form(lv, "#login_form_password",
-          user: %{email: user.email, password: valid_user_password(), remember_me: true}
-        )
-
-      conn = submit_form(form, conn)
-
-      assert redirected_to(conn) == ~p"/experiments"
+      # These are the surfaces the Keycloak migration removed: the app must not
+      # collect (or accept) credentials itself anymore.
+      refute html =~ "Sign up"
+      refute html =~ "Log in with email"
+      refute html =~ "login_form_magic"
+      refute html =~ "login_form_password"
+      refute html =~ "Remember me"
     end
 
-    test "redirects to login page with a flash error if credentials are invalid", %{
-      conn: conn
-    } do
-      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
+    test "does not render the dev shortcut when dev_routes is off", %{conn: conn} do
+      {:ok, _lv, html} = live(conn, ~p"/users/log-in")
 
-      form =
-        form(lv, "#login_form_password", user: %{email: "test@email.com", password: "123456"})
-
-      render_submit(form, %{user: %{remember_me: true}})
-
-      conn = follow_trigger_action(form, conn)
-      assert Phoenix.Flash.get(conn.assigns.flash, :error) == "Invalid email or password"
-      assert redirected_to(conn) == ~p"/users/log-in"
-    end
-  end
-
-  describe "login navigation" do
-    test "redirects to registration page when the Register button is clicked", %{conn: conn} do
-      {:ok, lv, _html} = live(conn, ~p"/users/log-in")
-
-      {:ok, _login_live, login_html} =
-        lv
-        |> element("main a", "Sign up")
-        |> render_click()
-        |> follow_redirect(conn, ~p"/users/register")
-
-      assert login_html =~ "Register"
-    end
-  end
-
-  describe "re-authentication (sudo mode)" do
-    setup %{conn: conn} do
-      user = user_fixture()
-      %{user: user, conn: log_in_user(conn, user)}
+      refute html =~ "demo@locomo.dev"
     end
 
-    test "shows login page with email filled in", %{conn: conn, user: user} do
+    test "asks an already authenticated user to reauthenticate", %{conn: conn} do
+      conn = log_in_user(conn, user_fixture())
+
       {:ok, _lv, html} = live(conn, ~p"/users/log-in")
 
       assert html =~ "You need to reauthenticate"
-      refute html =~ "Register"
-      assert html =~ "Log in with email"
-
-      assert html =~
-               ~s(<input type="email" name="user[email]" id="login_form_magic_email" value="#{user.email}")
+      assert html =~ "Continue with Keycloak"
     end
+  end
+end
+
+defmodule MouseTrackerWeb.UserLive.LoginUnconfiguredTest do
+  @moduledoc """
+  A deployment that forgot to set the Keycloak environment variables must fail
+  loudly on the login screen — not boot with a hard-coded realm, and not send
+  the user to a half-built authorization URL.
+
+  `async: false` because it mutates global application config.
+  """
+
+  use MouseTrackerWeb.ConnCase, async: false
+
+  import Phoenix.LiveViewTest
+
+  setup do
+    previous = Application.get_env(:mouse_tracker, :oidc)
+
+    on_exit(fn -> Application.put_env(:mouse_tracker, :oidc, previous) end)
+
+    Application.put_env(:mouse_tracker, :oidc,
+      issuer: nil,
+      client_id: nil,
+      client_secret: nil,
+      scopes: "openid profile email"
+    )
+
+    :ok
+  end
+
+  test "explains which variables are missing instead of offering a broken button", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/users/log-in")
+
+    refute html =~ "Continue with Keycloak"
+    assert html =~ "not configured"
+    assert html =~ "KEYCLOAK_ISSUER"
+    assert html =~ "KEYCLOAK_CLIENT_ID"
+    assert html =~ "KEYCLOAK_CLIENT_SECRET"
   end
 end

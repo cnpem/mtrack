@@ -47,7 +47,9 @@ If the Python subprocess fails, the worker sets status `"error"`, broadcasts
 
 | Module | Responsibility |
 |--------|----------------|
-| `MouseTracker.Accounts` | User registration, login, magic-link auth, password/profile |
+| `MouseTracker.Accounts` | Users: session tokens, profile, and JIT provisioning/linking from verified OIDC claims |
+| `MouseTracker.Auth` | Login flow facade; selects the `OIDCProvider` implementation (real vs. Mox mock) |
+| `MouseTracker.Auth.OIDC` | Keycloak client: authorization URL, code exchange, claims, logout URL |
 | `MouseTracker.Experiments` | Root context: Experiment/Video CRUD, wizard orchestration (`create_experiment_with_videos/2`), `enqueue_video_processing/1`, `TrackingResult` |
 | `MouseTracker.Experiments.Calibrations` | Calibration CRUD + ownership + usage counts |
 | `MouseTracker.Experiments.Rois` | ROI CRUD, video attach/detach, `roi_locked?/1`, `duplicate_roi/2`, `RoiTime` |
@@ -91,8 +93,9 @@ live session; auth screens in the `:current_user` session.
 | `/datasets` | `DatasetLive.Index` |
 | `/analyses` | `AnalysesLive.Index` |
 | `/pipeline-settings` | `PipelineSettingsLive.Index` |
-| `/users/register`, `/users/log-in`, `/users/settings` | `UserLive.*` |
-| `/users/log-in`, `/users/log-out`, `/users/update-password` | `UserSessionController` |
+| `/users/log-in`, `/users/settings` | `UserLive.*` |
+| `/users/auth/keycloak{,/callback}` | `OIDCController` (Keycloak redirect + callback) |
+| `/users/log-out` | `UserSessionController` (local + federated logout) |
 
 ### Shared web helpers
 

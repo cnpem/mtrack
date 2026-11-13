@@ -42,6 +42,10 @@ defmodule MouseTrackerWeb.Router do
 
       live_dashboard "/dashboard", metrics: MouseTrackerWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
+
+      # Sign in as a local user without Keycloak, for UI work on a machine that
+      # cannot reach the realm. Never mounted when `:dev_routes` is off.
+      get "/login", MouseTrackerWeb.DevLoginController, :create
     end
   end
 
@@ -53,7 +57,6 @@ defmodule MouseTrackerWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{MouseTrackerWeb.UserAuth, :require_authenticated}] do
       live "/users/settings", UserLive.Settings, :edit
-      live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
 
       # Locomo main flow. Static segments (`/new`) must be declared before the
       # `/:id` catch-all so they are not captured as an experiment id.
@@ -71,8 +74,6 @@ defmodule MouseTrackerWeb.Router do
       live "/pipeline-settings", PipelineSettingsLive.Index, :index
     end
 
-    post "/users/update-password", UserSessionController, :update_password
-
     # Data export is a plain HTTP download (LiveView can't stream a file to the
     # browser), so it lives outside the live_session above.
     get "/experiments/:id/export", ExportController, :experiment
@@ -83,12 +84,15 @@ defmodule MouseTrackerWeb.Router do
 
     live_session :current_user,
       on_mount: [{MouseTrackerWeb.UserAuth, :mount_current_scope}] do
-      live "/users/register", UserLive.Registration, :new
       live "/users/log-in", UserLive.Login, :new
-      live "/users/log-in/:token", UserLive.Confirmation, :new
     end
 
-    post "/users/log-in", UserSessionController, :create
+    # Keycloak (OpenID Connect). These are plain controller routes, not
+    # LiveViews: the authorization-code flow is a chain of full-page redirects,
+    # so there is nothing to keep mounted.
+    get "/users/auth/keycloak", OIDCController, :request
+    get "/users/auth/keycloak/callback", OIDCController, :callback
+
     delete "/users/log-out", UserSessionController, :delete
   end
 end

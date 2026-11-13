@@ -32,6 +32,18 @@ services:
       PORT: "${PORT:-4000}"
       PHX_SERVER: "true"
       OBAN_VIDEO_PROCESSING_CONCURRENCY: "${OBAN_VIDEO_PROCESSING_CONCURRENCY:-4}"
+      # Keycloak / OpenID Connect — the only way users get in. Without these the
+      # app still boots, but the login screen reports the missing variables.
+      KEYCLOAK_ISSUER: "${KEYCLOAK_ISSUER:?set KEYCLOAK_ISSUER, e.g. https://auth.example.org/realms/mtrack}"
+      KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:-mtrack-web}"
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET from the Keycloak client}"
+      # Only change if the client uses client_secret_post/client_secret_jwt.
+      KEYCLOAK_CLIENT_AUTH_METHOD: "${KEYCLOAK_CLIENT_AUTH_METHOD:-client_secret_basic}"
+      # Optional: only when the public URL differs from PHX_HOST's endpoint URL.
+      KEYCLOAK_REDIRECT_URI: "${KEYCLOAK_REDIRECT_URI:-}"
+      KEYCLOAK_POST_LOGOUT_REDIRECT_URI: "${KEYCLOAK_POST_LOGOUT_REDIRECT_URI:-}"
+      # No longer used by the login flow (magic link is gone); kept because the
+      # mailer config in config/runtime.exs still requires SMTP_HOST.
       SMTP_HOST: "${SMTP_HOST:?set SMTP_HOST, registration and magic-link emails need a working mailer}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USERNAME: "${SMTP_USERNAME}"

@@ -23,6 +23,25 @@ end
 config :mouse_tracker, MouseTrackerWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Keycloak / OpenID Connect, read at runtime so the same release points at the
+# dev, staging or production realm without a rebuild. Blank values fall back to
+# config/config.exs (nil), which the login screen reports as "not configured".
+if config_env() != :test do
+  oidc = Application.get_env(:mouse_tracker, :oidc, [])
+
+  config :mouse_tracker, :oidc,
+    issuer: System.get_env("KEYCLOAK_ISSUER") || oidc[:issuer],
+    client_id: System.get_env("KEYCLOAK_CLIENT_ID") || oidc[:client_id],
+    client_secret: System.get_env("KEYCLOAK_CLIENT_SECRET") || oidc[:client_secret],
+    redirect_uri: System.get_env("KEYCLOAK_REDIRECT_URI") || oidc[:redirect_uri],
+    post_logout_redirect_uri:
+      System.get_env("KEYCLOAK_POST_LOGOUT_REDIRECT_URI") || oidc[:post_logout_redirect_uri],
+    scopes: System.get_env("KEYCLOAK_SCOPES") || oidc[:scopes],
+    client_auth_method:
+      System.get_env("KEYCLOAK_CLIENT_AUTH_METHOD") || oidc[:client_auth_method],
+    provider_name: oidc[:provider_name]
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

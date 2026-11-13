@@ -1,14 +1,25 @@
 defmodule MouseTrackerWeb.UserLive.Login do
+  @moduledoc """
+  The single entry point into the app.
+
+  There is no form here: credentials are collected by Keycloak, and the whole
+  flow is a plain browser redirect to `/users/auth/keycloak`. This screen exists
+  to explain that, to fail loudly when the deployment is misconfigured (instead
+  of bouncing the user to a broken authorization URL), and to host the
+  dev-only shortcut used when the realm is unreachable from a dev machine.
+  """
+
   use MouseTrackerWeb, :live_view
 
-  alias MouseTracker.Accounts
+  alias MouseTracker.Auth
+  alias MouseTracker.Auth.Config
 
-  @input_class "w-full rounded-[8px] border border-[#e7e9ee] bg-white px-3 py-2.5 text-[14px] text-[#0f1729] placeholder:text-[#98a2b3] focus:border-[#CC5500] focus:outline-none"
+  # `dev_routes` is compile-time config (it decides whether the router mounts
+  # the dev-only shortcut), so it must be read in the module body.
+  @dev_routes_enabled Application.compile_env(:mouse_tracker, :dev_routes, false)
 
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :input_class, @input_class)
-
     ~H"""
     <Layouts.auth flash={@flash} current_scope={@current_scope}>
       <div class="text-center">
@@ -17,131 +28,63 @@ defmodule MouseTrackerWeb.UserLive.Login do
           <%= if @current_scope do %>
             You need to reauthenticate to perform sensitive actions on your account.
           <% else %>
-            Don't have an account? <.link
-              navigate={~p"/users/register"}
-              class="font-semibold text-[#CC5500] hover:underline"
-              phx-no-format
-            >Sign up</.link> for an account now.
+            MTrack uses your institution's Keycloak account — there is no separate MTrack
+            password.
           <% end %>
         </p>
       </div>
 
-      <div
-        :if={local_mail_adapter?()}
-        class="mt-6 flex items-start gap-2.5 rounded-[8px] border border-[#e7e9ee] bg-[#f3f4f6] p-3 text-sm text-[#344054]"
+      <a
+        :if={@configured}
+        href="/users/auth/keycloak"
+        class="mt-6 flex w-full items-center justify-center gap-2 rounded-[8px] bg-[#CC5500] px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-[#b34a00]"
       >
-        <.icon name="hero-information-circle" class="size-5 shrink-0 text-[#8a93a3]" />
-        <div>
-          <p>You are running the local mail adapter.</p>
+        Continue with Keycloak <span aria-hidden="true">→</span>
+      </a>
 
-          <p>
-            To see sent emails, visit <.link href="/dev/mailbox" class="underline">the mailbox page</.link>.
-          </p>
+      <div
+        :if={!@configured}
+        class="mt-6 flex items-start gap-2.5 rounded-[8px] border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+      >
+        <.icon name="hero-exclamation-triangle" class="size-5 shrink-0" />
+        <div>
+          <p class="font-semibold">Keycloak is not configured on this server.</p>
+          <p class="mt-1">Set the following environment variables and restart MTrack:</p>
+          <ul class="mt-2 space-y-0.5 font-mono text-[12px]">
+            <li :for={var <- @missing_env_vars}>{var}</li>
+          </ul>
         </div>
       </div>
 
-      <.form
-        :let={f}
-        for={@form}
-        id="login_form_magic"
-        action={~p"/users/log-in"}
-        phx-submit="submit_magic"
-        class="mt-6 space-y-4"
-      >
-        <.input
-          readonly={!!@current_scope}
-          field={f[:email]}
-          type="email"
-          label="Email"
-          autocomplete="username"
-          spellcheck="false"
-          required
-          phx-mounted={JS.focus()}
-          class={@input_class}
-        />
-        <.button class="w-full">
-          Log in with email <span aria-hidden="true">→</span>
-        </.button>
-      </.form>
-
-      <div class="my-6 flex items-center gap-3 text-[11px] font-medium uppercase tracking-wide text-[#98a2b3]">
-        <span class="h-px flex-1 bg-[#e7e9ee]"></span>
-        or <span class="h-px flex-1 bg-[#e7e9ee]"></span>
+      <div :if={@dev_login} class="mt-6 rounded-[8px] border border-dashed border-[#e7e9ee] p-3">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-[#98a2b3]">
+          Development only
+        </p>
+        <p class="mt-1.5 text-sm text-[#667085]">
+          Skip Keycloak by signing in as a local user (the route only exists when
+          <code class="font-mono text-[12px]">:dev_routes</code>
+          is on):
+        </p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <a
+            href="/dev/login?email=demo@locomo.dev"
+            class="rounded-[8px] border border-[#e7e9ee] px-3 py-1.5 text-sm font-medium text-[#344054] hover:bg-[#f3f4f6]"
+          >
+            demo@locomo.dev
+          </a>
+        </div>
       </div>
-
-      <.form
-        :let={f}
-        for={@form}
-        id="login_form_password"
-        action={~p"/users/log-in"}
-        phx-submit="submit_password"
-        phx-trigger-action={@trigger_submit}
-        class="space-y-4"
-      >
-        <.input
-          readonly={!!@current_scope}
-          field={f[:email]}
-          type="email"
-          label="Email"
-          autocomplete="username"
-          spellcheck="false"
-          required
-          class={@input_class}
-        />
-        <.input
-          field={@form[:password]}
-          type="password"
-          label="Password"
-          autocomplete="current-password"
-          spellcheck="false"
-          class={@input_class}
-        />
-        <.button class="w-full" name={@form[:remember_me].name} value="true">
-          Log in and stay logged in <span aria-hidden="true">→</span>
-        </.button>
-
-        <.button variant="secondary_accent" class="mt-2 w-full">
-          Log in only this time
-        </.button>
-      </.form>
     </Layouts.auth>
     """
   end
 
   @impl true
   def mount(_params, _session, socket) do
-    email =
-      Phoenix.Flash.get(socket.assigns.flash, :email) ||
-        get_in(socket.assigns, [:current_scope, Access.key(:user), Access.key(:email)])
-
-    form = to_form(%{"email" => email}, as: "user")
-
-    {:ok, assign(socket, form: form, trigger_submit: false)}
-  end
-
-  @impl true
-  def handle_event("submit_password", _params, socket) do
-    {:noreply, assign(socket, :trigger_submit, true)}
-  end
-
-  def handle_event("submit_magic", %{"user" => %{"email" => email}}, socket) do
-    if user = Accounts.get_user_by_email(email) do
-      Accounts.deliver_login_instructions(
-        user,
-        &url(~p"/users/log-in/#{&1}")
-      )
-    end
-
-    info =
-      "If your email is in our system, you will receive instructions for logging in shortly."
-
-    {:noreply,
-     socket
-     |> put_flash(:info, info)
-     |> push_navigate(to: ~p"/users/log-in")}
-  end
-
-  defp local_mail_adapter? do
-    Application.get_env(:mouse_tracker, MouseTracker.Mailer)[:adapter] == Swoosh.Adapters.Local
+    {:ok,
+     assign(socket,
+       configured: Auth.configured?(),
+       missing_env_vars: Enum.map(Config.missing_settings(), &Config.env_var_for/1),
+       dev_login: @dev_routes_enabled
+     )}
   end
 end
